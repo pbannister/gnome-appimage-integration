@@ -1,0 +1,14 @@
+# Aider configuration specific to this project.
+#
+# Inject your rule/prompt instruction files as read-only context on launch.
+# The order mirrors prompts/02-workflow.md section 1 (Load Project Rules).
+read:
+  - prompts/01-contract.md
+  - prompts/02-workflow.md
+  - prompts/03-conventions.md
+  - prompts/common/00-overview.md
+  - prompts/common/01-requirements.md
+  - prompts/common/02-universal-rules.md
+  - prompts/common/03-glossary.md
+  - prompts/flavors/01-semantic-sort-naming.md
+  - tools/aider-rules.md

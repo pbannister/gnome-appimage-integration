@@ -1,0 +1,49 @@
+# Ignore generated output directories
+dataflow.out/
+logs/
+site.out/
+out/
+
+# Ignore version-control metadata
+.git/
+.gitignore
+
+# Ignore temporary editor files
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+
+# Ignore OS-specific noise
+.DS_Store
+Thumbs.db
+
+# Ignore build artifacts
+*.o
+*.obj
+*.class
+*.pyc
+__pycache__/
+
+# Ignore dependency directories
+node_modules/
+venv/
+.env/
+
+# Ignore large binary assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+*.zip
+*.tar
+*.gz
+
+# Ignore Aider internal files
+.aiderignore
+
+# Ignore anything outside the project skeleton
+../*

@@ -1,0 +1,11 @@
+
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.*
+dataflow.out/*
+logs/*
+site.out/*
+
+!dataflow.out/.gitkeep
+!logs/.gitkeep
+!site.out/.gitkeep

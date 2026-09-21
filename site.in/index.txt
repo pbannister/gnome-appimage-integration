@@ -1,0 +1,23 @@
+<h1>Project status</h1>
+
+<p>
+Aim of this project is to provide a common project skeleton.
+Should capture best practice in working with an LLM (asked of an LLM).
+Also capture practice from personal experience.
+With each project derived from this skeleton, aim to incorporate lessons learned.
+</p>
+<p>
+The skeleton is aimed at projects as part of a larger <b>homelab</b> project.
+There is a website associated with the homelab.
+Projects pages are published to the common homelab website.
+</p>
+<p>
+There are still some rough spots.
+Have not <i>entirely</i> sorted records, episodes, phases, or tasks - but seems a good start.
+</p>
+<p>
+The set of prompts inform and constrain the LLM well enough to produce result that I find acceptable.
+</p>
+
+<h2>Status</h2>
+

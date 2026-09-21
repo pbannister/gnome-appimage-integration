@@ -1,0 +1,10 @@
+<h1>Dashboard</h1>
+
+<p>
+Live state from the owning host, captured by a project-provided
+<code>scripts/site-state-fetch.sh</code> (see the homelab project pages
+conventions: standard page set). This skeleton ships a placeholder; a real
+project replaces this page with live values.
+</p>
+
+<p>Live state: not configured.</p>
