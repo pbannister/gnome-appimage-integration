@@ -175,6 +175,8 @@ The AppImage reader in this project parses the container natively and does not d
 - Read the section header string table to expose `.upd_info` and `.sha256_sig`.
 - Parse the SquashFS superblock at the payload offset and report its compression and table layout.
 - Traverse the SquashFS payload enough to list the root directory and read the embedded `*.desktop` file and `.DirIcon`.
+- Read uncompressed, gzip, xz, and zstd metadata and data blocks, including files stored in fragments.
+- Report lzma, lzo, and lz4 blocks as unsupported, because this build does not link those decoders.
 
 File name conventions are recommendations, not requirements; the reader must not depend on the `.AppImage` extension.
 

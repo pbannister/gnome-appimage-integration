@@ -16,6 +16,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+include_directories("${CMAKE_BINARY_DIR}/generated")
 
 find_package(ZLIB REQUIRED)
 find_package(LibLZMA)
@@ -24,6 +25,9 @@ find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
 endif()
+
+add_library(version_info STATIC version/version_info.cpp)
+target_include_directories(version_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_library(desktop_entry STATIC
     desktop/desktop_entry_reader.cpp
@@ -46,6 +50,12 @@ if(TARGET PkgConfig::ZSTD)
     target_link_libraries(appimage_reader PUBLIC PkgConfig::ZSTD)
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZSTD=1)
 endif()
+
+add_executable(appimage-inspect tools/appimage_inspect.cpp)
+target_link_libraries(appimage-inspect PRIVATE appimage_reader desktop_entry version_info)
+
+add_executable(desktop-inspect tools/desktop_inspect.cpp)
+target_link_libraries(desktop-inspect PRIVATE desktop_entry version_info)
 
 add_executable(desktop-entry-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/desktop_entry_reader_test.cpp")
 target_link_libraries(desktop-entry-reader-test PRIVATE desktop_entry)

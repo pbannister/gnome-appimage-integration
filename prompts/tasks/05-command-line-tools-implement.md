@@ -22,7 +22,11 @@
 ## TASK-FILES
 - `sources/tools/appimage_inspect.cpp` — new
 - `sources/tools/desktop_inspect.cpp` — new
+- `sources/tools/desktop_entry_output.h` — new
+- `sources/version/version.h` — new
+- `sources/version/version_info.cpp` — new
 - `sources/CMakeLists.txt` — new
 - `scripts/program-build.sh` — new
+- `scripts/version-generate.sh` — new
 - `tests/60-command-line-tools.sh` — new
 - `Makefile` — existing

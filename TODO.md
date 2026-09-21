@@ -12,8 +12,8 @@
 
 ## Pending
 
-* [ ] implement the command-line tools (`sources/tools/`).
-* [ ] wire `make build` to the C++ build.
+* [ ] use the readers to integrate an AppImage into the GNOME application menu (phase 2).
+* [ ] decide the open questions above before starting phase 2.
 
 ## Recently Completed
 
@@ -26,5 +26,8 @@
 * [x] implement the desktop entry locator (`sources/desktop/desktop_entry_locator.*`) with portable unit tests.
 * [x] implement the AppImage container reader (`sources/appimage/appimage_reader.*`) with portable unit tests.
 * [x] implement the SquashFS payload reader (`sources/appimage/squashfs_reader.*`) with a tool-gated test over gzip, xz, zstd, and uncompressed images.
+* [x] implement the command-line tools `appimage-inspect` and `desktop-inspect` with an integration test.
+* [x] add the live-state test `tests/50-desktop-search-path-live.sh` for the documented search path.
+* [x] wire `make build` to `scripts/program-build.sh` and add build-time version generation.
 * [x] add the C++ build (`sources/CMakeLists.txt`, `scripts/program-build.sh`) and the test helper `tests/lib/test_helpers.sh`.
 

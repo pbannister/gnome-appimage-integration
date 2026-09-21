@@ -11,5 +11,6 @@ DIRECTORY_BUILD="$REPOSITORY_ROOT/dataflow.out/build"
 BUILD_TYPE=${BUILD_TYPE:-Release}
 
 mkdir -p "$DIRECTORY_BUILD"
+sh "$DIRECTORY_SCRIPT/version-generate.sh"
 cmake -S "$DIRECTORY_SOURCE" -B "$DIRECTORY_BUILD" -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
 cmake --build "$DIRECTORY_BUILD" --parallel
