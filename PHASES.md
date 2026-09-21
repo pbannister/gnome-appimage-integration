@@ -12,10 +12,10 @@ registry. The homelab reads it from the generated `site.out/phase.txt`
 shows it next to the activity status (active/planned/deferred/complete),
 which the human declares in the homelab registry.
 
-Current: phase 1 — not-started
+Current: phase 1 — format research and readers — started
 
-- Phase 1 — <goal of the first milestone> — not-started
-- Phase 2 — <goal of the next milestone> — not-started
+- Phase 1 — document the AppImage and desktop entry formats and implement both readers and the locator — started
+- Phase 2 — integrate an AppImage into the GNOME application menu using the readers — not-started
 
 States: `not-started` | `started` | `complete`. Keep this file in sync
 with the episodes that advance each phase and with `TODO.md`.
