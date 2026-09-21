@@ -12,9 +12,9 @@ registry. The homelab reads it from the generated `site.out/phase.txt`
 shows it next to the activity status (active/planned/deferred/complete),
 which the human declares in the homelab registry.
 
-Current: phase 1 — format research and readers — started
+Current: phase 1 — format research and readers — complete
 
-- Phase 1 — document the AppImage and desktop entry formats and implement both readers and the locator — started
+- Phase 1 — document the AppImage and desktop entry formats and implement both readers and the locator — complete
 - Phase 2 — integrate an AppImage into the GNOME application menu using the readers — not-started
 
 States: `not-started` | `started` | `complete`. Keep this file in sync
