@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Foo
+Name[sr_YU]=Foo YU
+Name[sr@Latn]=Foo Latn
+Name[sr]=Foo SR
+Name[fr]=Foo FR
+GenericName=Viewer
+Comment=Views Foo objects
+Exec=fooview %U
+Icon=fooview
+Terminal=false
+Categories=Graphics;Viewer;
+Keywords=foo;viewer;

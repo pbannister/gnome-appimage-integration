@@ -12,18 +12,19 @@
 
 ## Pending
 
-* [ ] document the GNOME and XDG desktop file search paths in `documents/09-desktop-file-search-paths.md`.
-* [ ] implement the desktop entry reader (`sources/desktop/desktop_entry_reader.*`).
-* [ ] implement the desktop entry locator (`sources/desktop/desktop_entry_locator.*`).
 * [ ] implement the AppImage container reader (`sources/appimage/appimage_reader.*`).
 * [ ] implement the SquashFS payload reader (`sources/appimage/squashfs_reader.*`).
 * [ ] implement the command-line tools (`sources/tools/`).
-* [ ] add the portable tests and the tool-gated and live-state tests under `tests/`.
-* [ ] wire `make build` and `make test` to the C++ build.
+* [ ] wire `make build` to the C++ build.
 
 ## Recently Completed
 
 * [x] create the project from `00-project-skeleton` and record the baseline commit.
 * [x] document the AppImage format in `documents/07-appimage-format.md`.
 * [x] document the desktop entry format in `documents/08-desktop-entry-format.md`.
+* [x] document the GNOME and XDG desktop file search paths in `documents/09-desktop-file-search-paths.md`.
 * [x] register the new documents in `documents/README.md`.
+* [x] implement the desktop entry reader (`sources/desktop/desktop_entry_reader.*`) with portable unit tests.
+* [x] implement the desktop entry locator (`sources/desktop/desktop_entry_locator.*`) with portable unit tests.
+* [x] add the C++ build (`sources/CMakeLists.txt`, `scripts/program-build.sh`) and the test helper `tests/lib/test_helpers.sh`.
+
