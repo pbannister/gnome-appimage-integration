@@ -12,8 +12,6 @@
 
 ## Pending
 
-* [ ] implement the AppImage container reader (`sources/appimage/appimage_reader.*`).
-* [ ] implement the SquashFS payload reader (`sources/appimage/squashfs_reader.*`).
 * [ ] implement the command-line tools (`sources/tools/`).
 * [ ] wire `make build` to the C++ build.
 
@@ -26,5 +24,7 @@
 * [x] register the new documents in `documents/README.md`.
 * [x] implement the desktop entry reader (`sources/desktop/desktop_entry_reader.*`) with portable unit tests.
 * [x] implement the desktop entry locator (`sources/desktop/desktop_entry_locator.*`) with portable unit tests.
+* [x] implement the AppImage container reader (`sources/appimage/appimage_reader.*`) with portable unit tests.
+* [x] implement the SquashFS payload reader (`sources/appimage/squashfs_reader.*`) with a tool-gated test over gzip, xz, zstd, and uncompressed images.
 * [x] add the C++ build (`sources/CMakeLists.txt`, `scripts/program-build.sh`) and the test helper `tests/lib/test_helpers.sh`.
 

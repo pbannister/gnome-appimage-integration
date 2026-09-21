@@ -30,8 +30,31 @@ add_library(desktop_entry STATIC
     desktop/desktop_entry_locator.cpp)
 target_include_directories(desktop_entry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
+add_library(appimage_reader STATIC
+    appimage/appimage_reader.cpp
+    appimage/squashfs_reader.cpp)
+target_include_directories(appimage_reader PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(appimage_reader PUBLIC ZLIB::ZLIB)
+target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZLIB=1)
+
+if(LibLZMA_FOUND)
+    target_link_libraries(appimage_reader PUBLIC LibLZMA::LibLZMA)
+    target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_LZMA=1)
+endif()
+
+if(TARGET PkgConfig::ZSTD)
+    target_link_libraries(appimage_reader PUBLIC PkgConfig::ZSTD)
+    target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZSTD=1)
+endif()
+
 add_executable(desktop-entry-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/desktop_entry_reader_test.cpp")
 target_link_libraries(desktop-entry-reader-test PRIVATE desktop_entry)
 
 add_executable(desktop-entry-locator-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/desktop_entry_locator_test.cpp")
 target_link_libraries(desktop-entry-locator-test PRIVATE desktop_entry)
+
+add_executable(appimage-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_reader_test.cpp")
+target_link_libraries(appimage-reader-test PRIVATE appimage_reader)
+
+add_executable(squashfs-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/squashfs_reader_test.cpp")
+target_link_libraries(squashfs-reader-test PRIVATE appimage_reader)
