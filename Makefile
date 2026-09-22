@@ -13,7 +13,7 @@
 #		        the homelab project (homelab-publish; see the homelab's
 #		        documents/09-project-pages-conventions.md). This target
 #		        only reminds you of that; use the homelab's make deploy.
-#		install: reserved; not yet defined.
+#		install: sh scripts/program-install.sh (prefix defaults to $HOME/.local)
 #
 
 build:
@@ -36,6 +36,6 @@ deploy:
 	@echo '==== to publish (see homelab documents/09-project-pages-conventions.md).'
 
 install:
-	@echo '==== No install yet defined'
+	sh scripts/program-install.sh
 
 .PHONY: build site clean test deploy install

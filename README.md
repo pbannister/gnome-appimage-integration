@@ -27,13 +27,17 @@ Human contributors should begin by reading:
 
 ## Project Scope
 
-The project reads two file formats and locates one of them on disk.
+The project reads two file formats, locates one of them on disk, and integrates AppImages into the desktop.
 
 1. Read an AppImage container: image type, ELF facts, payload offset and size, embedded update information and signature, and the SquashFS payload.
 2. Read a desktop entry file: groups, keys, values, localized values, lists, escapes, actions, and `Exec` field codes.
 3. Locate desktop entry files using the GNOME (GIO) search path built from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
+4. Resolve icon names through the freedesktop icon theme, and MIME defaults through `mimeapps.list` and `mimeinfo.cache`, so every loaded fact has a named source.
+5. Plan, install, and reverse the integration of one AppImage: managed location, launcher, hicolor icons, and a manifest.
+6. Handle a double-clicked `*.AppImage` and manage the registration of that handler.
 
-The project does not execute, mount, or modify an AppImage, and does not write desktop entries.
+The project does not modify an AppImage; it moves or copies it, and it never requires root.
+`appimage-integrate run` executes the AppImage only when the user asks for it.
 
 ## Research Findings
 
@@ -42,6 +46,9 @@ The format research that the readers implement is recorded in `documents/`.
 - `documents/07-appimage-format.md` — the AppImage specification, the payload offset algorithm, and the SquashFS superblock.
 - `documents/08-desktop-entry-format.md` — the Desktop Entry Specification version 1.5.
 - `documents/09-desktop-file-search-paths.md` — where GNOME looks for `*.desktop` files, with the observed host values.
+- `documents/10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
+- `documents/11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
+- `documents/12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
 
 ## Top-Level Map
 
@@ -66,17 +73,37 @@ The format research that the readers implement is recorded in `documents/`.
 ## Building and Testing
 
 - `make build` configures and compiles the readers and command-line tools into `dataflow.out/build/`.
+- `make install` installs `appimage-inspect`, `desktop-inspect`, and `appimage-integrate` into `$HOME/.local/bin` (`PREFIX` overrides).
 - `make test` runs every test in `tests/` and writes a timestamped log to `logs/`.
 - `make site` builds the published page set.
 - `make clean` removes generated output.
 
 The C++ build uses CMake with the highest warning level and treats warnings as errors.
 
+## Commands
+
+| Command | Purpose |
+| ------- | ------- |
+| `appimage-inspect <AppImage>` | container facts, payload listing, and the embedded desktop entry |
+| `appimage-integrate plan <AppImage>` | print exactly what integration would write; change nothing |
+| `appimage-integrate install <AppImage>` | integrate the AppImage, after confirmation |
+| `appimage-integrate uninstall --identifier ID` | reverse one integration |
+| `appimage-integrate list` | list AppImages integrated by this tool |
+| `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
+| `appimage-integrate audit` | report every integration inconsistency on this desktop |
+| `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler |
+| `desktop-inspect <file.desktop>` | print one desktop entry |
+| `desktop-inspect --explain ID` | show which file wins an identifier and what it masks |
+| `desktop-inspect --icon NAME [--theme T] [--why]` | show where an icon resolves from |
+| `desktop-inspect --mime TYPE [--why]` | show which application opens a type, and from where |
+
 ## Source Layout
 
 - `sources/appimage/` contains the AppImage container reader and the SquashFS payload reader.
-- `sources/desktop/` contains the desktop entry reader and the desktop entry locator.
+- `sources/desktop/` contains the desktop entry reader, the desktop entry locator, the icon theme locator, and the MIME association reader.
+- `sources/integration/` contains the plan, install, uninstall, and audit engine.
 - `sources/tools/` contains the command-line front ends.
+- `sources/version/` contains the build-time version reporting.
 - `sources/CMakeLists.txt` defines the targets; the build tree is written to `dataflow.out/build/`.
 
 ## Project Pages (publishing conventions)

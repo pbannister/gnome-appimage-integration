@@ -1,9 +1,12 @@
 // desktop-inspect: read desktop entry files and locate them on the XDG search path.
 #include "desktop/desktop_entry_locator.h"
 #include "desktop/desktop_entry_reader.h"
+#include "desktop/icon_theme_locator.h"
+#include "desktop/mime_association_reader.h"
 #include "tools/desktop_entry_output.h"
 #include "version/version.h"
 
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <ostream>
@@ -22,6 +25,11 @@ void print_usage(std::ostream &o_out) {
           << "  path               parse and print one desktop entry file\n"
           << "  --all              list entries on the application search path\n"
           << "  --locate <id>      resolve one desktop file identifier\n"
+          << "  --explain <id>     show which file wins an identifier, and what it masks\n"
+          << "  --icon <name>      show every file an icon name resolves to\n"
+          << "  --theme <name>     resolve the icon in this theme first\n"
+          << "  --mime <type>      show which application opens a MIME type, and from where\n"
+          << "  --why              also print the directories and files that were searched\n"
           << "  --path             print the application search path\n"
           << "  --autostart-path   print the autostart search path\n"
           << "  --locale <locale>  select localized values, for example sr_YU\n"
@@ -126,6 +134,98 @@ int locate_entry(const std::string &s_id, bool b_json) {
     return EXIT_OK;
 }
 
+int show_icon(const std::string &s_name, const std::string &s_theme, bool b_why) {
+    using gnome_appimage::desktop::icon_candidate_o;
+    using gnome_appimage::desktop::icon_lookup_o;
+    using gnome_appimage::desktop::icon_theme_locator_c;
+
+    const icon_theme_locator_c o_locator;
+    const icon_lookup_o o_result = o_locator.lookup(s_name, s_theme);
+    if (!o_result.found) {
+        std::cerr << "error: no icon named " << s_name << " was found\n";
+    } else {
+        std::cout << "icon: " << s_name << '\n'
+                  << "best: " << o_result.best_path << '\n'
+                  << "candidates:\n";
+        for (const icon_candidate_o &o_candidate : o_result.candidates) {
+            std::cout << "  " << (o_candidate.theme.empty() ? "-" : o_candidate.theme) << " "
+                      << (o_candidate.size.empty() ? "-" : o_candidate.size) << " "
+                      << o_candidate.path << '\n';
+        }
+    }
+    if (b_why) {
+        std::cout << "themes searched:\n";
+        for (const std::string &s_theme : o_result.searched_themes) {
+            std::cout << "  " << s_theme << '\n';
+        }
+        std::cout << "directories searched:\n";
+        for (const std::string &s_directory : o_result.searched_directories) {
+            std::cout << "  " << s_directory << '\n';
+        }
+    }
+    return o_result.found ? EXIT_OK : EXIT_ERROR;
+}
+
+int show_mime(const std::string &s_type, bool b_why) {
+    using gnome_appimage::desktop::mime_association_o;
+    using gnome_appimage::desktop::mime_association_reader_c;
+    using gnome_appimage::desktop::mime_lookup_o;
+
+    const mime_association_reader_c o_reader;
+    const mime_lookup_o o_result = o_reader.lookup(s_type);
+    std::cout << "mime: " << s_type << '\n';
+    if (o_result.found) {
+        std::cout << "default: " << o_result.default_application.desktop_id << '\n'
+                  << "path: " << o_result.default_application.desktop_path << '\n'
+                  << "source: " << o_result.default_application.source_file << '\n'
+                  << "group: " << o_result.default_application.group << '\n';
+    } else {
+        std::cout << "default: (none)\n";
+    }
+    if (!o_result.associations.empty()) {
+        std::cout << "associations:\n";
+        for (const mime_association_o &o_association : o_result.associations) {
+            std::cout << "  " << o_association.desktop_id << "  " << o_association.source_file
+                      << '\n';
+        }
+    }
+    if (b_why) {
+        std::cout << "files searched:\n";
+        for (const std::string &s_file : o_result.searched_files) {
+            std::cout << "  " << s_file << '\n';
+        }
+    }
+    return o_result.found ? EXIT_OK : EXIT_ERROR;
+}
+
+int explain_identifier(const std::string &s_id) {
+    using gnome_appimage::desktop::desktop_entry_candidate_o;
+    using gnome_appimage::desktop::desktop_entry_locator_c;
+
+    const desktop_entry_locator_c o_locator;
+    const std::optional<desktop_entry_candidate_o> o_winner = o_locator.locate(s_id);
+    if (!o_winner.has_value()) {
+        std::cerr << "error: no desktop entry has the identifier " << s_id << '\n';
+        return EXIT_ERROR;
+    }
+    std::cout << "identifier: " << s_id << '\n'
+              << "winner: " << o_winner->path << '\n'
+              << "priority: " << o_winner->priority << '\n'
+              << "data-directory: " << o_winner->data_directory << '\n'
+              << "relative-path: " << o_winner->relative_path << '\n';
+    std::cout << "masked copies with the same identifier:\n";
+    for (const std::string &s_directory : o_locator.application_directories()) {
+        const std::filesystem::path o_candidate =
+            std::filesystem::path(s_directory) / o_winner->relative_path;
+        std::error_code o_error;
+        if (std::filesystem::exists(o_candidate, o_error)
+            && o_candidate.string() != o_winner->path) {
+            std::cout << "  " << o_candidate.string() << '\n';
+        }
+    }
+    return inspect_path(o_winner->path, std::string(), false);
+}
+
 void print_directories(const std::vector<std::string> &o_directories) {
     for (const std::string &s_directory : o_directories) {
         std::cout << s_directory << '\n';
@@ -137,11 +237,16 @@ void print_directories(const std::vector<std::string> &o_directories) {
 int main(int i_argument_count, char **p_arguments) {
     std::string s_path;
     std::string s_locate;
+    std::string s_explain;
+    std::string s_icon;
+    std::string s_mime;
     std::string s_locale;
+    std::string s_theme;
     bool b_all = false;
     bool b_path = false;
     bool b_autostart_path = false;
     bool b_json = false;
+    bool b_why = false;
 
     for (int i_index = 1; i_index < i_argument_count; i_index++) {
         const std::string s_argument = p_arguments[i_index];
@@ -172,6 +277,32 @@ int main(int i_argument_count, char **p_arguments) {
                 return EXIT_USAGE;
             }
             s_locate = p_arguments[++i_index];
+        } else if ("--explain" == s_argument) {
+            if (i_argument_count <= i_index + 1) {
+                std::cerr << "error: --explain needs a value\n";
+                return EXIT_USAGE;
+            }
+            s_explain = p_arguments[++i_index];
+        } else if ("--icon" == s_argument) {
+            if (i_argument_count <= i_index + 1) {
+                std::cerr << "error: --icon needs a value\n";
+                return EXIT_USAGE;
+            }
+            s_icon = p_arguments[++i_index];
+        } else if ("--mime" == s_argument) {
+            if (i_argument_count <= i_index + 1) {
+                std::cerr << "error: --mime needs a value\n";
+                return EXIT_USAGE;
+            }
+            s_mime = p_arguments[++i_index];
+        } else if ("--why" == s_argument) {
+            b_why = true;
+        } else if ("--theme" == s_argument) {
+            if (i_argument_count <= i_index + 1) {
+                std::cerr << "error: --theme needs a value\n";
+                return EXIT_USAGE;
+            }
+            s_theme = p_arguments[++i_index];
         } else if (!s_argument.empty() && '-' == s_argument[0]) {
             std::cerr << "error: unknown option: " << s_argument << '\n';
             return EXIT_USAGE;
@@ -183,6 +314,15 @@ int main(int i_argument_count, char **p_arguments) {
         }
     }
 
+    if (!s_icon.empty()) {
+        return show_icon(s_icon, s_theme, b_why);
+    }
+    if (!s_mime.empty()) {
+        return show_mime(s_mime, b_why);
+    }
+    if (!s_explain.empty()) {
+        return explain_identifier(s_explain);
+    }
     if (b_path || b_autostart_path) {
         const gnome_appimage::desktop::desktop_entry_locator_c o_locator;
         print_directories(b_path ? o_locator.application_directories()
