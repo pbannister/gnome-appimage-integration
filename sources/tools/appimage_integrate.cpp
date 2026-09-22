@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
@@ -100,6 +101,53 @@ bool command_exists(const std::string &s_command) {
         i_start = i_end + 1;
     }
     return false;
+}
+
+// Run a command for its exit status only, with its output discarded.
+bool command_succeeds(const std::vector<std::string> &o_arguments) {
+    if (o_arguments.empty()) {
+        return false;
+    }
+    std::vector<char *> o_raw;
+    for (const std::string &s_argument : o_arguments) {
+        o_raw.push_back(const_cast<char *>(s_argument.c_str()));
+    }
+    o_raw.push_back(nullptr);
+    const pid_t i_child = fork();
+    if (0 > i_child) {
+        return false;
+    }
+    if (0 == i_child) {
+        if (nullptr == std::freopen("/dev/null", "w", stdout)) {
+            _exit(127);
+        }
+        if (nullptr == std::freopen("/dev/null", "w", stderr)) {
+            _exit(127);
+        }
+        execvp(o_raw[0], o_raw.data());
+        _exit(127);
+    }
+    int i_status = 0;
+    if (i_child != waitpid(i_child, &i_status, 0)) {
+        return false;
+    }
+    return WIFEXITED(i_status) && 0 == WEXITSTATUS(i_status);
+}
+
+// Locate the graphical handler next to the tool, or in the source tree.
+std::string handler_ui_script(const std::string &s_tool) {
+    const fs::path o_tool(s_tool);
+    const std::string s_installed = (o_tool.parent_path() / "appimage_handler_ui.py").string();
+    if (fs::exists(s_installed)) {
+        return s_installed;
+    }
+    const std::string s_source =
+        (o_tool.parent_path().parent_path().parent_path() / "sources/tools/appimage_handler_ui.py")
+            .string();
+    if (fs::exists(s_source)) {
+        return s_source;
+    }
+    return {};
 }
 
 std::string capture_command(const std::vector<std::string> &o_arguments) {
@@ -298,6 +346,55 @@ int command_plan_or_explain(const std::string &s_path,
         std::cout << "desktop-entry-contents:\n" << o_plan.desktop_entry_text;
     }
     return EXIT_OK;
+}
+
+// Machine-readable description, used by the graphical handler.
+int command_explain_json(const std::string &s_path, const integration_options_o &o_options) {
+    using gnome_appimage::tools::json_escape;
+    const appimage_integrator_c o_integrator;
+    integration_plan_o o_plan;
+    const bool b_valid = o_integrator.plan(s_path, o_options, o_plan);
+    std::cout << "{\"path\":\"" << json_escape(s_path) << "\""
+              << ",\"name\":\"" << json_escape(o_plan.name) << "\""
+              << ",\"generic_name\":\"" << json_escape(o_plan.generic_name) << "\""
+              << ",\"comment\":\"" << json_escape(o_plan.comment) << "\""
+              << ",\"version\":\"" << json_escape(o_plan.version) << "\""
+              << ",\"version_source\":\"" << json_escape(o_plan.version_source) << "\""
+              << ",\"detection\":\"" << json_escape(o_plan.detection_name) << "\""
+              << ",\"file_size\":" << o_plan.file_size
+              << ",\"payload_size\":" << o_plan.payload_size
+              << ",\"compression\":\"" << json_escape(o_plan.compression_name) << "\""
+              << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
+              << ",\"identifier\":\"" << json_escape(o_plan.identifier) << "\""
+              << ",\"desktop_id\":\"" << json_escape(o_plan.desktop_id) << "\""
+              << ",\"icon_name\":\"" << json_escape(o_plan.icon_name) << "\""
+              << ",\"exec\":\"" << json_escape(o_plan.exec_command) << "\""
+              << ",\"startup_wm_class\":\"" << json_escape(o_plan.startup_wm_class) << "\""
+              << ",\"embedded_desktop\":\"" << json_escape(o_plan.embedded_desktop_path) << "\""
+              << ",\"desktop_entry\":\"" << json_escape(o_plan.desktop_entry_text) << "\""
+              << ",\"valid\":" << (b_valid ? "true" : "false")
+              << ",\"error\":\"" << json_escape(o_plan.error) << "\""
+              << ",\"conflicts\":[";
+    bool b_first = true;
+    for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+        if (!b_first) {
+            std::cout << ',';
+        }
+        b_first = false;
+        std::cout << "{\"desktop_id\":\"" << json_escape(o_conflict.desktop_id)
+                  << "\",\"path\":\"" << json_escape(o_conflict.path)
+                  << "\",\"name\":\"" << json_escape(o_conflict.name)
+                  << "\",\"appimage\":\"" << json_escape(o_conflict.appimage_path)
+                  << "\",\"icon\":\"" << json_escape(o_conflict.icon)
+                  << "\",\"wm_class\":\"" << json_escape(o_conflict.wm_class)
+                  << "\",\"version\":\"" << json_escape(o_conflict.version)
+                  << "\",\"origin\":\"" << json_escape(o_conflict.origin)
+                  << "\",\"managed\":" << (o_conflict.managed ? "true" : "false")
+                  << ",\"upgrade\":" << (o_conflict.upgrade ? "true" : "false")
+                  << ",\"exec_exists\":" << (o_conflict.exec_exists ? "true" : "false") << '}';
+    }
+    std::cout << "]}\n";
+    return b_valid ? EXIT_OK : EXIT_ERROR;
 }
 
 int command_explain(const std::string &s_path, const integration_options_o &o_options) {
@@ -708,6 +805,24 @@ int command_handle(const std::string &s_path) {
     const std::string s_name = embedded_name(s_path);
     const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
 
+    // Prefer the GTK handler: it can remember its size and return from Inspect.
+    const appimage_integrator_c o_integrator;
+    const std::string s_tool = tool_path(o_integrator);
+    const std::string s_ui = handler_ui_script(s_tool);
+    if (!s_ui.empty() && has_display() && command_exists("python3")
+        && command_succeeds({"python3", "-c",
+                             "import gi; gi.require_version('Gtk','4.0'); "
+                             "from gi.repository import Gtk"})) {
+        std::vector<std::string> o_command = {"python3", s_ui, "--tool", s_tool, s_path};
+        std::vector<char *> o_raw;
+        for (const std::string &s_argument : o_command) {
+            o_raw.push_back(const_cast<char *>(s_argument.c_str()));
+        }
+        o_raw.push_back(nullptr);
+        execvp("python3", o_raw.data());
+        // Fall through to the zenity flow if execvp failed.
+    }
+
     if (!command_exists("zenity") || !has_display()) {
         std::cout << "AppImage: " << s_label << '\n'
                   << "  appimage-integrate run \"" << s_path << "\"\n"
@@ -898,6 +1013,12 @@ int main(int i_argument_count, char **p_arguments) {
         if (s_path.empty()) {
             std::cerr << "error: explain needs an AppImage path\n";
             return EXIT_USAGE;
+        }
+        if (b_json) {
+            return command_explain_json(
+                s_path,
+                options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class,
+                              s_icon_name, b_move, b_icons, e_conflict_policy));
         }
         return command_explain(
             s_path,

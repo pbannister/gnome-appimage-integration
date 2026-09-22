@@ -9,6 +9,7 @@
 * [ ] decide whether integration should verify the `.sha256_sig` signature when the section is non-empty.
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
 * [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu; suffixing the Name with a version is the obvious option.
+* [ ] decide whether the zenity fallback should persist a window size at all; zenity cannot report a dragged size, so only the GTK handler can remember one.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 
@@ -20,6 +21,12 @@
 
 ## Recently Completed
 
+* [x] add a GTK4 handler dialog (`sources/tools/appimage_handler_ui.py`) that remembers its window size between runs.
+* [x] show Name, Comment, GenericName, and the detected version in the handler's first window.
+* [x] make Inspect open a separate window with only a Close button, returning to the AppImage window.
+* [x] make the Integrate dialog list each existing launcher's id, name, origin, version, target, icon, window class, and whether the target exists.
+* [x] extract the application version from `X-AppImage-Version`, then AppStream, then the file name, and report the source.
+* [x] add `explain --json` for the graphical handler, and `tests/95-handler-ui.sh` for the script and its dispatch.
 * [x] give Run once a persistent notice naming the application and the child process id.
 * [x] make Inspect show a non-empty report: container facts, payload root, embedded entry, and the install preview.
 * [x] make Integrate show the list of files written.

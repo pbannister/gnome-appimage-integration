@@ -64,6 +64,10 @@ target_link_libraries(appimage-inspect PRIVATE appimage_reader desktop_entry ver
 add_executable(appimage-integrate tools/appimage_integrate.cpp)
 target_link_libraries(appimage-integrate PRIVATE integration appimage_reader desktop_entry version_info)
 
+# The graphical handler lives next to the tool so the tool can exec it.
+configure_file(tools/appimage_handler_ui.py
+    "${CMAKE_BINARY_DIR}/appimage_handler_ui.py" COPYONLY)
+
 add_executable(desktop-inspect tools/desktop_inspect.cpp)
 target_link_libraries(desktop-inspect PRIVATE desktop_entry version_info)
 

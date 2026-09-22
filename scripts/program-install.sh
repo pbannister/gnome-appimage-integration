@@ -23,3 +23,10 @@ for program_name in appimage-inspect desktop-inspect appimage-integrate; do
     chmod 755 "$DIRECTORY_BIN/$program_name"
     echo "program-install: $DIRECTORY_BIN/$program_name"
 done
+
+# The graphical handler sits next to the tool so the tool can exec it.
+if [ -f "$DIRECTORY_BUILD/appimage_handler_ui.py" ]; then
+    cp "$DIRECTORY_BUILD/appimage_handler_ui.py" "$DIRECTORY_BIN/appimage_handler_ui.py"
+    chmod 755 "$DIRECTORY_BIN/appimage_handler_ui.py"
+    echo "program-install: $DIRECTORY_BIN/appimage_handler_ui.py"
+fi

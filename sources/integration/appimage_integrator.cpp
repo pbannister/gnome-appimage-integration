@@ -313,6 +313,113 @@ std::string normalize_application_name(const std::string &s_name) {
     return s_lower;
 }
 
+// Find a dotted version in a filename, for example
+// FreeCAD_1.1.3-Linux-x86_64.AppImage -> 1.1.3.
+std::string version_from_filename(const std::string &s_filename) {
+    for (std::size_t i_index = 0; i_index + 2 < s_filename.size(); i_index++) {
+        if ('0' > s_filename[i_index] || '9' < s_filename[i_index]) {
+            continue;
+        }
+        std::size_t i_end = i_index;
+        bool b_saw_dot = false;
+        while (i_end < s_filename.size()) {
+            const char c_character = s_filename[i_end];
+            if ('0' <= c_character && '9' >= c_character) {
+                i_end++;
+                continue;
+            }
+            if ('.' == c_character && !b_saw_dot) {
+                b_saw_dot = true;
+                i_end++;
+                continue;
+            }
+            break;
+        }
+        if (b_saw_dot && i_end > i_index && '0' <= s_filename[i_end - 1]
+            && '9' >= s_filename[i_end - 1]) {
+            return s_filename.substr(i_index, i_end - i_index);
+        }
+    }
+    return {};
+}
+
+// Read the first <release version="..."> from AppStream metadata.
+std::string version_from_appstream_text(const std::string &s_text) {
+    std::size_t i_release = s_text.find("<release");
+    while (std::string::npos != i_release) {
+        const std::size_t i_version = s_text.find("version=\"", i_release);
+        const std::size_t i_tag_end = s_text.find('>', i_release);
+        if (std::string::npos != i_version
+            && (std::string::npos == i_tag_end || i_version < i_tag_end)) {
+            const std::size_t i_begin = i_version + 9;
+            const std::size_t i_end = s_text.find('"', i_begin);
+            if (std::string::npos != i_end) {
+                return s_text.substr(i_begin, i_end - i_begin);
+            }
+        }
+        i_release = s_text.find("<release", i_release + 1);
+    }
+    return {};
+}
+
+// Extract the application version from an AppImage without running it.
+// Sources are tried in order: X-AppImage-Version, AppStream, the file name.
+std::string version_of_appimage(const std::string &s_path, std::string &s_source) {
+    s_source.clear();
+    appimage_info_o o_info;
+    if (!appimage_reader_c::read(s_path, o_info)
+        || appimage_detection_e::type2 != o_info.detection || !o_info.has_squashfs) {
+        return {};
+    }
+    squashfs_reader_c o_reader;
+    std::string s_error;
+    if (!o_reader.open(s_path, o_info.payload_offset, s_error)) {
+        return {};
+    }
+
+    std::vector<squashfs_entry_o> o_desktops;
+    if (o_reader.list_root_files_with_extension(".desktop", o_desktops, s_error)
+        && !o_desktops.empty()) {
+        std::string s_content;
+        if (o_reader.read_file(o_desktops[0].path, s_content, s_error)) {
+            desktop_entry_file_o o_entry;
+            std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
+            desktop_entry_reader_c::parse_text(s_content, o_entry, o_diagnostics);
+            const std::string s_value =
+                o_entry.value("Desktop Entry", "X-AppImage-Version").value_or(std::string());
+            if (!s_value.empty()) {
+                s_source = "X-AppImage-Version";
+                return s_value;
+            }
+        }
+    }
+
+    std::vector<squashfs_entry_o> o_metainfo;
+    if (o_reader.list_directory("/usr/share/metainfo", o_metainfo, s_error)) {
+        for (const squashfs_entry_o &o_file : o_metainfo) {
+            if (std::string::npos == o_file.name.find(".appdata.xml")
+                && std::string::npos == o_file.name.find(".metainfo.xml")) {
+                continue;
+            }
+            std::string s_content;
+            if (!o_reader.read_file(o_file.path, s_content, s_error)) {
+                continue;
+            }
+            const std::string s_version = version_from_appstream_text(s_content);
+            if (!s_version.empty()) {
+                s_source = "AppStream";
+                return s_version;
+            }
+        }
+    }
+
+    const std::string s_version = version_from_filename(fs::path(s_path).filename().string());
+    if (!s_version.empty()) {
+        s_source = "filename";
+    }
+    return s_version;
+}
+
 // Find launchers that already represent the application being installed.
 std::vector<integration_conflict_o> detect_application_conflicts(
     const std::map<std::string, std::string> &o_environment,
@@ -380,6 +487,13 @@ std::vector<integration_conflict_o> detect_application_conflicts(
         o_conflict.path = o_candidate.path;
         o_conflict.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
         o_conflict.appimage_path = s_exec;
+        o_conflict.icon = o_entry.value("Desktop Entry", "Icon").value_or(std::string());
+        o_conflict.wm_class = s_wm_class;
+        o_conflict.exec_exists = !s_exec.empty() && fs::exists(s_exec);
+        if (o_conflict.exec_exists) {
+            std::string s_version_source;
+            o_conflict.version = version_of_appimage(s_exec, s_version_source);
+        }
         o_conflict.managed = b_managed;
         if (b_managed) {
             o_conflict.origin = "this tool";
@@ -607,6 +721,20 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         s_probe += "|";
         s_probe += std::to_string(o_info.payload_offset);
         o_plan.identifier = integration_identifier(s_probe);
+
+        o_plan.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+        o_plan.generic_name = o_entry.value("Desktop Entry", "GenericName").value_or(std::string());
+        o_plan.comment = o_entry.value("Desktop Entry", "Comment").value_or(std::string());
+        o_plan.detection_name = appimage_detection_name(o_info.detection);
+        o_plan.file_size = o_info.file_size;
+        o_plan.payload_size = o_info.payload_size;
+        if (o_info.has_squashfs) {
+            o_plan.compression_name = squashfs_compression_name(o_info.squashfs.compression);
+        }
+        if (o_info.update_information_section.present) {
+            o_plan.update_information = o_info.update_information;
+        }
+        o_plan.version = version_of_appimage(o_plan.appimage_path, o_plan.version_source);
 
         const std::string s_stem = strip_extension(o_desktop_entries[0].name);
         o_plan.desktop_id = o_options.desktop_file_name.empty()
@@ -1201,6 +1329,11 @@ std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
               << "size: " << o_info.file_size << " bytes\n"
               << "payload: offset " << o_info.payload_offset << ", size " << o_info.payload_size
               << "\n";
+        std::string s_version_source;
+        const std::string s_version = version_of_appimage(s_appimage_path, s_version_source);
+        if (!s_version.empty()) {
+            o_out << "version: " << s_version << "  (from " << s_version_source << ")\n";
+        }
         if (o_info.has_squashfs) {
             o_out << "compression: " << squashfs_compression_name(o_info.squashfs.compression)
                   << "\n";
@@ -1280,6 +1413,9 @@ std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_pla
           << "exec:         " << o_plan.exec_command << "\n"
           << "icon:         " << o_plan.icon_name << "\n"
           << "manifest:     " << o_plan.manifest_path << "\n";
+    if (!o_plan.version.empty()) {
+        o_out << "version:      " << o_plan.version << "  (from " << o_plan.version_source << ")\n";
+    }
     if (!o_plan.startup_wm_class.empty()) {
         o_out << "wm class:     " << o_plan.startup_wm_class << "\n";
     }

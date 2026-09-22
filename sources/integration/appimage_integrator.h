@@ -53,9 +53,13 @@ struct integration_conflict_o {
     std::string path;
     std::string name;
     std::string appimage_path;
+    std::string icon;
+    std::string wm_class;
+    std::string version;
     std::string origin;
     bool managed = false;
     bool upgrade = false;
+    bool exec_exists = false;
 };
 
 // What to do when the application is already represented by another launcher.
@@ -83,8 +87,18 @@ struct integration_plan_o {
     std::string exec_command;
     std::string extra_exec_arguments;
     std::string field_code;
-    bool move_appimage = true;
+    std::string name;
+    std::string generic_name;
+    std::string comment;
+    std::string version;
+    std::string version_source;
+    std::string detection_name;
+    std::string compression_name;
+    std::string update_information;
+    std::uint64_t file_size = 0;
+    std::uint64_t payload_size = 0;
     bool replace_conflicts = false;
+    bool move_appimage = true;
 
     std::vector<integration_icon_o> icons;
     std::vector<std::string> mime_types;

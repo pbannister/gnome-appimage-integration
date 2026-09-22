@@ -25,6 +25,11 @@ default.
 - Inspect must show a non-empty report containing the container facts and the embedded desktop entry.
 - Integrate must show the list of what was written.
 - Integrate must offer Replace existing, Add alongside, and Cancel when another launcher already represents the application.
+- The handler must prefer a GTK dialog when PyGObject and GTK4 are available, and fall back to zenity, then to printed instructions.
+- The main window must show the application Name, Comment, and GenericName, the detected version, the file size, and the payload type.
+- The main window must remember its size between runs, in the tool's state directory.
+- Inspect must open a separate window whose only button is Close, and closing it must return to the main window.
+- The Integrate dialog must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
 
 ## Behavior
 

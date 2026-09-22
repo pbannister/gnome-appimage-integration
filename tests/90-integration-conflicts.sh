@@ -37,6 +37,9 @@ cat > "$DIRECTORY_PAYLOAD/org.example.Probe.desktop" <<'ENTRY'
 [Desktop Entry]
 Type=Application
 Name=Probe App
+GenericName=Probe Tool
+Comment=Probe comment
+X-AppImage-Version=9.9.9
 Exec=probe %U
 Icon=probe
 Categories=Utility;
@@ -106,5 +109,21 @@ echo "=== explain shows the embedded entry ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain "$DIRECTORY_XDG/home/Applications/work.AppImage" > "$DIRECTORY_TEMP/explain.txt" 2>&1 || true
 grep -q 'embedded desktop entry' "$DIRECTORY_TEMP/explain.txt" || fail_test "explain did not show the embedded entry"
 grep -q 'Name=Probe App' "$DIRECTORY_TEMP/explain.txt" || fail_test "explain did not show the application name"
+
+echo "=== explain --json carries the fields the graphical handler renders ==="
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$DIRECTORY_XDG/home/Applications/work.AppImage" > "$DIRECTORY_TEMP/explain.json" 2>/dev/null || true
+python3 - "$DIRECTORY_TEMP/explain.json" <<'PYTHON'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["name"] == "Probe App", data["name"]
+assert data["generic_name"] == "Probe Tool", data["generic_name"]
+assert data["comment"] == "Probe comment", data["comment"]
+assert data["version"] == "9.9.9", data["version"]
+assert data["version_source"] == "X-AppImage-Version", data["version_source"]
+assert isinstance(data["conflicts"], list)
+print("json fields ok")
+PYTHON
 
 pass_test "integration conflicts"

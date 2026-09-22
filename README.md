@@ -96,6 +96,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler |
+| `appimage-integrate handle <AppImage>` | the handler entry point: a GTK dialog, or the zenity fallback |
 | `desktop-inspect <file.desktop>` | print one desktop entry |
 | `desktop-inspect --explain ID` | show which file wins an identifier and what it masks |
 | `desktop-inspect --icon NAME [--theme T] [--why]` | show where an icon resolves from |
@@ -106,9 +107,13 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 - `sources/appimage/` contains the AppImage container reader and the SquashFS payload reader.
 - `sources/desktop/` contains the desktop entry reader, the desktop entry locator, the icon theme locator, and the MIME association reader.
 - `sources/integration/` contains the plan, install, uninstall, and audit engine.
-- `sources/tools/` contains the command-line front ends.
+- `sources/tools/` contains the command-line front ends and `appimage_handler_ui.py`, the GTK handler dialog.
 - `sources/version/` contains the build-time version reporting.
 - `sources/CMakeLists.txt` defines the targets; the build tree is written to `dataflow.out/build/`.
+
+The graphical handler needs PyGObject with GTK4, which Ubuntu ships.
+When it is absent, the handler falls back to zenity, and then to printing the equivalent commands.
+The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
 
 ## Project Pages (publishing conventions)
 

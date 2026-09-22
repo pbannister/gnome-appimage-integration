@@ -31,6 +31,7 @@ make every step printable, plannable, and reversible.
 - `--add` must choose a distinct desktop file identifier instead of overwriting.
 - The integrator must retire the manifest of a launcher it upgrades in place, so `list` stays accurate.
 - The integrator must expose a human-readable description of the AppImage and of a plan.
+- The integrator must extract the application version from `X-AppImage-Version`, then AppStream metadata, then the file name, and report which source it used.
 
 ## Behavior
 
