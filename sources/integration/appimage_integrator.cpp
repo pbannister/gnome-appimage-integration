@@ -31,11 +31,15 @@ namespace {
 namespace fs = std::filesystem;
 
 using gnome_appimage::appimage::appimage_detection_e;
+using gnome_appimage::appimage::appimage_detection_name;
 using gnome_appimage::appimage::appimage_info_o;
 using gnome_appimage::appimage::appimage_reader_c;
+using gnome_appimage::appimage::squashfs_compression_name;
 using gnome_appimage::appimage::squashfs_entry_o;
 using gnome_appimage::appimage::squashfs_node_type_e;
+using gnome_appimage::appimage::squashfs_node_type_name;
 using gnome_appimage::appimage::squashfs_reader_c;
+using gnome_appimage::appimage::squashfs_stat_o;
 using gnome_appimage::desktop::desktop_entry_file_o;
 using gnome_appimage::desktop::desktop_entry_group_o;
 using gnome_appimage::desktop::desktop_entry_key_o;
@@ -281,6 +285,116 @@ std::string strip_extension(const std::string &s_name) {
     return s_name.substr(0, i_dot);
 }
 
+// Reduce an application name to a comparison key: trim, drop a trailing " (N)",
+// and lower-case, so "FreeCAD" and "FreeCAD (1)" compare equal.
+std::string normalize_application_name(const std::string &s_name) {
+    std::string s_result = trim_spaces(s_name);
+    if (!s_result.empty() && ')' == s_result.back() && 3 < s_result.size()) {
+        const std::size_t i_open = s_result.rfind(" (");
+        if (std::string::npos != i_open) {
+            bool b_digits = true;
+            for (std::size_t i_index = i_open + 2; i_index + 1 < s_result.size(); i_index++) {
+                if ('0' > s_result[i_index] || '9' < s_result[i_index]) {
+                    b_digits = false;
+                    break;
+                }
+            }
+            if (b_digits) {
+                s_result = trim_spaces(s_result.substr(0, i_open));
+            }
+        }
+    }
+    std::string s_lower;
+    for (const char c_character : s_result) {
+        s_lower += ('A' <= c_character && 'Z' >= c_character)
+                       ? static_cast<char>(c_character - 'A' + 'a')
+                       : c_character;
+    }
+    return s_lower;
+}
+
+// Find launchers that already represent the application being installed.
+std::vector<integration_conflict_o> detect_application_conflicts(
+    const std::map<std::string, std::string> &o_environment,
+    const std::string &s_new_name_key,
+    const std::string &s_new_appimage_name,
+    const std::string &s_new_wm_class,
+    const std::string &s_new_appimage_stem,
+    const std::string &s_new_desktop_id,
+    const std::vector<installed_appimage_o> &o_installed) {
+    std::vector<integration_conflict_o> o_conflicts;
+    const desktop_entry_locator_c o_locator(o_environment);
+    for (const gnome_appimage::desktop::desktop_entry_candidate_o &o_candidate :
+         o_locator.list()) {
+        bool b_managed = false;
+        for (const installed_appimage_o &o_entry : o_installed) {
+            if (o_entry.desktop_entry_path == o_candidate.path) {
+                b_managed = true;
+                break;
+            }
+        }
+        // Our own launcher at our own target id is an in-place upgrade; it is
+        // recorded so the old manifest can be retired, but it is not a conflict.
+        desktop_entry_file_o o_entry;
+        std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
+        if (!desktop_entry_reader_c::parse_file(o_candidate.path, o_entry, o_diagnostics)) {
+            continue;
+        }
+        if (b_managed && o_candidate.id == s_new_desktop_id) {
+            integration_conflict_o o_upgrade;
+            o_upgrade.desktop_id = o_candidate.id;
+            o_upgrade.path = o_candidate.path;
+            o_upgrade.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+            o_upgrade.appimage_path = exec_program(
+                o_entry.value("Desktop Entry", "Exec").value_or(std::string()));
+            o_upgrade.managed = true;
+            o_upgrade.upgrade = true;
+            o_upgrade.origin = "this tool (upgrade)";
+            o_conflicts.push_back(std::move(o_upgrade));
+            continue;
+        }
+        const std::string s_name_key = normalize_application_name(
+            o_entry.value("Desktop Entry", "Name").value_or(std::string()));
+        const std::string s_appimage_name =
+            o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string());
+        const std::string s_wm_class =
+            o_entry.value("Desktop Entry", "StartupWMClass").value_or(std::string());
+        const std::string s_exec =
+            exec_program(o_entry.value("Desktop Entry", "Exec").value_or(std::string()));
+        const std::string s_exec_stem = strip_extension(fs::path(s_exec).filename().string());
+
+        const bool b_name_match =
+            !s_name_key.empty() && !s_new_name_key.empty() && s_name_key == s_new_name_key;
+        const bool b_appimage_name_match = !s_appimage_name.empty() && !s_new_appimage_name.empty()
+                                           && s_appimage_name == s_new_appimage_name;
+        const bool b_wm_match = !s_wm_class.empty() && !s_new_wm_class.empty()
+                                && s_wm_class == s_new_wm_class;
+        const bool b_file_match = !s_exec_stem.empty() && !s_new_appimage_stem.empty()
+                                  && s_exec_stem == s_new_appimage_stem;
+        if (!b_name_match && !b_appimage_name_match && !b_wm_match && !b_file_match) {
+            continue;
+        }
+
+        integration_conflict_o o_conflict;
+        o_conflict.desktop_id = o_candidate.id;
+        o_conflict.path = o_candidate.path;
+        o_conflict.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+        o_conflict.appimage_path = s_exec;
+        o_conflict.managed = b_managed;
+        if (b_managed) {
+            o_conflict.origin = "this tool";
+        } else if (!o_entry.value("Desktop Entry", "X-AppImage-Identifier")
+                        .value_or(std::string())
+                        .empty()) {
+            o_conflict.origin = "AppImageLauncher";
+        } else {
+            o_conflict.origin = "unknown";
+        }
+        o_conflicts.push_back(std::move(o_conflict));
+    }
+    return o_conflicts;
+}
+
 bool has_icon_extension(const std::string &s_name) {
     return std::string::npos != s_name.find(".png") || std::string::npos != s_name.find(".svg")
            || std::string::npos != s_name.find(".svgz") || std::string::npos != s_name.find(".xpm");
@@ -329,6 +443,32 @@ std::vector<std::string> manifest_get_all(
         }
     }
     return o_values;
+}
+
+// Restore "original|backup" recorded when a conflicting launcher was replaced.
+bool restore_backup_pair(const std::string &s_pair, std::string &s_error) {
+    const std::size_t i_bar = s_pair.find('|');
+    if (std::string::npos == i_bar) {
+        return false;
+    }
+    const std::string s_original = s_pair.substr(0, i_bar);
+    const std::string s_backup = s_pair.substr(i_bar + 1);
+    std::error_code o_error;
+    if (!fs::exists(s_backup, o_error)) {
+        return false;
+    }
+    fs::create_directories(fs::path(s_original).parent_path(), o_error);
+    fs::rename(s_backup, s_original, o_error);
+    if (o_error) {
+        o_error.clear();
+        fs::copy_file(s_backup, s_original, fs::copy_options::overwrite_existing, o_error);
+        if (o_error) {
+            s_error = "cannot restore " + s_original;
+            return false;
+        }
+        fs::remove(s_backup, o_error);
+    }
+    return true;
 }
 
 std::vector<std::pair<std::string, std::string>> read_manifest(const std::string &s_path) {
@@ -505,6 +645,85 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_plan.warnings.push_back(
                 "the embedded entry has no StartupWMClass; the dock may show a generic icon "
                 "until one is set (run: xprop WM_CLASS, then reinstall with --wm-class)");
+        }
+
+        // Launchers that already represent this application.
+        const std::vector<installed_appimage_o> o_installed = list_installed();
+        o_plan.conflicts = detect_application_conflicts(
+            o_environment_,
+            normalize_application_name(
+                o_entry.value("Desktop Entry", "Name").value_or(std::string())),
+            o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string()),
+            o_plan.startup_wm_class,
+            strip_extension(fs::path(o_plan.appimage_path).filename().string()),
+            o_plan.desktop_id, o_installed);
+        bool b_has_real_conflict = false;
+        for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+            if (!o_conflict.upgrade) {
+                b_has_real_conflict = true;
+                break;
+            }
+        }
+        if (b_has_real_conflict) {
+            if (integration_conflict_policy_e::add == o_options.conflict_policy) {
+                const std::string s_stem_id = strip_extension(o_plan.desktop_id);
+                std::string s_candidate = o_plan.desktop_id;
+                int i_suffix = 1;
+                const auto o_taken = [&](const std::string &s_id) {
+                    std::error_code o_check_error;
+                    if (fs::exists(join_path(s_applications_directory_, s_id), o_check_error)) {
+                        return true;
+                    }
+                    for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                        if (o_conflict.desktop_id == s_id) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                while (o_taken(s_candidate)) {
+                    i_suffix++;
+                    s_candidate = s_stem_id + "-" + std::to_string(i_suffix) + ".desktop";
+                }
+                if (s_candidate == o_plan.desktop_id) {
+                    // A conflict exists, so start from a suffixed identifier.
+                    i_suffix = 2;
+                    s_candidate = s_stem_id + "-" + std::to_string(i_suffix) + ".desktop";
+                    while (o_taken(s_candidate)) {
+                        i_suffix++;
+                        s_candidate = s_stem_id + "-" + std::to_string(i_suffix) + ".desktop";
+                    }
+                }
+                o_plan.desktop_id = s_candidate;
+                o_plan.notes.push_back("installed alongside " + std::to_string(o_plan.conflicts.size())
+                                       + " existing launcher(s) as " + o_plan.desktop_id);
+            } else if (integration_conflict_policy_e::replace == o_options.conflict_policy) {
+                o_plan.replace_conflicts = true;
+                o_plan.notes.push_back("replaces " + std::to_string(o_plan.conflicts.size())
+                                       + " existing launcher(s); they are backed up and restored "
+                                         "on uninstall");
+            } else {
+                std::ostringstream o_error;
+                int i_count = 0;
+                for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                    if (!o_conflict.upgrade) {
+                        i_count++;
+                    }
+                }
+                o_error << i_count << " existing launcher(s) already represent this application:\n";
+                for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                    if (o_conflict.upgrade) {
+                        continue;
+                    }
+                    o_error << "  " << o_conflict.path << "  (" << o_conflict.origin << ")\n";
+                }
+                o_error << "choose --replace to back them up and install this version in their "
+                           "place, or --add to install alongside them";
+                o_plan.error = o_error.str();
+                return false;
+            }
+        } else if (!o_plan.conflicts.empty()) {
+            o_plan.notes.push_back("upgrades this tool's existing launcher in place");
         }
 
         // Icons from the payload. Themed icons take preference over root icons.
@@ -731,10 +950,67 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
         }
         std::error_code o_error;
         const bool b_manifest_exists = fs::exists(o_plan.manifest_path, o_error);
-        if (!b_manifest_exists && fs::exists(o_plan.desktop_entry_path, o_error)) {
+        bool b_target_is_upgrade = false;
+        for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+            if (o_conflict.upgrade && o_conflict.path == o_plan.desktop_entry_path) {
+                b_target_is_upgrade = true;
+                break;
+            }
+        }
+        if (!b_manifest_exists && !b_target_is_upgrade
+            && fs::exists(o_plan.desktop_entry_path, o_error)) {
             s_error = "a desktop entry already exists at " + o_plan.desktop_entry_path
-                      + "; choose another --desktop-file-name or uninstall it first";
+                      + "; choose --replace to back it up, or uninstall it first";
             return false;
+        }
+
+        // Retire the manifest of a launcher this tool is upgrading, and back up
+        // every launcher that --replace displaces.
+        std::vector<std::pair<std::string, std::string>> o_removed_conflicts;
+        std::vector<std::pair<std::string, std::string>> o_removed_manifests;
+        if (!o_plan.conflicts.empty()) {
+            const std::string s_backup_directory = join_path(s_state_directory_, "backup");
+            fs::create_directories(s_backup_directory, o_error);
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                const bool b_remove_launcher = !o_conflict.upgrade && o_plan.replace_conflicts;
+                if (!b_remove_launcher && !o_conflict.managed) {
+                    continue;
+                }
+                if (b_remove_launcher) {
+                    std::error_code o_move_error;
+                    const std::string s_backup = join_path(
+                        s_backup_directory, fs::path(o_conflict.path).filename().string());
+                    fs::rename(o_conflict.path, s_backup, o_move_error);
+                    if (o_move_error) {
+                        o_move_error.clear();
+                        fs::copy_file(o_conflict.path, s_backup,
+                                      fs::copy_options::overwrite_existing, o_move_error);
+                        if (o_move_error) {
+                            s_error = "cannot back up the existing launcher " + o_conflict.path
+                                      + ": " + o_move_error.message();
+                            return false;
+                        }
+                        fs::remove(o_conflict.path, o_move_error);
+                    }
+                    o_removed_conflicts.emplace_back(o_conflict.path, s_backup);
+                }
+                if (o_conflict.managed) {
+                    for (const installed_appimage_o &o_entry : list_installed()) {
+                        if (o_entry.desktop_entry_path != o_conflict.path) {
+                            continue;
+                        }
+                        const std::string s_manifest_backup =
+                            join_path(s_backup_directory, o_entry.identifier + ".manifest");
+                        std::error_code o_manifest_error;
+                        fs::rename(o_entry.manifest_path, s_manifest_backup, o_manifest_error);
+                        if (!o_manifest_error) {
+                            o_removed_manifests.emplace_back(o_entry.manifest_path,
+                                                             s_manifest_backup);
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         // Place the AppImage.
@@ -805,6 +1081,12 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
         for (const std::string &s_path : o_written_mime) {
             o_manifest << "mime_package=" << s_path << '\n';
         }
+        for (const std::pair<std::string, std::string> &o_pair : o_removed_conflicts) {
+            o_manifest << "removed_conflict=" << o_pair.first << '|' << o_pair.second << '\n';
+        }
+        for (const std::pair<std::string, std::string> &o_pair : o_removed_manifests) {
+            o_manifest << "removed_manifest=" << o_pair.first << '|' << o_pair.second << '\n';
+        }
         if (!write_file_bytes(o_plan.manifest_path, o_manifest.str(), s_error)) {
             return false;
         }
@@ -844,6 +1126,14 @@ bool appimage_integrator_c::uninstall(const std::string &s_identifier,
         for (const std::string &s_path : manifest_get_all(o_lines, "mime_package")) {
             o_error.clear();
             fs::remove(s_path, o_error);
+        }
+        for (const std::string &s_pair : manifest_get_all(o_lines, "removed_conflict")) {
+            std::string s_restore_error;
+            restore_backup_pair(s_pair, s_restore_error);
+        }
+        for (const std::string &s_pair : manifest_get_all(o_lines, "removed_manifest")) {
+            std::string s_restore_error;
+            restore_backup_pair(s_pair, s_restore_error);
         }
         if (b_remove_appimage && !s_appimage.empty()) {
             o_error.clear();
@@ -895,6 +1185,125 @@ std::vector<installed_appimage_o> appimage_integrator_c::list_installed() const 
         return o_results;
     }
     return o_results;
+}
+
+std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
+                                            const integration_options_o &o_options) const {
+    std::ostringstream o_out;
+    try {
+        appimage_info_o o_info;
+        if (!appimage_reader_c::read(s_appimage_path, o_info)) {
+            o_out << "Cannot read " << s_appimage_path << "\n" << o_info.error << "\n";
+            return o_out.str();
+        }
+        o_out << "AppImage: " << s_appimage_path << "\n"
+              << "detection: " << appimage_detection_name(o_info.detection) << "\n"
+              << "size: " << o_info.file_size << " bytes\n"
+              << "payload: offset " << o_info.payload_offset << ", size " << o_info.payload_size
+              << "\n";
+        if (o_info.has_squashfs) {
+            o_out << "compression: " << squashfs_compression_name(o_info.squashfs.compression)
+                  << "\n";
+        }
+        if (o_info.update_information_section.present) {
+            o_out << "update information: " << o_info.update_information << "\n";
+        }
+        o_out << "signature: "
+              << (o_info.signature_section.present
+                      ? (o_info.signature_is_empty ? "present (empty padding)" : "present")
+                      : "(absent)")
+              << "\n";
+
+        if (appimage_detection_e::type2 == o_info.detection && o_info.has_squashfs) {
+            squashfs_reader_c o_reader;
+            std::string s_error;
+            if (o_reader.open(s_appimage_path, o_info.payload_offset, s_error)) {
+                std::vector<squashfs_entry_o> o_desktop_entries;
+                if (o_reader.list_root_files_with_extension(".desktop", o_desktop_entries, s_error)
+                    && !o_desktop_entries.empty()) {
+                    std::string s_content;
+                    if (o_reader.read_file(o_desktop_entries[0].path, s_content, s_error)) {
+                        o_out << "\nembedded desktop entry: " << o_desktop_entries[0].path << "\n"
+                              << s_content;
+                        if (s_content.empty() || '\n' != s_content.back()) {
+                            o_out << "\n";
+                        }
+                    } else {
+                        o_out << "\nembedded desktop entry: cannot read: " << s_error << "\n";
+                    }
+                } else {
+                    o_out << "\nembedded desktop entry: (none)\n";
+                }
+                std::vector<squashfs_entry_o> o_root_entries;
+                if (o_reader.list_root(o_root_entries, s_error)) {
+                    o_out << "\npayload root:\n";
+                    for (const squashfs_entry_o &o_entry : o_root_entries) {
+                        std::uint64_t u_size = o_entry.size;
+                        squashfs_stat_o o_stat;
+                        if (o_reader.stat(o_entry.path, o_stat, s_error)) {
+                            u_size = o_stat.size;
+                        }
+                        o_out << "  " << squashfs_node_type_name(o_entry.type) << "\t" << u_size
+                              << "\t" << o_entry.path << "\n";
+                    }
+                }
+            } else {
+                o_out << "\npayload: " << s_error << "\n";
+            }
+        }
+
+        integration_plan_o o_plan;
+        if (plan(s_appimage_path, o_options, o_plan)) {
+            o_out << "\n" << describe_plan(o_plan);
+        } else {
+            o_out << "\ninstall preview unavailable: " << o_plan.error << "\n";
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                o_out << "  existing launcher: " << o_conflict.path << "  (" << o_conflict.origin
+                      << ")\n";
+            }
+        }
+    } catch (const std::exception &o_exception) {
+        o_out << "error: " << o_exception.what() << "\n";
+    }
+    return o_out.str();
+}
+
+std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_plan) const {
+    std::ostringstream o_out;
+    if (!o_plan.valid) {
+        o_out << o_plan.error << "\n";
+        return o_out.str();
+    }
+    o_out << "desktop id:   " << o_plan.desktop_id << "\n"
+          << "launcher:     " << o_plan.desktop_entry_path << "\n"
+          << "appimage:     " << o_plan.installed_path << "\n"
+          << "exec:         " << o_plan.exec_command << "\n"
+          << "icon:         " << o_plan.icon_name << "\n"
+          << "manifest:     " << o_plan.manifest_path << "\n";
+    if (!o_plan.startup_wm_class.empty()) {
+        o_out << "wm class:     " << o_plan.startup_wm_class << "\n";
+    }
+    if (!o_plan.conflicts.empty()) {
+        o_out << "\nexisting launchers for this application:\n";
+        for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+            o_out << "  " << o_conflict.path << "  (" << o_conflict.origin << ")\n";
+        }
+    }
+    if (!o_plan.icons.empty()) {
+        o_out << "\nicons:\n";
+        for (const integration_icon_o &o_icon : o_plan.icons) {
+            o_out << "  " << o_icon.size_directory << " " << o_icon.extension << "  "
+                  << o_icon.source_in_payload << "\n";
+        }
+    }
+    for (const std::string &s_warning : o_plan.warnings) {
+        o_out << "warning: " << s_warning << "\n";
+    }
+    for (const std::string &s_note : o_plan.notes) {
+        o_out << "note: " << s_note << "\n";
+    }
+    o_out << "\nlauncher contents:\n" << o_plan.desktop_entry_text;
+    return o_out.str();
 }
 
 std::vector<audit_finding_o> appimage_integrator_c::audit() const {

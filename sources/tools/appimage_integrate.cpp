@@ -26,6 +26,9 @@ namespace fs = std::filesystem;
 using gnome_appimage::integration::appimage_integrator_c;
 using gnome_appimage::integration::audit_finding_o;
 using gnome_appimage::integration::installed_appimage_o;
+using gnome_appimage::integration::integration_action_o;
+using gnome_appimage::integration::integration_conflict_o;
+using gnome_appimage::integration::integration_conflict_policy_e;
 using gnome_appimage::integration::integration_icon_o;
 using gnome_appimage::integration::integration_options_o;
 using gnome_appimage::integration::integration_plan_o;
@@ -60,7 +63,10 @@ void print_usage(std::ostream &o_out) {
           << "  --icon-name NAME          override the installed icon name\n"
           << "  --no-move                 copy instead of move\n"
           << "  --no-icons                do not install icons\n"
+          << "  --replace                 replace an existing launcher for this application\n"
+          << "  --add                     install alongside an existing launcher\n"
           << "  --extract-and-run         for run: force APPIMAGE_EXTRACT_AND_RUN=1\n"
+          << "  --detached                for run: start in a new session and report the pid\n"
           << "  --json                    machine-readable output where supported\n"
           << "  --yes                     do not ask before writing\n"
           << "  --version                 print the build-time version\n";
@@ -258,7 +264,8 @@ integration_options_o options_from(const std::string &s_install_dir,
                                   const std::string &s_wm_class,
                                   const std::string &s_icon_name,
                                   bool b_move,
-                                  bool b_icons) {
+                                  bool b_icons,
+                                  integration_conflict_policy_e e_policy) {
     integration_options_o o_options;
     o_options.install_directory = s_install_dir;
     o_options.desktop_file_name = s_desktop_file_name;
@@ -267,6 +274,7 @@ integration_options_o options_from(const std::string &s_install_dir,
     o_options.icon_name_override = s_icon_name;
     o_options.move_appimage = b_move;
     o_options.write_icons = b_icons;
+    o_options.conflict_policy = e_policy;
     return o_options;
 }
 
@@ -289,6 +297,12 @@ int command_plan_or_explain(const std::string &s_path,
         print_plan_text(o_plan);
         std::cout << "desktop-entry-contents:\n" << o_plan.desktop_entry_text;
     }
+    return EXIT_OK;
+}
+
+int command_explain(const std::string &s_path, const integration_options_o &o_options) {
+    const appimage_integrator_c o_integrator;
+    std::cout << o_integrator.describe(s_path, o_options);
     return EXIT_OK;
 }
 
@@ -572,52 +586,206 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     return command_handler_status(o_integrator);
 }
 
+bool has_display() {
+    return nullptr != std::getenv("DISPLAY") || nullptr != std::getenv("WAYLAND_DISPLAY");
+}
+
+// Write a report to a private temporary file for `zenity --text-info --filename`.
+std::string write_temp_report(const std::string &s_text) {
+    const char *s_runtime = std::getenv("XDG_RUNTIME_DIR");
+    std::string s_template =
+        std::string(nullptr == s_runtime ? "/tmp" : s_runtime) + "/appimage-report-XXXXXX";
+    std::vector<char> o_buffer(s_template.begin(), s_template.end());
+    o_buffer.push_back('\0');
+    const int i_descriptor = mkstemp(o_buffer.data());
+    if (0 > i_descriptor) {
+        return {};
+    }
+    const std::string s_path = o_buffer.data();
+    const ssize_t i_written = write(i_descriptor, s_text.data(), s_text.size());
+    close(i_descriptor);
+    if (0 > i_written || static_cast<std::size_t>(i_written) != s_text.size()) {
+        unlink(s_path.c_str());
+        return {};
+    }
+    return s_path;
+}
+
+void show_text_info(const std::string &s_title, const std::string &s_text) {
+    if (!command_exists("zenity") || !has_display()) {
+        std::cout << s_text;
+        return;
+    }
+    const std::string s_path = write_temp_report(s_text);
+    if (s_path.empty()) {
+        std::cout << s_text;
+        return;
+    }
+    const std::string s_result = capture_command(
+        {"zenity", "--text-info", "--title=" + s_title, "--width=760", "--height=560",
+         "--filename=" + s_path});
+    static_cast<void>(s_result);
+    unlink(s_path.c_str());
+}
+
+// A desktop notice that stays visible for a few seconds.
+void show_notice(const std::string &s_title, const std::string &s_body) {
+    // Always leave a trace in the log, even when a notification is shown.
+    std::cout << s_title << ": " << s_body << '\n';
+    if (!has_display()) {
+        return;
+    }
+    if (command_exists("notify-send")) {
+        const std::string s_result = capture_command(
+            {"notify-send", "-a", "AppImage Handler", "-u", "normal", "-t", "5000", s_title,
+             s_body});
+        static_cast<void>(s_result);
+        return;
+    }
+    if (command_exists("zenity")) {
+        const std::string s_result =
+            capture_command({"zenity", "--info", "--timeout=5", "--title=AppImage",
+                             "--text=" + s_title + "\n" + s_body});
+        static_cast<void>(s_result);
+    }
+}
+
+// Start the AppImage in its own session and keep the handler alive only long
+// enough to show a notice with the child's process id.
+int run_detached_with_notice(const std::string &s_path, const std::string &s_name) {
+    struct stat o_status;
+    if (0 != stat(s_path.c_str(), &o_status)) {
+        show_text_info("AppImage", "Cannot stat " + s_path);
+        return EXIT_ERROR;
+    }
+    if (0 == (o_status.st_mode & S_IXUSR)) {
+        const mode_t u_mode = static_cast<mode_t>(o_status.st_mode | S_IXUSR | S_IXGRP | S_IXOTH);
+        if (0 != chmod(s_path.c_str(), u_mode)) {
+            show_text_info("AppImage", "Cannot make " + s_path + " executable");
+            return EXIT_ERROR;
+        }
+    }
+
+    const bool b_fuse_available = 0 == access("/dev/fuse", R_OK | W_OK)
+                                  && (command_exists("fusermount3")
+                                      || command_exists("fusermount"));
+    const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
+
+    const pid_t i_child = fork();
+    if (0 > i_child) {
+        show_text_info("AppImage", "Cannot fork to start " + s_label);
+        return EXIT_ERROR;
+    }
+    if (0 == i_child) {
+        setsid();
+        if (nullptr == std::freopen("/dev/null", "w", stdout)) {
+            _exit(127);
+        }
+        if (nullptr == std::freopen("/dev/null", "w", stderr)) {
+            _exit(127);
+        }
+        if (!b_fuse_available) {
+            setenv("APPIMAGE_EXTRACT_AND_RUN", "1", 1);
+        }
+        std::vector<std::string> o_command;
+        o_command.push_back(s_path);
+        std::vector<char *> o_raw;
+        for (const std::string &s_argument : o_command) {
+            o_raw.push_back(const_cast<char *>(s_argument.c_str()));
+        }
+        o_raw.push_back(nullptr);
+        execv(s_path.c_str(), o_raw.data());
+        _exit(127);
+    }
+
+    show_notice("Starting " + s_label,
+                "process " + std::to_string(static_cast<long long>(i_child))
+                    + (b_fuse_available ? "" : " (extract and run)"));
+    return EXIT_OK;
+}
+
 int command_handle(const std::string &s_path) {
     const std::string s_name = embedded_name(s_path);
     const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
 
-    if (command_exists("zenity")
-        && (nullptr != std::getenv("DISPLAY") || nullptr != std::getenv("WAYLAND_DISPLAY"))) {
-        const std::string s_choice = capture_command(
-            {"zenity", "--list", "--radiolist", "--title=AppImage",
-             "--text=What do you want to do with " + s_label + "?", "--column=",
-             "--column=Action", "TRUE", "Run once", "FALSE", "Integrate", "FALSE",
-             "Inspect", "FALSE", "Cancel", "--height=260", "--width=420"});
-        if ("Integrate" == s_choice) {
-            const appimage_integrator_c o_integrator;
-            integration_options_o o_options;
-            o_options.tool_path = tool_path(o_integrator);
-            integration_plan_o o_plan;
-            if (!o_integrator.plan(s_path, o_options, o_plan)) {
-                capture_command({"zenity", "--error", "--text=" + o_plan.error});
-                return EXIT_ERROR;
-            }
-            std::string s_error;
-            if (!o_integrator.install(o_plan, s_error)) {
-                capture_command({"zenity", "--error", "--text=" + s_error});
-                return EXIT_ERROR;
-            }
-            capture_command({"zenity", "--info",
-                             "--text=Integrated " + s_label + " as " + o_plan.desktop_id});
-            return command_run(o_plan.installed_path, {}, false);
-        }
-        if ("Inspect" == s_choice) {
-            const std::string s_report =
-                capture_command({"appimage-inspect", "--desktop", s_path});
-            capture_command({"zenity", "--text-info", "--title=" + s_label, "--width=700",
-                             "--height=500", "--text=" + s_report});
-            return EXIT_OK;
-        }
-        if ("Cancel" == s_choice || s_choice.empty()) {
-            return EXIT_OK;
-        }
-        return command_run(s_path, {}, false);
+    if (!command_exists("zenity") || !has_display()) {
+        std::cout << "AppImage: " << s_label << '\n'
+                  << "  appimage-integrate run \"" << s_path << "\"\n"
+                  << "  appimage-integrate install \"" << s_path << "\"\n"
+                  << "  appimage-inspect \"" << s_path << "\"\n";
+        return EXIT_OK;
     }
 
-    std::cout << "AppImage: " << s_label << '\n'
-              << "  appimage-integrate run \"" << s_path << "\"\n"
-              << "  appimage-integrate install \"" << s_path << "\"\n"
-              << "  appimage-inspect \"" << s_path << "\"\n";
+    const std::string s_choice = capture_command(
+        {"zenity", "--list", "--radiolist", "--title=AppImage",
+         "--text=What do you want to do with " + s_label + "?", "--column=",
+         "--column=Action", "TRUE", "Run once", "FALSE", "Integrate", "FALSE", "Inspect",
+         "FALSE", "Cancel", "--height=280", "--width=460"});
+
+    if ("Run once" == s_choice) {
+        return run_detached_with_notice(s_path, s_name);
+    }
+
+    if ("Inspect" == s_choice) {
+        const appimage_integrator_c o_integrator;
+        integration_options_o o_options;
+        o_options.conflict_policy = integration_conflict_policy_e::fail;
+        o_options.tool_path = tool_path(o_integrator);
+        show_text_info(s_label, o_integrator.describe(s_path, o_options));
+        return EXIT_OK;
+    }
+
+    if ("Integrate" == s_choice) {
+        const appimage_integrator_c o_integrator;
+        integration_options_o o_options;
+        o_options.tool_path = tool_path(o_integrator);
+        integration_plan_o o_plan;
+        if (!o_integrator.plan(s_path, o_options, o_plan)) {
+            if (o_plan.conflicts.empty()) {
+                show_text_info("AppImage", "Cannot integrate " + s_label + ":\n\n" + o_plan.error);
+                return EXIT_ERROR;
+            }
+            std::string s_prompt = s_label + " is already represented by:\n";
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                s_prompt += "\n  " + o_conflict.path + "\n      (" + o_conflict.origin + ")";
+            }
+            const std::string s_action = capture_command(
+                {"zenity", "--list", "--radiolist", "--title=AppImage",
+                 "--text=" + s_prompt, "--column=", "--column=Action", "TRUE",
+                 "Replace existing", "FALSE", "Add alongside", "FALSE", "Cancel",
+                 "--height=340", "--width=680"});
+            if ("Replace existing" == s_action) {
+                o_options.conflict_policy = integration_conflict_policy_e::replace;
+            } else if ("Add alongside" == s_action) {
+                o_options.conflict_policy = integration_conflict_policy_e::add;
+            } else {
+                return EXIT_OK;
+            }
+            if (!o_integrator.plan(s_path, o_options, o_plan)) {
+                show_text_info("AppImage", "Cannot integrate " + s_label + ":\n\n" + o_plan.error);
+                return EXIT_ERROR;
+            }
+        }
+
+        std::string s_error;
+        if (!o_integrator.install(o_plan, s_error)) {
+            show_text_info("AppImage", "Cannot integrate " + s_label + ":\n\n" + s_error);
+            return EXIT_ERROR;
+        }
+
+        std::string s_report = "Integrated " + s_label + "\n\n";
+        s_report += o_integrator.describe_plan(o_plan);
+        s_report += "\nwhat was done:\n";
+        for (const integration_action_o &o_action : o_plan.actions) {
+            s_report += "  " + o_action.description + ": "
+                        + (o_action.target_path.empty() ? o_action.source_path
+                                                        : o_action.target_path)
+                        + "\n";
+        }
+        show_text_info("AppImage", s_report);
+        return run_detached_with_notice(o_plan.installed_path, s_name);
+    }
+
     return EXIT_OK;
 }
 
@@ -648,7 +816,9 @@ int main(int i_argument_count, char **p_arguments) {
     std::string s_identifier;
     bool b_move = true;
     bool b_icons = true;
+    integration_conflict_policy_e e_conflict_policy = integration_conflict_policy_e::fail;
     bool b_extract_and_run = false;
+    bool b_detached = false;
     bool b_json = false;
     bool b_assume_yes = false;
     bool b_remove_appimage = false;
@@ -684,8 +854,14 @@ int main(int i_argument_count, char **p_arguments) {
             b_move = false;
         } else if ("--no-icons" == s_argument) {
             b_icons = false;
+        } else if ("--replace" == s_argument) {
+            e_conflict_policy = integration_conflict_policy_e::replace;
+        } else if ("--add" == s_argument) {
+            e_conflict_policy = integration_conflict_policy_e::add;
         } else if ("--extract-and-run" == s_argument) {
             b_extract_and_run = true;
+        } else if ("--detached" == s_argument) {
+            b_detached = true;
         } else if ("--json" == s_argument) {
             b_json = true;
         } else if ("--yes" == s_argument) {
@@ -707,16 +883,26 @@ int main(int i_argument_count, char **p_arguments) {
 
     const appimage_integrator_c o_integrator;
 
-    if ("plan" == s_command || "explain" == s_command) {
+    if ("plan" == s_command) {
         if (s_path.empty()) {
-            std::cerr << "error: " << s_command << " needs an AppImage path\n";
+            std::cerr << "error: plan needs an AppImage path\n";
             return EXIT_USAGE;
         }
         return command_plan_or_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
-                          b_move, b_icons),
+                          b_move, b_icons, e_conflict_policy),
             b_json);
+    }
+    if ("explain" == s_command) {
+        if (s_path.empty()) {
+            std::cerr << "error: explain needs an AppImage path\n";
+            return EXIT_USAGE;
+        }
+        return command_explain(
+            s_path,
+            options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
+                          b_move, b_icons, e_conflict_policy));
     }
     if ("install" == s_command) {
         if (s_path.empty()) {
@@ -726,7 +912,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_install(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
-                          b_move, b_icons),
+                          b_move, b_icons, e_conflict_policy),
             b_assume_yes);
     }
     if ("uninstall" == s_command) {
@@ -743,6 +929,9 @@ int main(int i_argument_count, char **p_arguments) {
         if (s_path.empty()) {
             std::cerr << "error: run needs an AppImage path\n";
             return EXIT_USAGE;
+        }
+        if (b_detached) {
+            return run_detached_with_notice(s_path, embedded_name(s_path));
         }
         return command_run(s_path, o_run_arguments, b_extract_and_run);
     }

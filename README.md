@@ -85,11 +85,15 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | Command | Purpose |
 | ------- | ------- |
 | `appimage-inspect <AppImage>` | container facts, payload listing, and the embedded desktop entry |
+| `appimage-integrate explain <AppImage>` | a full human-readable report, including what install would write |
 | `appimage-integrate plan <AppImage>` | print exactly what integration would write; change nothing |
 | `appimage-integrate install <AppImage>` | integrate the AppImage, after confirmation |
-| `appimage-integrate uninstall --identifier ID` | reverse one integration |
+| `appimage-integrate install --replace <AppImage>` | replace an existing launcher, backing it up |
+| `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
+| `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
 | `appimage-integrate list` | list AppImages integrated by this tool |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
+| `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler |
 | `desktop-inspect <file.desktop>` | print one desktop entry |

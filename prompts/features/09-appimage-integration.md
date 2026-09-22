@@ -25,6 +25,12 @@ make every step printable, plannable, and reversible.
 - `audit` must report broken `Exec` and `TryExec` targets, broken context-action programs, unresolvable icons, absolute-path icons, invalid icon size directories, duplicate launchers for one application, AppImageLauncher provenance keys, and the current AppImage MIME defaults.
 - `run` must make the AppImage executable, forward all arguments to it, and use `APPIMAGE_EXTRACT_AND_RUN=1` when FUSE is unavailable.
 - The integrator must operate entirely under the user's home and must not require root.
+- The integrator must detect existing launchers that already represent the application and report each one with its origin.
+- The integrator must refuse an ambiguous install with a message that names the conflicting launchers and the `--replace` and `--add` choices.
+- `--replace` must back up each displaced launcher and its manifest, and `uninstall` must restore them.
+- `--add` must choose a distinct desktop file identifier instead of overwriting.
+- The integrator must retire the manifest of a launcher it upgrades in place, so `list` stays accurate.
+- The integrator must expose a human-readable description of the AppImage and of a plan.
 
 ## Behavior
 

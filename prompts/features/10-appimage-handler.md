@@ -21,6 +21,10 @@ default.
 - Unregistering must restore the recorded previous defaults and remove the handler entry.
 - `handler status` must print the current default for each type and whether this tool owns it.
 - The handler must not require root.
+- Run once must start the AppImage in its own session and report "Starting <name> as process <pid>" as a notice that persists for several seconds.
+- Inspect must show a non-empty report containing the container facts and the embedded desktop entry.
+- Integrate must show the list of what was written.
+- Integrate must offer Replace existing, Add alongside, and Cancel when another launcher already represents the application.
 
 ## Behavior
 

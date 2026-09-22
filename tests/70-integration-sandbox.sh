@@ -66,7 +66,8 @@ DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
 mkdir -p "$DIRECTORY_XDG/home" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
 
 run_in_sandbox() {
-    env HOME="$DIRECTORY_XDG/home" \
+    env -u DISPLAY -u WAYLAND_DISPLAY \
+        HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
         XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \
@@ -82,6 +83,10 @@ if grep -q 'warning: the embedded entry has no StartupWMClass' "$DIRECTORY_TEMP/
     fail_test "plan warned about StartupWMClass although the entry sets it"
 fi
 grep -q 'StartupWMClass=TestApp' "$DIRECTORY_TEMP/plan.txt" || fail_test "plan lost StartupWMClass"
+
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" run --detached "$DIRECTORY_TEMP/cli.AppImage" > "$DIRECTORY_TEMP/detached.txt" 2>&1
+grep -q 'Starting ' "$DIRECTORY_TEMP/detached.txt" || fail_test "run --detached did not report the start"
+grep -q 'process ' "$DIRECTORY_TEMP/detached.txt" || fail_test "run --detached did not report the process id"
 
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$DIRECTORY_TEMP/cli.AppImage" > /dev/null
 if [ ! -f "$FILE_DESKTOP" ]; then

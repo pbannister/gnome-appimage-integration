@@ -8,6 +8,7 @@
 * [ ] decide whether `run` should retry with `APPIMAGE_EXTRACT_AND_RUN=1` after a FUSE failure at runtime, not only when FUSE is absent.
 * [ ] decide whether integration should verify the `.sha256_sig` signature when the section is non-empty.
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
+* [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu; suffixing the Name with a version is the obvious option.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 
@@ -18,6 +19,14 @@
 * [ ] add a `--startup-wm-class-from-window` helper that reads `xprop` for the next window that appears.
 
 ## Recently Completed
+
+* [x] give Run once a persistent notice naming the application and the child process id.
+* [x] make Inspect show a non-empty report: container facts, payload root, embedded entry, and the install preview.
+* [x] make Integrate show the list of files written.
+* [x] detect existing launchers for the same application and offer Replace existing, Add alongside, or Cancel.
+* [x] add `--replace` and `--add`, with a manifest record so a replaced launcher is restored on uninstall.
+* [x] retire the manifest of a launcher upgraded in place, so `list` stays accurate.
+* [x] add `appimage-integrate explain` and `run --detached`, and cover them with `tests/90-integration-conflicts.sh`.
 
 * [x] document AppImage desktop-integration best practice in `documents/10-appimage-desktop-integration.md`.
 * [x] document every desktop entry parameter in `documents/11-desktop-entry-parameters.md`.

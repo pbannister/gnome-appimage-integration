@@ -47,6 +47,24 @@ struct integration_mime_package_o {
     std::string content;
 };
 
+// An existing launcher that already represents the same application.
+struct integration_conflict_o {
+    std::string desktop_id;
+    std::string path;
+    std::string name;
+    std::string appimage_path;
+    std::string origin;
+    bool managed = false;
+    bool upgrade = false;
+};
+
+// What to do when the application is already represented by another launcher.
+enum class integration_conflict_policy_e {
+    fail,
+    replace,
+    add,
+};
+
 // A complete, printable plan. Building a plan never writes to the filesystem.
 struct integration_plan_o {
     bool valid = false;
@@ -66,10 +84,12 @@ struct integration_plan_o {
     std::string extra_exec_arguments;
     std::string field_code;
     bool move_appimage = true;
+    bool replace_conflicts = false;
 
     std::vector<integration_icon_o> icons;
     std::vector<std::string> mime_types;
     std::vector<integration_mime_package_o> mime_package_files;
+    std::vector<integration_conflict_o> conflicts;
     std::vector<std::string> warnings;
     std::vector<std::string> notes;
     std::vector<integration_action_o> actions;
@@ -83,6 +103,7 @@ struct integration_options_o {
     std::string startup_wm_class_override;
     std::string icon_name_override;
     std::string tool_path;
+    integration_conflict_policy_e conflict_policy = integration_conflict_policy_e::fail;
     bool move_appimage = true;
     bool write_icons = true;
     bool make_executable = true;
@@ -132,6 +153,13 @@ public:
 
     // Inspect the real desktop and report everything that is inconsistent.
     std::vector<audit_finding_o> audit() const;
+
+    // A human-readable report of what this AppImage is and what install would write.
+    std::string describe(const std::string &s_appimage_path,
+                         const integration_options_o &o_options) const;
+
+    // A human-readable report of what an install did, or would do.
+    std::string describe_plan(const integration_plan_o &o_plan) const;
 
     const std::vector<std::string> &application_directories() const {
         return o_application_directories_;
