@@ -366,6 +366,22 @@ sed 's/X-AppImage-Version=1.0/X-AppImage-Version=1.1/' \
     > "$DIRECTORY_PAYLOAD_REPAIR_TWO/org.example.Repair.desktop"
 build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_REPAIR_TWO" \
     "$DIRECTORY_TEMP/Repair2.AppImage" gzip
+
+# The window decides which button is likely from how this file's version compares
+# with what is installed, so the tool reports both and the comparison.
+relation_of() { # <AppImage> -> "<this>|<installed>|<relation>"
+    run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$1" 2>/dev/null \
+        | python3 -c "import json,sys; data=json.load(sys.stdin); print('%s|%s|%s' % (data['version'], data['installed_version'], data['version_relation']))"
+}
+FILE_RELATION=$(relation_of "$DIRECTORY_TEMP/Repair2.AppImage")
+if [ "$FILE_RELATION" != "1.1|1.0|newer" ]; then
+    fail_test "1.1 against an installed 1.0 reported $FILE_RELATION instead of newer"
+fi
+FILE_RELATION=$(relation_of "$FILE_REPAIR_MANAGED")
+if [ "$FILE_RELATION" != "1.0|1.0|same" ]; then
+    fail_test "the installed file against itself reported $FILE_RELATION instead of same"
+fi
+
 if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" plan "$DIRECTORY_TEMP/Repair2.AppImage" \
     > "$DIRECTORY_TEMP/mode-conflict.txt" 2>&1; then
     fail_test "a newer build was integrated without being asked how to treat the existing one"
@@ -378,6 +394,12 @@ grep -q '^this-run: replace an existing launcher$' "$DIRECTORY_TEMP/mode-replace
     || fail_test "replacing a launcher is not labelled as a replacement"
 grep -q 'Repair2.AppImage' "$FILE_REPAIR_LAUNCHER" \
     || fail_test "the replacement launcher does not run the newer AppImage"
+# With the newer build installed, the older one is reported as older: that is what the
+# window shows to warn before it would put the older build in the newer one's place.
+FILE_RELATION=$(relation_of "$DIRECTORY_XDG/home/Applications/Repair.AppImage")
+if [ "$FILE_RELATION" != "1.0|1.1|older" ]; then
+    fail_test "1.0 against an installed 1.1 reported $FILE_RELATION instead of older"
+fi
 ls "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/backup/" | grep -q 'org.example.Repair.desktop' \
     || fail_test "the replaced launcher was not backed up"
 FILE_REPAIR_IDENTIFIER=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list \

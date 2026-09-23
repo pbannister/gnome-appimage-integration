@@ -371,6 +371,8 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"comment\":\"" << json_escape(o_plan.comment) << "\""
               << ",\"version\":\"" << json_escape(o_plan.version) << "\""
               << ",\"version_source\":\"" << json_escape(o_plan.version_source) << "\""
+              << ",\"installed_version\":\"" << json_escape(o_plan.installed_version) << "\""
+              << ",\"version_relation\":\"" << json_escape(o_plan.version_relation) << "\""
               << ",\"detection\":\"" << json_escape(o_plan.detection_name) << "\""
               << ",\"file_size\":" << o_plan.file_size
               << ",\"payload_size\":" << o_plan.payload_size

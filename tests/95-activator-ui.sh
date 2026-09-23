@@ -197,18 +197,23 @@ if [ "$1" = "explain" ] && [ "$2" != "--json" ]; then
     exit 0
 fi
 if [ "$1" = "explain" ]; then
-    # The mode is chosen by the caller, so one stub can describe either a conflict
-    # or an AppImage that is already where it belongs.
-    sed "s/@MODE@/${STUB_MODE:-another launcher already represents this application}/" <<'JSON'
-{"path":"/tmp/Probe.AppImage","name":"Probe App","generic_name":"Probe Tool",
- "comment":"Probe comment","version":"9.9.10","version_source":"X-AppImage-Version",
- "mode":"@MODE@","valid":false,"file_size":1024,"installed":"",
- "error":"1 existing launcher(s) already represent this application:\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\nchoose --replace to back them up and install this version in their place, or --add to install alongside them",
- "conflicts":[{"desktop_id":"org.example.Probe.desktop",
-               "path":"/tmp/org.example.Probe.desktop","name":"Probe App",
-               "origin":"this tool (upgrade)","upgrade":true,"repair":false,
-               "exec_exists":true,"version":"9.9.9","appimage":"/tmp/Probe.AppImage"}]}
-JSON
+    # The story of this AppImage is chosen by the caller: its version, the installed
+    # version, how the two compare, and how many launchers already exist.
+    printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
+        "$3" "${STUB_VERSION:-9.9.10}" \
+        "${STUB_MODE:-another launcher already represents this application}" \
+        "${STUB_INSTALLED_VERSION:-9.9.9}" "${STUB_RELATION:-same}"
+    CONFLICT_INDEX=1
+    while [ "$CONFLICT_INDEX" -le "${STUB_CONFLICTS:-1}" ]; do
+        if [ "$CONFLICT_INDEX" -gt 1 ]; then
+            printf ','
+        fi
+        printf '{"desktop_id":"org.example.Probe%s.desktop","path":"/tmp/org.example.Probe%s.desktop","name":"Probe App","origin":"this tool (upgrade)","upgrade":true,"repair":false,"exec_exists":true,"version":"%s","appimage":"/tmp/Probe.AppImage"}' \
+            "$CONFLICT_INDEX" "$CONFLICT_INDEX" "${STUB_INSTALLED_VERSION:-9.9.9}"
+        CONFLICT_INDEX=$((CONFLICT_INDEX + 1))
+    done
+    printf ']}\n'
+    exit 0
 fi
 exit 0
 STUB
@@ -217,9 +222,14 @@ chmod 755 "$FILE_STUB"
 # GDK_BACKEND is forced so the window can only appear on the virtual display: this
 # host runs a Wayland session, and GTK would otherwise prefer it.
 run_driven() {
-    # STUB_MODE decides what the stub reports; the assignment on the command line
-    # exports it, which a plain shell variable set for the function would not.
+    # The stub's story variables are named here so the test can set any of them for
+    # one run; naming them on the command line is what exports them to the stub, which
+    # a plain shell variable set for the function would not do.
     STUB_MODE="${STUB_MODE:-another launcher already represents this application}" \
+        STUB_VERSION="${STUB_VERSION:-9.9.10}" \
+        STUB_INSTALLED_VERSION="${STUB_INSTALLED_VERSION:-9.9.9}" \
+        STUB_RELATION="${STUB_RELATION:-same}" \
+        STUB_CONFLICTS="${STUB_CONFLICTS:-1}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
@@ -309,11 +319,66 @@ grep -q '^State:     properly integrated$' "$DIRECTORY_TEMP/integrated.txt" \
     || fail_test "the Status tab does not report a properly integrated AppImage"
 grep -q 'Nothing more to do' "$DIRECTORY_TEMP/integrated.txt" \
     || fail_test "the Status tab does not say that nothing is left to do"
-# The first view is ordered by how likely the owner is to use each button, and the
-# most likely one carries the GNOME HIG's suggested-action style. This is read from
-# the real widget row, so the order and the style are both checked.
-grep -q '^=== buttons: Integrate\* Run once Inspect Close ===$' "$DIRECTORY_TEMP/integrated.txt" \
-    || fail_test "the first view is not Integrate, Run once, Inspect, Close with Integrate suggested"
+# A properly integrated AppImage is the "same version, same file" case: nothing to
+# do, so Close is the likely button.
+grep -q '^=== buttons: Integrate Run once Inspect Close\* ===$' "$DIRECTORY_TEMP/integrated.txt" \
+    || fail_test "a complete integration does not suggest Close"
+
+# The owner's story, read from the real widget row and Name field. The first view:
+# Integrate unless there is nothing to do or this build is older than what is
+# installed; the choice: Add alongside when this build is older or when more than one
+# launcher already exists, and in those two cases the version joins the name.
+STORY_MODE="another launcher already represents this application"
+story_buttons() { # <relation> <conflicts> <action> -> the row as printed
+    STUB_RELATION="$1" STUB_CONFLICTS="$2" run_driven --activate "$3" 2>/dev/null \
+        | grep -m1 '^=== buttons:'
+}
+expect_row() { # <label> <expected words> <relation> <conflicts> <action>
+    ROW=$(story_buttons "$3" "$4" "$5")
+    if [ "$ROW" != "=== buttons:$2 ===" ]; then
+        fail_test "$1: expected '=== buttons:$2 ===', got '$ROW'"
+    fi
+}
+
+# 1. The same version and the same file: nothing to do.
+STUB_MODE="properly integrated" STUB_RELATION=same run_driven --activate back \
+    > "$DIRECTORY_TEMP/story-same-file.txt" 2>&1
+grep -q '^=== buttons: Integrate Run once Inspect Close\* ===$' "$DIRECTORY_TEMP/story-same-file.txt" \
+    || fail_test "same version and same file should suggest Close"
+# 2. The same version, a different file: integrate it.
+expect_row "same version, different file" " Integrate* Run once Inspect Close" same 1 back
+# 3. A newer version: integrate it.
+expect_row "newer version" " Integrate* Run once Inspect Close" newer 1 back
+# 4. An older version: leave the newer installation alone, and say so clearly.
+STUB_RELATION=older STUB_INSTALLED_VERSION=26.3.0 run_driven --activate back \
+    > "$DIRECTORY_TEMP/story-older.txt" 2>&1
+grep -q '^=== buttons: Integrate Run once Inspect Close\* ===$' "$DIRECTORY_TEMP/story-older.txt" \
+    || fail_test "an older version should suggest Close"
+grep -q 'This AppImage is older than the installed version.' "$DIRECTORY_TEMP/story-older.txt" \
+    || fail_test "an older version is not visible in Status"
+grep -q 'Close is suggested: the installed version is newer.' "$DIRECTORY_TEMP/story-older.txt" \
+    || fail_test "Status does not explain why Close is suggested"
+# 5. Integrating an older version: keep the newer one, under a name with the version.
+STUB_RELATION=older STUB_INSTALLED_VERSION=26.3.0 run_driven --activate integrate \
+    > "$DIRECTORY_TEMP/story-older-choice.txt" 2>&1
+grep -q '^=== buttons: Replace existing Add alongside\* Back ===$' "$DIRECTORY_TEMP/story-older-choice.txt" \
+    || fail_test "integrating an older version should suggest Add alongside"
+grep -q '^=== name field: Probe App 9.9.10 ===$' "$DIRECTORY_TEMP/story-older-choice.txt" \
+    || fail_test "the older version was not appended to the name"
+# 6. More than one launcher: the same treatment.
+STUB_RELATION=same STUB_CONFLICTS=2 run_driven --activate integrate \
+    > "$DIRECTORY_TEMP/story-many.txt" 2>&1
+grep -q '^=== buttons: Replace existing Add alongside\* Back ===$' "$DIRECTORY_TEMP/story-many.txt" \
+    || fail_test "more than one launcher should suggest Add alongside"
+grep -q '^=== name field: Probe App 9.9.10 ===$' "$DIRECTORY_TEMP/story-many.txt" \
+    || fail_test "the version was not appended to the name with several launchers"
+# 7. A newer version with one launcher: replace it, and leave the name alone.
+STUB_RELATION=newer STUB_CONFLICTS=1 run_driven --activate integrate \
+    > "$DIRECTORY_TEMP/story-newer-choice.txt" 2>&1
+grep -q '^=== buttons: Replace existing\* Add alongside Back ===$' "$DIRECTORY_TEMP/story-newer-choice.txt" \
+    || fail_test "a newer version with one launcher should suggest Replace existing"
+grep -q '^=== name field: Probe App ===$' "$DIRECTORY_TEMP/story-newer-choice.txt" \
+    || fail_test "the name gained a version although nothing has to be told apart"
 if grep -q 'This application is already installed.' "$DIRECTORY_TEMP/integrated.txt"; then
     fail_test "a properly integrated AppImage still offers to replace what is correct"
 fi

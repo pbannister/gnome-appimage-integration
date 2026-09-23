@@ -717,6 +717,12 @@ public:
                   << (gtk_widget_has_css_class(p_child, "suggested-action") ? "*" : "");
         }
         o_out << " ===\n";
+        // The Name field, so a test can read what an action prefilled.
+        o_out << "=== name field: "
+              << (gtk_widget_get_visible(p_name_box_)
+                      ? gtk_editable_get_text(GTK_EDITABLE(p_name_entry_))
+                      : "(hidden)")
+              << " ===\n";
         o_out << "=== highlighted ===";
         if (nullptr != p_significant_tag_) {
             GtkTextIter o_iter;
@@ -788,6 +794,25 @@ private:
     bool is_missing() const {
         std::error_code o_error;
         return !fs::exists(s_path_, o_error);
+    }
+
+    bool is_complete_integration() const {
+        return MODE_INTEGRATED == o_data_.string_or("mode");
+    }
+
+    // How this file's version compares with what is already installed.
+    std::string version_relation() const {
+        return o_data_.string_or("version_relation");
+    }
+
+    bool is_older() const {
+        return "older" == version_relation();
+    }
+
+    // Close is the likely action when there is nothing to do, or when integrating
+    // would put an older build in place of a newer one.
+    bool close_is_suggested() const {
+        return is_complete_integration() || is_older();
     }
 
     std::string display_name() const {
@@ -920,6 +945,15 @@ private:
         std::vector<std::pair<std::string, std::string>> o_rows;
         o_rows.emplace_back("File", s_path_);
         o_rows.emplace_back("Size", human_size(o_data_.number_or("file_size", 0)));
+        const std::string s_installed_version = o_data_.string_or("installed_version");
+        const std::string s_relation = version_relation();
+        if (!s_installed_version.empty()) {
+            std::string s_value = s_installed_version;
+            if (!s_relation.empty() && "unknown" != s_relation) {
+                s_value += "  (this file is " + s_relation + ")";
+            }
+            o_rows.emplace_back("Installed version", s_value);
+        }
         // What Integrate would do with this file, in the tool's own words.
         const std::string s_mode = o_data_.string_or("mode");
         if (!s_mode.empty()) {
@@ -985,10 +1019,11 @@ private:
     }
 
     void show_initial_buttons() {
-        set_buttons({{"Integrate", action_e::integrate, true},
+        const bool b_close = close_is_suggested();
+        set_buttons({{"Integrate", action_e::integrate, !b_close},
                      {"Run once", action_e::run_once, false},
                      {"Inspect", action_e::inspect, false},
-                     {"Close", action_e::close, false}});
+                     {"Close", action_e::close, b_close}});
     }
 
     // -- the three logs -----------------------------------------------------
@@ -1084,8 +1119,16 @@ private:
         gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), static_cast<int>(e_tab));
     }
 
-    void show_name_field() {
-        gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), display_name().c_str());
+    void show_name_field(bool b_with_version) {
+        std::string s_name = display_name();
+        const std::string s_version = o_data_.string_or("version");
+        // A version in the name is what tells two launchers for one application
+        // apart, so it is added whenever the new launcher must live alongside one.
+        if (b_with_version && !s_version.empty()
+            && std::string::npos == s_name.find(s_version)) {
+            s_name += " " + s_version;
+        }
+        gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_name.c_str());
         gtk_widget_set_visible(p_name_box_, TRUE);
     }
 
@@ -1152,6 +1195,20 @@ private:
         o_text << "Launcher:  " << (s_desktop_id.empty() ? "(none yet)" : s_desktop_id) << '\n';
         o_text << "File:      " << s_path_ << (is_missing() ? "  [MISSING]" : "") << '\n';
 
+        const std::string s_installed_version = o_data_.string_or("installed_version");
+        const std::string s_relation = version_relation();
+        if (!s_installed_version.empty() && ("older" == s_relation || "newer" == s_relation)) {
+            o_text << "\nThis AppImage is " << s_relation << " than the installed version.\n"
+                   << "  this file:  "
+                   << (o_data_.string_or("version").empty() ? "(unknown)"
+                                                           : o_data_.string_or("version"))
+                   << '\n'
+                   << "  installed:  " << s_installed_version << '\n';
+            if ("older" == s_relation) {
+                o_text << "Close is suggested: the installed version is newer.\n";
+            }
+        }
+
         const std::vector<value_c> o_conflicts = conflicts();
         if (MODE_INTEGRATED == s_mode) {
             // Nothing is wrong and nothing is left to do; do not offer to replace
@@ -1186,6 +1243,15 @@ private:
                 const std::string s_version = o_data_.string_or("version");
                 if (!s_version.empty()) {
                     o_text << "This AppImage is version " << s_version << ".\n\n";
+                }
+                if (b_suggest_add_alongside_) {
+                    o_text << "Add alongside is suggested";
+                    if (o_conflicts.size() > 1) {
+                        o_text << ": " << o_conflicts.size() << " launchers already exist";
+                    } else {
+                        o_text << ": this AppImage is older than the installed version";
+                    }
+                    o_text << ".\n";
                 }
                 if (b_all_upgrade) {
                     if (b_any_repair) {
@@ -1405,17 +1471,21 @@ private:
             run_install({});
             return;
         }
+        const std::vector<value_c> o_conflicts = conflicts();
         // The choice, and what each choice does, is status: it is what the window is
-        // waiting for.
+        // waiting for.  Add alongside is the likely choice when this build is older
+        // than what is installed, or when there is more than one launcher to keep.
+        const bool b_add_alongside = is_older() || o_conflicts.size() > 1;
         b_prompt_active_ = true;
+        b_suggest_add_alongside_ = b_add_alongside;
         s_status_note_.clear();
         refresh_status();
         show_tab(tab_e::status);
-        show_name_field();
-        // Ordered by likely use like the first view, with the choice that resolves
-        // the conflict suggested.  Status explains both before either is clicked.
-        set_buttons({{"Replace existing", action_e::replace_existing, true},
-                     {"Add alongside", action_e::add_alongside, false},
+        show_name_field(b_add_alongside);
+        // Ordered by likely use like the first view, with the likely choice
+        // suggested.  Status explains both before either is clicked.
+        set_buttons({{"Replace existing", action_e::replace_existing, !b_add_alongside},
+                     {"Add alongside", action_e::add_alongside, b_add_alongside},
                      {"Back", action_e::back, false}});
     }
 
@@ -1489,6 +1559,7 @@ private:
     // Whether the conflict choice is on screen, and whether anything has been done
     // yet; both decide what the Status and Actions tabs say.
     bool b_prompt_active_ = false;
+    bool b_suggest_add_alongside_ = false;
     bool b_actions_empty_ = true;
     std::string s_status_note_;
 };

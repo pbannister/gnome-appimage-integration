@@ -18,8 +18,7 @@
 * [ ] consider a `migrate` subcommand that installs this tool's launcher and removes a named older one.
 * [ ] add a `--startup-wm-class-from-window` helper that reads `xprop` for the next window that appears.
 
-## Recently Completed
-
+* [x] decide the likely button from the version relation and the launcher count: Close for a complete or older file, Integrate otherwise, and Add alongside (with the version in the name) when an older file or several launchers must coexist.
 * [x] emphasise the `This run` and `Error` fields in the Discovered log, and order the conflict choice Replace existing, Add alongside, Back.
 * [x] order the first view's buttons by likely use (Integrate first) and mark the likely action with the HIG suggested-action style.
 * [x] report a complete integration as `properly integrated` in the details row and the Status tab, instead of implying work remains.

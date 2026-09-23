@@ -7,6 +7,7 @@
 #include "desktop/mime_association_reader.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -68,10 +69,118 @@ std::string trim_spaces(const std::string &s_text) {
     return s_text.substr(i_begin, i_end - i_begin);
 }
 
+// A version string, split into the runs a person reads: digits stay together and
+// compare as numbers, letters stay together and compare case-insensitively, and
+// separators are not tokens.  So 1.1.3 < 1.1.10, and 26.3.0 > 5.13.0.
+std::vector<std::string> version_tokens(const std::string &s_version) {
+    std::vector<std::string> o_tokens;
+    std::string s_current;
+    bool b_current_is_digits = false;
+    const auto flush = [&o_tokens, &s_current, &b_current_is_digits]() {
+        if (!s_current.empty()) {
+            o_tokens.push_back(s_current);
+            s_current.clear();
+        }
+        b_current_is_digits = false;
+    };
+    for (const char c_character : s_version) {
+        const unsigned char u_character = static_cast<unsigned char>(c_character);
+        const bool b_digits = 0 != std::isdigit(u_character);
+        const bool b_letters = 0 != std::isalpha(u_character);
+        if (!b_digits && !b_letters) {
+            flush();
+            continue;
+        }
+        if (!s_current.empty() && b_digits != b_current_is_digits) {
+            flush();
+        }
+        if (s_current.empty()) {
+            b_current_is_digits = b_digits;
+        }
+        s_current += static_cast<char>(b_digits ? c_character
+                                                : static_cast<char>(std::tolower(u_character)));
+    }
+    flush();
+    return o_tokens;
+}
+
+bool is_digit_token(const std::string &s_token) {
+    for (const char c_character : s_token) {
+        if (0 == std::isdigit(static_cast<unsigned char>(c_character))) {
+            return false;
+        }
+    }
+    return !s_token.empty();
+}
+
+// Compare two digit runs as numbers, without converting them.
+int compare_digit_tokens(const std::string &s_left, const std::string &s_right) {
+    std::size_t i_left = s_left.find_first_not_of('0');
+    std::size_t i_right = s_right.find_first_not_of('0');
+    const std::string s_left_trimmed =
+        std::string::npos == i_left ? std::string() : s_left.substr(i_left);
+    const std::string s_right_trimmed =
+        std::string::npos == i_right ? std::string() : s_right.substr(i_right);
+    if (s_left_trimmed.size() != s_right_trimmed.size()) {
+        return s_left_trimmed.size() < s_right_trimmed.size() ? -1 : 1;
+    }
+    if (s_left_trimmed == s_right_trimmed) {
+        return 0;
+    }
+    return s_left_trimmed < s_right_trimmed ? -1 : 1;
+}
+
+// Compare two version strings, oldest first.  A position with no token counts as
+// zero against a number, and as a release against letters, so 1.0 < 1.0.1 and
+// 1.0rc1 < 1.0.  Versions that are not comparable (empty, or no shared shape) still
+// get a stable answer rather than an exception.
+int compare_versions(const std::string &s_left, const std::string &s_right) {
+    const std::vector<std::string> o_left = version_tokens(s_left);
+    const std::vector<std::string> o_right = version_tokens(s_right);
+    const std::size_t u_count = std::max(o_left.size(), o_right.size());
+    for (std::size_t i_index = 0; i_index < u_count; i_index++) {
+        const bool b_left_present = i_index < o_left.size();
+        const bool b_right_present = i_index < o_right.size();
+        const std::string s_left_token = b_left_present ? o_left[i_index] : std::string();
+        const std::string s_right_token = b_right_present ? o_right[i_index] : std::string();
+        if (!b_left_present && !b_right_present) {
+            return 0;
+        }
+        const bool b_left_digits = b_left_present && is_digit_token(s_left_token);
+        const bool b_right_digits = b_right_present && is_digit_token(s_right_token);
+        if (b_left_present != b_right_present) {
+            // The missing side is a release: it beats letters and loses to a number.
+            const bool b_present_is_digits = b_left_present ? b_left_digits : b_right_digits;
+            if (b_present_is_digits) {
+                const std::string &s_number = b_left_present ? s_left_token : s_right_token;
+                const int i_compare = compare_digit_tokens("0", s_number);
+                if (0 != i_compare) {
+                    return b_left_present ? i_compare : -i_compare;
+                }
+                continue;
+            }
+            return b_left_present ? -1 : 1;
+        }
+        if (b_left_digits && b_right_digits) {
+            const int i_compare = compare_digit_tokens(s_left_token, s_right_token);
+            if (0 != i_compare) {
+                return i_compare;
+            }
+            continue;
+        }
+        if (b_left_digits != b_right_digits) {
+            return b_left_digits ? 1 : -1;
+        }
+        if (s_left_token != s_right_token) {
+            return s_left_token < s_right_token ? -1 : 1;
+        }
+    }
+    return 0;
+}
+
 // A Name= value is shown in the menu and may not contain a newline; any control
 // character becomes a single separating space.
-std::string sanitize_name(const std::string &s_name) {
-    std::string s_result;
+std::string sanitize_name(const std::string &s_name) {    std::string s_result;
     for (const char c_character : s_name) {
         const unsigned char u_character = static_cast<unsigned char>(c_character);
         if (0x20 > u_character || 0x7f == u_character) {
@@ -1009,6 +1118,27 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_plan.startup_wm_class,
             strip_extension(fs::path(o_plan.appimage_path).filename().string()),
             o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed);
+
+        // How this file's version compares with what is already installed.  The
+        // newest installed version is the one that matters: it is what the owner
+        // would give up by integrating an older build.
+        for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+            if (o_conflict.version.empty()) {
+                continue;
+            }
+            if (o_plan.installed_version.empty()
+                || 0 < compare_versions(o_conflict.version, o_plan.installed_version)) {
+                o_plan.installed_version = o_conflict.version;
+            }
+        }
+        if (o_plan.version.empty() || o_plan.installed_version.empty()) {
+            o_plan.version_relation = "unknown";
+        } else {
+            const int i_relation = compare_versions(o_plan.version, o_plan.installed_version);
+            o_plan.version_relation =
+                0 == i_relation ? "same" : (0 < i_relation ? "newer" : "older");
+        }
+
         bool b_has_real_conflict = false;
         for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
             if (!o_conflict.upgrade) {

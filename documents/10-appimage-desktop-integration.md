@@ -75,7 +75,26 @@ AppImage is an executable. Two conventions compete:
 
 Recommended: choose one managed directory, default `$HOME/Applications`, and let the tool move the file there.
 
-### The Things Integrate Can Report
+#### Which Button the Window Suggests
+
+The tool reports `version` (this file) and `installed_version` plus `version_relation`
+(`newer`, `older`, `same`, or `unknown`) in `explain --json`, comparing the newest version among
+the launchers that already represent the application. The activator uses that to point at the
+likely next action, following the GNOME HIG's suggested-action style:
+
+| Situation | First view | After Integrate |
+| --------- | ---------- | --------------- |
+| same version, same file | `Close` suggested: nothing to do | — |
+| same version, a different file | `Integrate` suggested | `Replace existing`, name unchanged |
+| newer version | `Integrate` suggested | `Replace existing`, name unchanged |
+| older version | `Close` suggested, with the versions shown in Status | `Add alongside`, with the version appended to the name |
+| more than one launcher exists | `Integrate` suggested | `Add alongside`, with the version appended to the name |
+
+An older file never replaces a newer installation on a click: Close is the likely action, Status
+prints "This AppImage is older than the installed version" with both versions, and integrating
+anyway keeps the newer launcher and writes the new one under a name that carries the version.
+
+## The Things Integrate Can Report
 
 `appimage-integrate` says in one line which of them a run is, under `this-run:` in the plan and
 in the `mode` field of `explain --json`, and the graphical activator shows the same line in its

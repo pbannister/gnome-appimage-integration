@@ -95,6 +95,10 @@ struct integration_plan_o {
     std::string comment;
     std::string version;
     std::string version_source;
+    // The newest version among the launchers that already represent this application,
+    // and how this file compares with it: newer, older, same, or unknown.
+    std::string installed_version;
+    std::string version_relation;
     std::string detection_name;
     std::string compression_name;
     // Which operation this plan performs, in the user's words: a new integration,

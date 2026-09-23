@@ -36,6 +36,10 @@ default.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
 - Each action must raise the page that answers it: Integrate the Status page, Inspect the Discovered page, and Run once or Run now the Actions page.
 - The first view's buttons must be ordered by how likely the owner is to use them: Integrate, Run once, Inspect, Close.
+- `explain --json` must report the newest installed version and how this file compares with it: `newer`, `older`, `same`, or `unknown`.
+- Close must be the suggested first-view action when the file is already integrated, and when it is older than the installed version.
+- An older file must be clearly visible in the Status log, with both versions, and integrating it anyway must suggest Add alongside and append its version to the name.
+- Add alongside must be suggested, with the version appended to the name, when more than one launcher already represents the application.
 - The most likely action must carry the GNOME HIG suggested-action style, and only one button in a view may carry it: Integrate on the first view, Run now after a successful integration, and Replace existing on the conflict choice, which is ordered Replace existing, Add alongside, Back.
 - A conflict must be described from the owner's point of view: the mode says "another launcher already represents this application", not that the run is blocked.
 - An AppImage that is in its managed directory, whose launcher runs it, and which has a record must be reported as `properly integrated`; the details row and the Status tab must say so and must not offer to replace what is already correct.
