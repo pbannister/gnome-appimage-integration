@@ -72,15 +72,33 @@ GNOME HIG's
 [suggested-action](https://developer.gnome.org/hig/patterns/controls/buttons.html) style, which
 "highlights a button for affirmative action … to draw attention to the next step in a process".
 The HIG allows one suggested button per view, so after a successful integration the row is
-`Run now, Inspect, Close` with Run now suggested, and the conflict choices carry none: which of
-Replace existing and Add alongside is likely depends on what the launcher is, and Status explains
-both.
+`Run now, Inspect, Close` with Run now suggested, and the conflict choice is
+`Replace existing, Add alongside, Back` with Replace existing suggested.
 
 No button is bound to Return. The HIG permits leaving the default unset, and a keystroke should
 not move files; the suggestion is a visual hint.
 
 A driven run prints the real widget row with `*` on the suggested button, and the test asserts
-both rows, so the order and the style are checked against the widgets rather than the source text.
+every row, so the order and the style are checked against the widgets rather than the source text.
+
+## Emphasising the Two Fields That Decide
+
+The Discovered log became long enough that the two lines the owner acts on were lost in it. The
+`This run` and `Error` fields are now bold, in the facts the window composes and in the report
+Inspect appends, and nothing else is: the match is by case-insensitive prefix, so `This run …` and
+`this run: …` are both caught, as are `Error …` and `install preview unavailable: …`. The tag is
+re-applied whenever the log changes, because replacing text drops tag applications.
+
+A driven run prints the tagged lines under `=== highlighted ===`, and the test asserts that both
+fields appear there and that a plain field such as `Detection` does not.
+
+## The Conflict Choice, Reordered
+
+`Back, Add alongside, Replace existing` became `Replace existing, Add alongside, Back`, with
+Replace existing suggested. That is the owner's ordering rule — the most likely action first —
+applied to this row as it was to the first view. The GNOME HIG's dialog guideline puts the cancel
+button first, but that rule is about modal dialogs; this window is a modeless utility window whose
+Status tab explains both choices before either is clicked, so the owner's rule governs here.
 
 ## Verification
 
@@ -92,3 +110,4 @@ run over every AppImage in `~/Downloads/Applications` to read the modes above.
 - `a021f7b` Report a complete integration as properly integrated
 - `1317732` Show the Status tab after Integrate
 - `a0554d8` Order the first view's buttons by likely use, and hint Integrate
+- `fa32d8b` Emphasise This run and Error, and put Replace existing first
