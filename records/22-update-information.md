@@ -119,3 +119,4 @@ group and the audit findings. No outside network is used by any test.
 ## Commits
 
 - `0487dca` Resolve and check the AppImage update information
+- `1d2f84a` Record: the update information work
