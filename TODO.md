@@ -10,7 +10,8 @@
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
 * [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu; suffixing the Name with a version is the obvious option.
 * [ ] decide whether the zenity fallback should persist a window size at all; zenity cannot report a dragged size, so only the GTK handler can remember one.
-* [ ] decide whether to require `xdotool` for position restore on X11 sessions, or to leave it optional as it is now. Wayland cannot restore position at all.
+* [ ] decide whether the handler should set `org.gnome.mutter center-new-windows true` on install; it is a session-wide setting, so it is left to the owner.
+* [ ] consider offering a one-command way to run the handler under XWayland with `xdotool` for owners who want saved window positions.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 

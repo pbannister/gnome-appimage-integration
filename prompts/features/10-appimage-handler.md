@@ -31,7 +31,9 @@ default.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
 - Inspect must write its details into that text area.
 - Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
-- The window must remember its size on resize and on close.
+- The window must remember its size on resize and on close, and honour a remembered size even when it is larger than the reported work area; only the position is clamped on-screen.
+- The handler must set its program name to `appimage-handler`, and the entry must set `StartupWMClass=appimage-handler`, so the dock matches the running window to the entry and shows the handler icon.
+- When conflicts exist, the main window must add only "This application is already installed." and "Integrate will show details, then offer to replace or add alongside."
 - The window must be centred where the platform permits it, and must remember its position where the platform permits it; a restored geometry must be clamped so the window is entirely on the screen.
 - Position cannot be restored under Wayland, which does not let a client choose its own placement; the handler must not fail when that is the case.
 - The handler desktop entry must use the project's own AppImage Handler icon, installed into the user icon theme, and the AppImage MIME types must name that icon as their generic icon.

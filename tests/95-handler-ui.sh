@@ -70,6 +70,8 @@ if [ ! -f "$FILE_HANDLER_ENTRY" ]; then
 fi
 grep -q '^Icon=appimage-handler$' "$FILE_HANDLER_ENTRY" \
     || fail_test "the handler entry does not use the AppImage Handler icon"
+grep -q '^StartupWMClass=appimage-handler$' "$FILE_HANDLER_ENTRY" \
+    || fail_test "the handler entry has no StartupWMClass, so the dock cannot match the window"
 if [ ! -f "$FILE_HANDLER_ICON" ]; then
     fail_test "handler install did not install the handler icon"
 fi

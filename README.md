@@ -116,9 +116,23 @@ When it is absent, the handler falls back to zenity, and then to printing the eq
 It is a single window: the application name, version, generic name, and comment, then File, Size, and Will install as, then the action buttons, then one large text area that Inspect and Integrate write into.
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
 `handler install` gives the handler its own AppImage Handler icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the handler share one icon.
-It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json`, and is centred where the platform allows.
-A window position is saved and restored only where a client may choose it: Wayland deliberately does not, so on a Wayland session the compositor places the window.
-On X11, or under XWayland with `GDK_BACKEND=x11`, the handler restores the position with `xdotool` when it is installed, clamped so the window stays on the screen.
+It sets its program name to `appimage-handler` and the entry sets `StartupWMClass=appimage-handler`, so the dock matches the running window to the entry instead of showing a generic icon.
+It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json` and honours it on the next run; the remembered position is clamped so the window stays on the screen.
+
+## Window Placement
+
+A client cannot choose its own position under Wayland, and GNOME's `org.gnome.mutter center-new-windows` is off by default, so the handler opens where the compositor puts it.
+The practical choices are:
+
+| Choice | How | Trade-off |
+| ------ | --- | --------- |
+| Let the compositor place it | do nothing | no control over position |
+| Centre every new window | `gsettings set org.gnome.mutter center-new-windows true` | a session-wide setting, not specific to this handler |
+| Position it from the client | install `xdotool` and run the handler under XWayland with `GDK_BACKEND=x11` | position and centring then work, at the cost of XWayland |
+| Use a window-placement extension | install a GNOME Shell extension that places windows by app id | another component to maintain |
+| Anchor it as an overlay | a layer-shell client | GNOME does not implement `wlr-layer-shell`, so this is not available on GNOME |
+
+Position is saved and restored only through the XWayland path; on a Wayland session the handler still remembers and restores the size.
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
 
 ## Project Pages (publishing conventions)

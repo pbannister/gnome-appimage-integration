@@ -39,19 +39,38 @@ def state_directory():
 
 
 def work_area():
-    """The usable screen rectangle as (x, y, width, height)."""
+    """The union of the monitor work areas as (x, y, width, height), or None.
+
+    None means the platform did not report a usable area, in which case the
+    caller must not clamp anything.
+    """
     try:
         from gi.repository import Gdk
 
         display = Gdk.Display.get_default()
         if display is None:
-            raise RuntimeError("no display")
+            return None
         monitors = display.get_monitors()
-        monitor = monitors.get_item(0)
-        rectangle = monitor.get_workarea()
-        return rectangle.x, rectangle.y, rectangle.width, rectangle.height
+        count = monitors.get_n_items()
+        if count <= 0:
+            return None
+        left = top = right = bottom = None
+        for index in range(count):
+            rectangle = monitors.get_item(index).get_workarea()
+            if left is None:
+                left, top = rectangle.x, rectangle.y
+                right = rectangle.x + rectangle.width
+                bottom = rectangle.y + rectangle.height
+            else:
+                left = min(left, rectangle.x)
+                top = min(top, rectangle.y)
+                right = max(right, rectangle.x + rectangle.width)
+                bottom = max(bottom, rectangle.y + rectangle.height)
+        if left is None:
+            return None
+        return left, top, right - left, bottom - top
     except Exception:
-        return 0, 0, 1920, 1080
+        return None
 
 
 def x11_window_id(window):
@@ -116,7 +135,10 @@ def center_window(window):
     """
     if shutil.which("xdotool") is None or x11_window_id(window) is None:
         return False
-    area_x, area_y, area_width, area_height = work_area()
+    area = work_area()
+    if area is None:
+        return False
+    area_x, area_y, area_width, area_height = area
     try:
         width = window.get_width() or DEFAULT_WIDTH
         height = window.get_height() or DEFAULT_HEIGHT
@@ -159,7 +181,7 @@ class Geometry:
         return value if isinstance(value, dict) else {}
 
     def save(self, key, window):
-        entry = self.entry(key)
+        entry = dict(self.entry(key))
         try:
             width = window.get_width()
             height = window.get_height()
@@ -171,30 +193,45 @@ class Geometry:
         position = x11_position(window)
         if position is not None:
             entry["x"], entry["y"] = position
-        self.data[key] = entry
-        self._store()
+        if entry != self.entry(key):
+            self.data[key] = entry
+            self._store()
 
     def apply(self, key, window):
         entry = self.entry(key)
-        area_x, area_y, area_width, area_height = work_area()
         width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
         try:
             width = int(entry.get("width", 0)) or DEFAULT_WIDTH
             height = int(entry.get("height", 0)) or DEFAULT_HEIGHT
         except Exception:
             width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
-        width = max(MINIMUM_WIDTH, min(width, area_width))
-        height = max(MINIMUM_HEIGHT, min(height, area_height))
+        # The remembered size is honoured; only a corrupt value is bounded.
+        width = max(MINIMUM_WIDTH, min(width, 16384))
+        height = max(MINIMUM_HEIGHT, min(height, 16384))
         window.set_default_size(width, height)
+
+        area = work_area()
+        if area is not None:
+            # Record what the platform reported, so the clamp is never a mystery.
+            entry["screen"] = {
+                "x": area[0],
+                "y": area[1],
+                "width": area[2],
+                "height": area[3],
+            }
+            if entry != self.entry(key):
+                self.data[key] = entry
+                self._store()
 
         x = entry.get("x")
         y = entry.get("y")
-        if isinstance(x, int) and isinstance(y, int):
-            x = max(area_x, min(x, area_x + area_width - width))
-            y = max(area_y, min(y, area_y + area_height - height))
+        if area is not None and isinstance(x, int) and isinstance(y, int):
+            # Keep the whole window on the screen.
+            x = max(area[0], min(x, area[0] + area[2] - width))
+            y = max(area[1], min(y, area[1] + area[3] - height))
             GLib.idle_add(lambda: (x11_move(window, x, y), False)[1])
         else:
-            # No remembered position: behave like a dialog and ask to be centred.
+            # No usable position: behave like a dialog and ask to be centred.
             GLib.idle_add(lambda: (center_window(window), False)[1])
 
     def watch(self, key, window):
@@ -204,12 +241,15 @@ class Geometry:
             self.save(key, window)
             return False
 
-        for parameter in ("default-width", "default-height"):
+        for parameter in ("default-width", "default-height", "maximized"):
             try:
                 window.connect("notify::%s" % parameter, on_change)
             except Exception:
                 pass
         window.connect("close-request", lambda _window: (self.save(key, window), False)[1])
+
+        # Autosave, so a size is never lost when the close path does not run.
+        GLib.timeout_add_seconds(2, lambda: (self.save(key, window), True)[1])
 
 
 def run_tool(tool, arguments):
@@ -360,7 +400,7 @@ class Handler:
             notice = Gtk.Label()
             notice.set_markup(
                 "<b>This application is already installed.</b>\n"
-                "Integrate will offer to replace it or add alongside it."
+                "Integrate will show details, then offer to replace or add alongside."
             )
             notice.set_xalign(0)
             notice.set_wrap(True)
@@ -534,6 +574,11 @@ def main(argv):
             file=sys.stderr,
         )
         return 2
+
+    # GNOME matches a running window to appimage-handler.desktop by this name,
+    # so the dock shows the handler icon instead of a generic one.
+    GLib.set_prgname("appimage-handler")
+    GLib.set_application_name("AppImage Handler")
 
     application = Gtk.Application(application_id="us.bannister.appimage-handler")
     holder = {}

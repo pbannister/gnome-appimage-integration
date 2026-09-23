@@ -653,6 +653,7 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
               << "Comment=Run or integrate an AppImage\n"
               << "Exec=" << s_tool << " handle %f\n"
               << "Icon=appimage-handler\n"
+              << "StartupWMClass=appimage-handler\n"
               << "Terminal=false\n"
               << "NoDisplay=true\n"
               << "MimeType=application/vnd.appimage;application/x-appimage;"
