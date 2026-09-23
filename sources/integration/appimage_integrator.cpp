@@ -2116,7 +2116,8 @@ std::vector<audit_finding_o> appimage_integrator_c::audit() const {
                         {audit_finding_o::severity_e::warning, o_candidate.id,
                          "AppImage launcher has no StartupWMClass, so the dock may not match the "
                          "window to it",
-                         "run: xprop WM_CLASS, then reinstall with --wm-class"});
+                         "run: appimage-integrate windows to read the class while the application "
+                         "runs, then reinstall with --wm-class (or --wm-class-from-window)"});
                 }
                 std::string s_key = o_entry.value("Desktop Entry", "Name").value_or("");
                 const std::size_t i_suffix = s_key.rfind(" (");
