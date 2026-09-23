@@ -3,15 +3,6 @@
 ## Open Questions
 
 * [ ] decide how to set `StartupWMClass` automatically. `xprop WM_CLASS` works on X11; a Wayland application id needs the compositor. Three launchers here warn because of it (Cura, OpenShot, OpenShot-2), and OpenShot's embedded entry has no class to copy.
-* [ ] decide whether `run` should retry with `APPIMAGE_EXTRACT_AND_RUN=1` after a FUSE failure at runtime, not only when FUSE is absent.
-* [ ] decide whether integration should verify the `.sha256_sig` payload signature. Its presence is reported by `explain` and in the Discovered log; nothing verifies it.
-* [ ] decide whether `install --add` should append the version to `Name=` itself, the way the graphical activator does when it adds alongside an older file or when several launchers already exist. The command line still writes the plain embedded name unless `--name` is given.
-* [ ] decide what `audit` should say about several launchers for one application. Two defects are visible on this host: the grouping key is the visible `Name=`, so `nsdt-app-3.desktop` (renamed `NETGEAR Discovery Tool 2.0.7.7`) is not grouped with its two siblings; and the remedy, "keep one and remove the others", is wrong for launchers the owner deliberately added alongside. Group by the AppImage each launcher runs, and separate intentional coexistence from accidental duplicates.
-* [ ] decide whether `properly integrated` should also compare the launcher's content with what would be written, so a hand-edited or stale entry is not reported as complete.
-* [ ] decide whether the zenity fallback should follow the activator's newer behaviour (the version rules, the suggested buttons, the three logs) or stay minimal and documented as the fallback for a machine without the GTK4 development files.
-* [ ] decide whether to hide the shell's `App Details` item for AppImage launchers with a GNOME Shell extension, or leave it. GNOME Shell 46 adds that item whenever GNOME Software is installed, and nothing in a desktop entry can suppress it.
-* [ ] decide whether to remove the last AppImageLauncher artefact: `~/.local/share/icons/hicolor/0x0/apps/appimagekit_5fde00183f7244e5b3aeb5713d71815b_nsdt-app.png`. No launcher references it and nothing reads it, but `audit` warns about the directory on every run.
-* [ ] consider offering a one-command way to run the activator under XWayland with `xdotool` for owners who want saved window positions. `xdotool` is not installed here, so position saving is inert; the size is still remembered.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 
@@ -23,6 +14,9 @@
 
 ## Recently Completed
 
+* [x] verify the `.sha256_sig` section: a hex digest against the SHA-256 of the file with the section zeroed, a PGP signature with `gpg --verify`, a mismatch refused by `install` unless `--ignore-signature` is given, and the result reported by `explain`, `plan`, `appimage-inspect`, `install`, and the activator's Status log.
+* [x] remove the last AppImageLauncher artefact, the unreferenced icon in `~/.local/share/icons/hicolor/0x0`, which also cleared the `audit` warning.
+* [x] fix the 64-bit ELF section header read, which used the 32-bit field offsets and so reported every section's offset and size as zero.
 * [x] open the activator from the launcher's context menu, and establish that the shell's `App Details` item cannot be suppressed from a desktop entry.
 * [x] decide the likely button from the version relation and the launcher count: Close for a complete or older file, Integrate otherwise, and Add alongside (with the version in the name) when an older file or several launchers must coexist.
 * [x] emphasise the `This run` and `Error` fields in the Discovered log, and order the conflict choice Replace existing, Add alongside, Back.
