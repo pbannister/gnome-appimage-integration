@@ -86,4 +86,4 @@ the disabled Update button, and that nothing was downloaded.
 
 ## Commits
 
-- `TBD` Use an offered file that is already there, and say when nothing is newer
+- `59195cd` Use an offered file that is already there, and say when nothing is newer
