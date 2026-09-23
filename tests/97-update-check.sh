@@ -204,7 +204,7 @@ assert check["problem"] == "", check
 print("update check json ok")
 PYTHON
 
-echo "=== the launcher gets a Check for updates action ==="
+echo "=== the launcher gets an Update item, because the file carries update information ==="
 DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
 DIRECTORY_APPLICATIONS="$DIRECTORY_XDG/home/.local/share/applications"
 mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
@@ -221,8 +221,10 @@ grep -q '^Actions=AppImage-Activator;Update-AppImage;Remove-AppImage;$' \
 grep -q '^\[Desktop Action Update-AppImage\]$' \
     "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
     || fail_test "the launcher has no update action group"
-grep -q 'update --check --notify' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
-    || fail_test "the update action does not run the check"
+grep -q '^Name=Update$' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "the update item is not named Update"
+grep -q ' handle --update ' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "the update item does not open the activator's Update action"
 
 echo "=== audit reports the update information of what it manages ==="
 env HOME="$DIRECTORY_XDG/home" \

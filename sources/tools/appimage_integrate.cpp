@@ -80,7 +80,9 @@ void print_usage(std::ostream &o_out) {
           << "  handler status            show the current *.AppImage handler\n"
           << "  handler install           make this tool the *.AppImage handler\n"
           << "  handler uninstall         restore the previous *.AppImage handler\n"
-          << "  handle <AppImage>         the handler entry point (double-click)\n"
+          << "  handle [--update] <AppImage>\n"
+          << "                            the handler entry point (double-click); --update\n"
+          << "                            opens the activator as if Update was clicked\n"
           << "\n"
           << "options:\n"
           << "  --install-dir DIR         where the AppImage is placed (default ~/Applications)\n"
@@ -103,7 +105,8 @@ void print_usage(std::ostream &o_out) {
           << "  --check                   for update and audit: ask the transport, change nothing\n"
           << "  --all                     for update: every AppImage this tool integrated\n"
           << "  --notify                  for update: show the result in a desktop notification\n"
-          << "  --backup                  for update: keep the replaced file as <name>.previous\n"
+          << "  --no-backup               for update: remove the previous file instead of\n"
+          << "                            keeping it as <name>.previous\n"
           << "  --force                   for update: take the offered file although the check\n"
           << "                            cannot show that it is newer\n"
           << "  --version                 print the build-time version\n";
@@ -1019,16 +1022,19 @@ void print_quoted_list(const std::vector<std::string> &o_items) {
 // Build the install plan that re-renders one recorded launcher.  Shared by `refresh`,
 // which does it for every record, and by `update`, which does it for the file it has
 // just replaced.  Returns false with a reason when the record cannot be re-rendered.
-bool build_refresh_plan(const appimage_integrator_c &o_integrator,
-                        const installed_appimage_o &o_entry, bool b_wm_class_from_window,
-                        const std::string &s_wm_class_override, integration_plan_o &o_plan,
-                        std::string &s_class_source, std::string &s_error) {
+bool build_refresh_plan_for(const appimage_integrator_c &o_integrator,
+                            const installed_appimage_o &o_entry,
+                            const std::string &s_appimage_path,
+                            const std::string &s_replaced_appimage_path,
+                            bool b_wm_class_from_window,
+                            const std::string &s_wm_class_override, integration_plan_o &o_plan,
+                            std::string &s_class_source, std::string &s_error) {
     using gnome_appimage::desktop::desktop_entry_file_o;
     using gnome_appimage::desktop::desktop_entry_reader_c;
 
     std::error_code o_exists_error;
-    if (!fs::exists(o_entry.appimage_path, o_exists_error)) {
-        s_error = "the AppImage is not at " + o_entry.appimage_path;
+    if (!fs::exists(s_appimage_path, o_exists_error)) {
+        s_error = "the AppImage is not at " + s_appimage_path;
         return false;
     }
     // Read the launcher being replaced: its Name= may have been chosen by hand, and its
@@ -1057,7 +1063,7 @@ bool build_refresh_plan(const appimage_integrator_c &o_integrator,
     if (s_class.empty() && b_wm_class_from_window) {
         std::string s_where;
         std::string s_window_error;
-        s_class = window_class_for_appimage(o_entry.appimage_path, s_where, s_window_error);
+        s_class = window_class_for_appimage(s_appimage_path, s_where, s_window_error);
         if (!s_class.empty()) {
             s_class_source = "the running application, " + s_where;
         }
@@ -1074,7 +1080,7 @@ bool build_refresh_plan(const appimage_integrator_c &o_integrator,
 
     integration_options_o o_options;
     o_options.tool_path = tool_path(o_integrator);
-    o_options.install_directory = fs::path(o_entry.appimage_path).parent_path().string();
+    o_options.install_directory = fs::path(s_appimage_path).parent_path().string();
     o_options.desktop_file_name = o_entry.desktop_id;
     o_options.icon_name_override = o_entry.icon_name;
     o_options.name_override = s_name;
@@ -1082,12 +1088,23 @@ bool build_refresh_plan(const appimage_integrator_c &o_integrator,
     o_options.move_appimage = false;
     o_options.refresh_own_launchers = true;
     o_options.identifier_override = o_entry.identifier;
+    o_options.replaced_appimage_path = s_replaced_appimage_path;
 
-    if (!o_integrator.plan(o_entry.appimage_path, o_options, o_plan)) {
+    if (!o_integrator.plan(s_appimage_path, o_options, o_plan)) {
         s_error = o_plan.error;
         return false;
     }
     return true;
+}
+
+// The common case: re-render a record against the file it already names.
+bool build_refresh_plan(const appimage_integrator_c &o_integrator,
+                        const installed_appimage_o &o_entry, bool b_wm_class_from_window,
+                        const std::string &s_wm_class_override, integration_plan_o &o_plan,
+                        std::string &s_class_source, std::string &s_error) {
+    return build_refresh_plan_for(o_integrator, o_entry, o_entry.appimage_path, std::string(),
+                                  b_wm_class_from_window, s_wm_class_override, o_plan,
+                                  s_class_source, s_error);
 }
 
 int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_class_from_window,
@@ -1273,6 +1290,10 @@ struct update_check_o {
     std::string problem;
     // Set when this run replaced the file, for the report and the notification.
     std::string applied;
+    // Where the offered file was put, and what happened to the one it replaced.
+    std::string installed_path;
+    std::string kept_previous;
+    std::string removed_previous;
 };
 
 // Run a command and capture its output, keeping the exit status: a network failure
@@ -1863,12 +1884,60 @@ bool verify_download(const std::string &s_path, const std::string &s_digest_url,
     return true;
 }
 
-// Replace an installed AppImage with a verified download, then re-render the launcher
-// that runs it, so the record, icon, name and window class stay as they were.
+// The file name a transport offered, without any directory part: an asset name from a
+// release, or the Filename a zsync file named.
+std::string offered_file_name(const update_check_o &o_check) {
+    return fs::path(o_check.asset_name).filename().string();
+}
+
+// Point every record that referred to the old file at the new one, keeping each
+// record's own identity, launcher, icon, name and window class.
+void retarget_records(const appimage_integrator_c &o_integrator,
+                      const std::vector<installed_appimage_o> &o_records,
+                      const std::string &s_old_path, const std::string &s_new_path,
+                      std::string &s_note) {
+    for (const installed_appimage_o &o_entry : o_records) {
+        std::error_code o_error;
+        const std::string s_record_path =
+            fs::weakly_canonical(fs::path(o_entry.appimage_path), o_error).string();
+        const std::string s_old_key =
+            fs::weakly_canonical(fs::path(s_old_path), o_error).string();
+        if (s_record_path != s_old_key) {
+            continue;
+        }
+        integration_plan_o o_plan;
+        std::string s_class_source;
+        std::string s_plan_error;
+        if (!build_refresh_plan_for(o_integrator, o_entry, s_new_path, s_old_path, false,
+                                    std::string(), o_plan, s_class_source, s_plan_error)) {
+            s_note += "; the launcher " + o_entry.desktop_id
+                      + " was not re-rendered: " + s_plan_error;
+            continue;
+        }
+        std::string s_install_error;
+        if (!o_integrator.install(o_plan, s_install_error)) {
+            s_note += "; the launcher " + o_entry.desktop_id
+                      + " was not re-rendered: " + s_install_error;
+            continue;
+        }
+        s_note += "; launcher re-rendered: " + o_plan.desktop_entry_path;
+    }
+}
+
+// Replace an installed AppImage with a verified download of the file a transport
+// offered.  The offered file keeps its own name, every record that ran the old file is
+// pointed at the new one, and the old file is kept beside it as `<name>.previous`.
 bool apply_update(const appimage_integrator_c &o_integrator,
-                  const installed_appimage_o *p_record, const update_check_o &o_check,
-                  bool b_backup, update_check_o &o_result, std::string &s_error) {
-    const std::string s_destination = o_check.appimage;
+                  const std::vector<installed_appimage_o> &o_records,
+                  const update_check_o &o_check, bool b_keep_previous, update_check_o &o_result,
+                  std::string &s_error) {
+    const std::string s_old = o_check.appimage;
+    std::string s_name = offered_file_name(o_check);
+    if (s_name.empty()) {
+        s_name = fs::path(s_old).filename().string();
+    }
+    const std::string s_destination =
+        (fs::path(s_old).parent_path() / s_name).string();
     const std::string s_part = s_destination + ".part";
     std::error_code o_error;
     fs::remove(s_part, o_error);
@@ -1888,14 +1957,27 @@ bool apply_update(const appimage_integrator_c &o_integrator,
         return false;
     }
 
-    if (b_backup) {
-        const std::string s_previous = s_destination + ".previous";
-        fs::remove(s_previous, o_error);
-        fs::rename(s_destination, s_previous, o_error);
-        if (o_error) {
-            fs::remove(s_part, o_error);
-            s_error = "cannot keep the previous file: " + o_error.message();
-            return false;
+    std::error_code o_same_error;
+    const bool b_same_path =
+        fs::weakly_canonical(fs::path(s_destination), o_same_error).string()
+        == fs::weakly_canonical(fs::path(s_old), o_same_error).string();
+
+    // The old file gives way first, so the new one can take its name when it has the
+    // same one.
+    if (b_same_path) {
+        if (b_keep_previous) {
+            const std::string s_previous = s_old + ".previous";
+            fs::remove(s_previous, o_error);
+            fs::rename(s_old, s_previous, o_error);
+            if (o_error) {
+                fs::remove(s_part, o_error);
+                s_error = "cannot keep the previous file: " + o_error.message();
+                return false;
+            }
+            o_result.kept_previous = s_previous;
+        } else {
+            fs::remove(s_old, o_error);
+            o_result.removed_previous = s_old;
         }
     }
     fs::rename(s_part, s_destination, o_error);
@@ -1907,7 +1989,7 @@ bool apply_update(const appimage_integrator_c &o_integrator,
         return false;
     }
 
-    std::string s_note = "replaced with the offered file";
+    std::string s_note = "downloaded from " + o_check.download_url;
     if (o_verification.b_digest_published) {
         s_note += ", digest matches the published " + o_verification.digest;
     } else if (!o_verification.signature.empty()
@@ -1920,29 +2002,31 @@ bool apply_update(const appimage_integrator_c &o_integrator,
         s_note += "; " + o_verification.problem;
     }
 
-    // Re-render this record's launcher against the new file, keeping its choices.
-    if (nullptr != p_record) {
-        integration_plan_o o_plan;
-        std::string s_class_source;
-        std::string s_plan_error;
-        if (!build_refresh_plan(o_integrator, *p_record, false, std::string(), o_plan,
-                                s_class_source, s_plan_error)) {
-            s_note += "; the launcher was not re-rendered: " + s_plan_error;
-        } else {
-            std::string s_install_error;
-            if (!o_integrator.install(o_plan, s_install_error)) {
-                s_note += "; the launcher was not re-rendered: " + s_install_error;
+    if (!b_same_path) {
+        // Every launcher that ran the old file now runs the new one.
+        retarget_records(o_integrator, o_records, s_old, s_destination, s_note);
+        if (b_keep_previous) {
+            const std::string s_previous = s_old + ".previous";
+            fs::remove(s_previous, o_error);
+            fs::rename(s_old, s_previous, o_error);
+            if (o_error) {
+                s_note += "; the previous file could not be kept: " + o_error.message();
             } else {
-                s_note += "; launcher re-rendered: " + o_plan.desktop_entry_path;
+                o_result.kept_previous = s_previous;
             }
+        } else {
+            fs::remove(s_old, o_error);
+            o_result.removed_previous = s_old;
         }
     }
+
+    o_result.installed_path = s_destination;
     o_result.applied = s_note;
     return true;
 }
 
 int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_notify,
-                   bool b_check, bool b_assume_yes, bool b_dry_run, bool b_backup,
+                   bool b_check, bool b_assume_yes, bool b_dry_run, bool b_keep_previous,
                    bool b_force) {
     using gnome_appimage::tools::json_escape;
 
@@ -2005,7 +2089,8 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
                           << "\",\"appimage_asset_size\":" << o_check.i_asset_size
                           << ",\"zsync_asset\":\"" << json_escape(o_check.zsync_name)
                           << "\",\"zsync_asset_size\":" << o_check.i_zsync_size
-                          << ",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
+                          << ",\"download_url\":\"" << json_escape(o_check.download_url)
+                          << "\",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
             }
             std::cout << "]}\n";
         } else {
@@ -2093,6 +2178,10 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
             if (0 < o_check.i_asset_size) {
                 std::cout << "  size: " << o_check.i_asset_size << " bytes\n";
             }
+            const std::string s_name = offered_file_name(o_check);
+            if (!s_name.empty() && s_name != fs::path(o_check.appimage).filename().string()) {
+                std::cout << "  will be placed beside it as: " << s_name << '\n';
+            }
         }
     }
     if (b_dry_run) {
@@ -2105,6 +2194,10 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
                 const update_check_o &o_check = o_checks[o_todo[i_index]];
                 std::cout << "{\"appimage\":\"" << json_escape(o_check.appimage)
                           << "\",\"download\":\"" << json_escape(o_check.download_url)
+                          << "\",\"installed\":\""
+                          << json_escape((fs::path(o_check.appimage).parent_path()
+                                          / offered_file_name(o_check))
+                                             .string())
                           << "\",\"applied\":false}";
             }
             std::cout << "],\"written\":0,\"dry_run\":true}\n";
@@ -2129,33 +2222,39 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
 
     std::size_t i_written = 0;
     for (const std::size_t i_index : o_todo) {
+        update_check_o o_applied;
         update_check_o &o_check = o_checks[i_index];
-        std::error_code o_match_error;
-        const std::string s_key =
-            fs::weakly_canonical(fs::path(o_check.appimage), o_match_error).string();
-        const installed_appimage_o *p_record = nullptr;
-        for (const installed_appimage_o &o_entry : o_records) {
-            std::error_code o_entry_error;
-            if (fs::weakly_canonical(fs::path(o_entry.appimage_path), o_entry_error).string()
-                == s_key) {
-                p_record = &o_entry;
-                break;
-            }
-        }
         if (!b_json) {
             std::cout << "downloading: " << o_check.download_url << '\n';
         }
         std::string s_error;
-        if (!apply_update(o_integrator, p_record, o_check, b_backup, o_check, s_error)) {
+        if (!apply_update(o_integrator, o_records, o_check, b_keep_previous, o_applied,
+                          s_error)) {
             o_check.problem = s_error;
             b_failed = true;
             std::cerr << "error: " << o_check.appimage << ": " << s_error << '\n';
             continue;
         }
+        const std::string s_applied = o_applied.applied;
+        const std::string s_installed = o_applied.installed_path;
+        const std::string s_kept = o_applied.kept_previous;
+        const std::string s_removed = o_applied.removed_previous;
+        o_check.applied = s_applied;
+        o_check.installed_path = s_installed;
+        o_check.kept_previous = s_kept;
+        o_check.removed_previous = s_removed;
         i_written++;
         if (!b_json) {
-            std::cout << "updated: " << o_check.appimage << '\n'
-                      << "  " << o_check.applied << '\n';
+            std::cout << "updated: " << s_installed;
+            if (s_installed != o_check.appimage) {
+                std::cout << "  (was " << o_check.appimage << ')';
+            }
+            std::cout << '\n' << "  " << s_applied << '\n';
+            if (!s_kept.empty()) {
+                std::cout << "  the previous file is kept as " << s_kept << '\n';
+            } else if (!s_removed.empty()) {
+                std::cout << "  the previous file was removed\n";
+            }
         }
     }
 
@@ -2173,7 +2272,9 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
                       << "\",\"update_available\":"
                       << (o_check.b_update_available ? "true" : "false")
                       << ",\"applied\":" << (o_check.applied.empty() ? "false" : "true")
-                      << ",\"detail\":\"" << json_escape(o_check.applied)
+                      << ",\"installed\":\"" << json_escape(o_check.installed_path)
+                      << "\",\"kept_previous\":\"" << json_escape(o_check.kept_previous)
+                      << "\",\"detail\":\"" << json_escape(o_check.applied)
                       << "\",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
         }
         std::cout << "],\"written\":" << i_written << "}\n";
@@ -2185,7 +2286,6 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
     }
     return b_failed ? EXIT_ERROR : EXIT_OK;
 }
-
 
 // -- migrate --------------------------------------------------------------------
 //
@@ -2941,7 +3041,7 @@ int run_detached_with_notice(const std::string &s_path, const std::string &s_nam
     return EXIT_OK;
 }
 
-int command_handle(const std::string &s_path) {
+int command_handle(const std::string &s_path, bool b_update) {
     const std::string s_name = embedded_name(s_path);
     const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
 
@@ -2951,7 +3051,13 @@ int command_handle(const std::string &s_path) {
     const std::string s_tool = tool_path(o_integrator);
     const std::string s_ui = handler_ui_program(s_tool);
     if (!s_ui.empty() && has_display()) {
-        std::vector<std::string> o_command = {s_ui, "--tool", s_tool, s_path};
+        std::vector<std::string> o_command = {s_ui, "--tool", s_tool};
+        if (b_update) {
+            // The launcher's Update item opens the window and clicks its Update button.
+            o_command.push_back("--start");
+            o_command.push_back("update");
+        }
+        o_command.push_back(s_path);
         std::vector<char *> o_raw;
         for (const std::string &s_argument : o_command) {
             o_raw.push_back(const_cast<char *>(s_argument.c_str()));
@@ -3083,8 +3189,9 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_check = false;
     bool b_all = false;
     bool b_notify = false;
-    bool b_backup = false;
+    bool b_keep_previous = true;
     bool b_force = false;
+    bool b_handle_update = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -3132,10 +3239,12 @@ int main(int i_argument_count, char **p_arguments) {
             b_all = true;
         } else if ("--notify" == s_argument) {
             b_notify = true;
-        } else if ("--backup" == s_argument) {
-            b_backup = true;
+        } else if ("--no-backup" == s_argument) {
+            b_keep_previous = false;
         } else if ("--force" == s_argument) {
             b_force = true;
+        } else if ("--update" == s_argument) {
+            b_handle_update = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -3240,7 +3349,7 @@ int main(int i_argument_count, char **p_arguments) {
             return EXIT_USAGE;
         }
         return command_update(s_path, b_all, b_json, b_notify, b_check, b_assume_yes, b_dry_run,
-                              b_backup, b_force);
+                              b_keep_previous, b_force);
     }
     if ("migrate" == s_command) {
         if (s_path.empty()) {
@@ -3283,7 +3392,7 @@ int main(int i_argument_count, char **p_arguments) {
             std::cerr << "error: handle needs an AppImage path\n";
             return EXIT_USAGE;
         }
-        return command_handle(s_path);
+        return command_handle(s_path, b_handle_update);
     }
 
     std::cerr << "error: unknown command: " << s_command << '\n';

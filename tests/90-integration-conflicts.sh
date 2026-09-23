@@ -306,7 +306,7 @@ grep -q '^this-run: new integration$' "$DIRECTORY_TEMP/mode-new.txt" \
 
 # The launcher carries the actions the shell's context menu is built from: opening the
 # activator for this AppImage, then removing it.
-grep -q '^Actions=AppImage-Activator;Update-AppImage;Remove-AppImage;$' "$FILE_REPAIR_LAUNCHER" \
+grep -q '^Actions=AppImage-Activator;Remove-AppImage;$' "$FILE_REPAIR_LAUNCHER" \
     || fail_test "the launcher does not list the activator action before the remove action"
 grep -q '^\[Desktop Action AppImage-Activator\]$' "$FILE_REPAIR_LAUNCHER" \
     || fail_test "the launcher has no activator action group"

@@ -529,7 +529,7 @@ std::vector<integration_conflict_o> detect_application_conflicts(
     const std::string &s_new_desktop_id,
     const std::string &s_new_identifier,
     const std::vector<installed_appimage_o> &o_installed,
-    bool b_refresh_own_launchers) {
+    bool b_refresh_own_launchers, const std::string &s_replaced_appimage_path) {
     std::vector<integration_conflict_o> o_conflicts;
     const desktop_entry_locator_c o_locator(o_environment);
     for (const gnome_appimage::desktop::desktop_entry_candidate_o &o_candidate :
@@ -616,7 +616,10 @@ std::vector<integration_conflict_o> detect_application_conflicts(
         // While refreshing a record, another launcher this tool wrote for the very
         // same AppImage is not a competing claim: it is a second launcher for one
         // file, and both are about to be rewritten.
-        if (b_refresh_own_launchers && b_managed && same_file_path(s_exec, s_new_appimage_path)) {
+        if (b_refresh_own_launchers && b_managed
+            && (same_file_path(s_exec, s_new_appimage_path)
+                || (!s_replaced_appimage_path.empty()
+                    && same_file_path(s_exec, s_replaced_appimage_path)))) {
             continue;
         }
 
@@ -1033,7 +1036,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                 o_plan.startup_wm_class,
                 strip_extension(fs::path(o_plan.appimage_path).filename().string()),
                 o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed,
-                o_options.refresh_own_launchers);
+                o_options.refresh_own_launchers, o_options.replaced_appimage_path);
         };
         o_plan.conflicts = o_detect_conflicts();
 
@@ -1344,7 +1347,14 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_replacements["TryExec"] = o_plan.installed_path;
         o_replacements["Terminal"] = "false";
         o_replacements["StartupNotify"] = "true";
-        o_replacements["Actions"] = "AppImage-Activator;Update-AppImage;Remove-AppImage;";
+        // The context menu offers Update only when the AppImage says where updates come
+        // from: without that, the item could only report that it cannot do anything.
+        const update_information_o o_update_information =
+            understand_update_information(o_info.update_information);
+        const bool b_update_action = o_update_information.usable;
+        o_replacements["Actions"] = b_update_action
+                                        ? "AppImage-Activator;Update-AppImage;Remove-AppImage;"
+                                        : "AppImage-Activator;Remove-AppImage;";
         o_replacements["X-AppImage-Identifier"] = o_plan.identifier;
         o_replacements["X-AppImage-Source-Path"] = o_plan.appimage_path;
         o_replacements["X-Integrated-By"] = "gnome-appimage-integration";
@@ -1387,11 +1397,16 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_text << "\n[Desktop Action AppImage-Activator]\n"
                << "Name=AppImage Activator\n"
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
-               << " handle " << exec_quote(o_plan.installed_path) << "\n"
-               << "\n[Desktop Action Update-AppImage]\n"
-               << "Name=Check for updates\n"
-               << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
-               << " update --check --notify " << exec_quote(o_plan.installed_path) << "\n"
+               << " handle " << exec_quote(o_plan.installed_path) << "\n";
+        if (b_update_action) {
+            // The menu item opens the activator on the file as if its Update button had
+            // been clicked, so there is one update path rather than two.
+            o_text << "\n[Desktop Action Update-AppImage]\n"
+                   << "Name=Update\n"
+                   << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
+                   << " handle --update " << exec_quote(o_plan.installed_path) << "\n";
+        }
+        o_text
                << "\n[Desktop Action Remove-AppImage]\n"
                << "Name=Remove this AppImage\n"
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)

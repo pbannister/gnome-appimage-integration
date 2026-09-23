@@ -16,6 +16,8 @@
 //
 #include <gtk/gtk.h>
 
+#include <gio/gio.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
@@ -608,6 +610,7 @@ enum class action_e {
     run_once,
     integrate,
     inspect,
+    update,
     close,
     back,
     add_alongside,
@@ -624,6 +627,9 @@ std::optional<action_e> action_from_name(const std::string &s_name) {
     }
     if ("inspect" == s_name) {
         return action_e::inspect;
+    }
+    if ("update" == s_name) {
+        return action_e::update;
     }
     if ("close" == s_name) {
         return action_e::close;
@@ -678,6 +684,9 @@ public:
                 return;
             case action_e::inspect:
                 on_inspect();
+                return;
+            case action_e::update:
+                on_update();
                 return;
             case action_e::close:
                 on_close();
@@ -995,6 +1004,7 @@ private:
         std::string s_label;
         action_e e_action;
         bool b_suggested = false;
+        bool b_sensitive = true;
     };
 
     void set_buttons(const std::vector<button_spec_o> &o_specs) {
@@ -1007,6 +1017,7 @@ private:
             if (o_spec.b_suggested) {
                 gtk_widget_add_css_class(p_button, "suggested-action");
             }
+            gtk_widget_set_sensitive(p_button, o_spec.b_sensitive ? TRUE : FALSE);
             gtk_box_append(GTK_BOX(p_button_box_), p_button);
         }
     }
@@ -1018,12 +1029,23 @@ private:
         p_activator->perform(static_cast<action_e>(i_action));
     }
 
+    // Whether this AppImage says where its updates come from.  Without that the window
+    // has no Update button and the launcher's context menu has no Update item.
+    bool update_is_offered() const {
+        return o_data_.boolean_or("update_usable", false);
+    }
+
     void show_initial_buttons() {
         const bool b_close = close_is_suggested();
-        set_buttons({{"Integrate", action_e::integrate, !b_close},
-                     {"Run once", action_e::run_once, false},
-                     {"Inspect", action_e::inspect, false},
-                     {"Close", action_e::close, b_close}});
+        std::vector<button_spec_o> o_specs = {{"Integrate", action_e::integrate, !b_close},
+                                              {"Run once", action_e::run_once, false},
+                                              {"Inspect", action_e::inspect, false}};
+        if (update_is_offered()) {
+            o_specs.push_back({"Update", action_e::update, false,
+                               !b_update_running_ && !is_missing()});
+        }
+        o_specs.push_back({"Close", action_e::close, b_close});
+        set_buttons(o_specs);
     }
 
     // -- the three logs -----------------------------------------------------
@@ -1482,6 +1504,188 @@ private:
         show_tab(tab_e::discovered);
     }
 
+    // One line of output has no carriage returns: curl's progress bar uses them.
+    static std::string without_carriage_returns(const std::string &s_text) {
+        std::string s_result = s_text;
+        for (char &c_character : s_result) {
+            if ('\r' == c_character) {
+                c_character = '\n';
+            }
+        }
+        return s_result;
+    }
+
+    // Ask the tool what the transport offers.  Returns the URL to download, empty when
+    // there is nothing to do; s_note says why.
+    std::string offered_update_url(std::string &s_note, std::string &s_latest_version,
+                                   bool &b_needs_force) {
+        const std::vector<std::string> o_arguments = {"update", "--check", "--json", s_path_};
+        const process_result_o o_result = run_tool(s_tool_, o_arguments);
+        log_action(command_line("appimage-integrate", o_arguments), combined_output(o_result));
+        std::string s_error;
+        const value_c o_parsed = value_c::parse(o_result.out, s_error);
+        const value_c *p_checks = o_parsed.member("checks");
+        if (nullptr == p_checks || !p_checks->is_array() || p_checks->items().empty()) {
+            s_note = "The update information could not be read:\n"
+                     + trim_spaces(s_error.empty() ? o_result.err : s_error);
+            return {};
+        }
+        const value_c &o_check = p_checks->items().front();
+        const std::string s_problem = o_check.string_or("problem");
+        if (!s_problem.empty()) {
+            s_note = "This AppImage cannot be updated: " + s_problem;
+            return {};
+        }
+        s_latest_version = o_check.string_or("latest_version");
+        const std::string s_url = o_check.string_or("download_url");
+        if (o_check.boolean_or("update_available", false)) {
+            return s_url;
+        }
+        // A zsync file names no version, so the check can only say that a different file
+        // is offered.  Taking it is what --force is for, and the owner asked for it by
+        // clicking Update.
+        if ("other-file" == o_check.string_or("relation") && !s_url.empty()) {
+            b_needs_force = true;
+            s_latest_version = o_check.string_or("appimage_asset");
+            return s_url;
+        }
+        s_note = "There is nothing to update: " + o_check.string_or("relation", "up to date");
+        return {};
+    }
+
+    void on_update() {
+        if (is_missing()) {
+            show_missing_status();
+            return;
+        }
+        if (b_update_running_) {
+            return;
+        }
+        std::string s_note;
+        std::string s_latest_version;
+        bool b_needs_force = false;
+        const std::string s_url = offered_update_url(s_note, s_latest_version, b_needs_force);
+        if (s_url.empty()) {
+            s_status_note_ = s_note;
+            refresh_status();
+            show_tab(tab_e::status);
+            return;
+        }
+
+        o_update_arguments_ = {"update", "--yes", "--json"};
+        if (b_needs_force) {
+            o_update_arguments_.push_back("--force");
+        }
+        o_update_arguments_.push_back(s_path_);
+
+        std::vector<const gchar *> o_raw;
+        o_raw.push_back(s_tool_.c_str());
+        for (const std::string &s_argument : o_update_arguments_) {
+            o_raw.push_back(s_argument.c_str());
+        }
+        o_raw.push_back(nullptr);
+        GError *p_error = nullptr;
+        p_update_process_ = g_subprocess_newv(
+            o_raw.data(), static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE
+                                                        | G_SUBPROCESS_FLAGS_STDERR_PIPE),
+            &p_error);
+        if (nullptr == p_update_process_) {
+            s_status_note_ = std::string("The update could not be started: ")
+                             + (nullptr == p_error ? "unknown error" : p_error->message);
+            if (nullptr != p_error) {
+                g_error_free(p_error);
+            }
+            refresh_status();
+            show_tab(tab_e::status);
+            return;
+        }
+        if (nullptr != p_error) {
+            g_error_free(p_error);
+        }
+        b_update_running_ = true;
+        b_update_finished_ = false;
+        s_status_note_ = "Downloading " + s_latest_version
+                         + (b_needs_force ? " (the transport names no version)" : "")
+                         + ".\nThe window stays open; the download can take a while.";
+        refresh_status();
+        show_tab(tab_e::status);
+        show_initial_buttons();
+        g_subprocess_communicate_utf8_async(p_update_process_, nullptr, nullptr,
+                                            on_update_finished, this);
+    }
+
+    static void on_update_finished(GObject *p_source, GAsyncResult *p_result, gpointer p_data) {
+        activator_c *p_activator = static_cast<activator_c *>(p_data);
+        p_activator->finish_update(G_SUBPROCESS(p_source), p_result);
+    }
+
+    void finish_update(GSubprocess *p_process, GAsyncResult *p_result) {
+        GError *p_error = nullptr;
+        char *p_out = nullptr;
+        char *p_err = nullptr;
+        g_subprocess_communicate_utf8_finish(p_process, p_result, &p_out, &p_err, &p_error);
+        const std::string s_out = nullptr != p_out ? p_out : "";
+        const std::string s_err = nullptr != p_err ? p_err : "";
+        g_free(p_out);
+        g_free(p_err);
+        g_object_unref(p_process);
+        p_update_process_ = nullptr;
+        b_update_running_ = false;
+        b_update_finished_ = true;
+
+        std::string s_error;
+        const value_c o_parsed = value_c::parse(s_out, s_error);
+        std::string s_new_path;
+        std::string s_detail;
+        std::string s_problem;
+        const value_c *p_updates = o_parsed.member("updates");
+        if (nullptr != p_updates && p_updates->is_array() && !p_updates->items().empty()) {
+            const value_c &o_update = p_updates->items().front();
+            s_new_path = o_update.string_or("installed");
+            s_detail = o_update.string_or("detail");
+            s_problem = o_update.string_or("problem");
+        } else if (nullptr != p_error) {
+            s_problem = p_error->message;
+        }
+        std::string s_log = without_carriage_returns(trim_spaces(s_err));
+        if (!s_new_path.empty()) {
+            s_log += (s_log.empty() ? "" : "\n") + std::string("installed: ") + s_new_path;
+        }
+        if (!s_detail.empty()) {
+            s_log += (s_log.empty() ? "" : "\n") + std::string("detail: ") + s_detail;
+        }
+        log_action(command_line("appimage-integrate", o_update_arguments_), s_log);
+
+        std::error_code o_exists_error;
+        if (s_problem.empty() && !s_new_path.empty() && fs::exists(s_new_path, o_exists_error)) {
+            // Switch to the file that was downloaded: the window is about that one now.
+            s_path_ = s_new_path;
+            load_description();
+            s_status_note_ = "Updated to " + display_name() + "\n  " + s_path_
+                             + "\nThe Actions tab has the log of the download.";
+            refresh_status();
+            refresh_discovered();
+            update_details();
+            show_initial_buttons();
+            show_tab(tab_e::status);
+            return;
+        }
+        s_status_note_ = "The update did not complete: "
+                         + (s_problem.empty() ? std::string("no file was installed") : s_problem);
+        refresh_status();
+        show_initial_buttons();
+        show_tab(tab_e::status);
+    }
+
+public:
+    // Driven runs wait for an update, so the report they print is the finished state.
+    void wait_for_update() {
+        while (b_update_running_) {
+            g_main_context_iteration(nullptr, TRUE);
+        }
+    }
+
+private:
     void on_integrate() {
         if (is_missing()) {
             show_missing_status();
@@ -1582,6 +1786,12 @@ private:
     bool b_suggest_add_alongside_ = false;
     bool b_actions_empty_ = true;
     std::string s_status_note_;
+    // An update runs asynchronously because the download can take minutes: the main
+    // loop keeps running, and the window stays honest about what it is doing.
+    bool b_update_running_ = false;
+    bool b_update_finished_ = false;
+    GSubprocess *p_update_process_ = nullptr;
+    std::vector<std::string> o_update_arguments_;
 };
 
 // What the activate handler needs to build the window, and what the test hooks
@@ -1592,6 +1802,9 @@ struct context_o {
     std::string s_path;
     std::string s_set_name;
     std::vector<action_e> o_actions;
+    // Actions to perform as the window opens, leaving it open for the person who asked;
+    // --activate is the driven form, which reports and quits.
+    std::vector<action_e> o_start_actions;
     activator_c *p_activator = nullptr;
 };
 
@@ -1599,6 +1812,9 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
     context_o *p_context = static_cast<context_o *>(p_data);
     p_context->p_activator = new activator_c(p_application, p_context->s_tool, p_context->s_path);
     p_context->p_activator->present();
+    for (const action_e e_action : p_context->o_start_actions) {
+        p_context->p_activator->perform(e_action);
+    }
     // A driven run types the name after each action, because the action is what
     // reveals the field: Integrate shows it prefilled, --set-name then replaces the
     // prefill with the value a person would have typed, and the next action uses it.
@@ -1613,7 +1829,9 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
     }
     if (!p_context->o_actions.empty()) {
         // A driven run is a test: report what the window holds, then quit rather than
-        // wait for a person to close it.
+        // wait for a person to close it.  An update downloads in the background, so
+        // wait for it before reporting.
+        p_context->p_activator->wait_for_update();
         p_context->p_activator->print_tabs(std::cout);
         g_application_quit(G_APPLICATION(p_application));
     }
@@ -1621,6 +1839,7 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
 
 void print_usage(std::ostream &o_out) {
     o_out << "usage: appimage-activator [--set-name TEXT] [--activate ACTION[,ACTION...]]\n"
+          << "                           [--start ACTION[,ACTION...]]\n"
           << "                           --tool <appimage-integrate> <AppImage>\n"
           << "\n"
           << "actions: run-once, integrate, inspect, close, back, add-alongside,\n"
@@ -1634,6 +1853,7 @@ int main(int i_argument_count, char **p_arguments) {
     std::string s_path;
     std::string s_set_name;
     std::string s_activate;
+    std::string s_start;
     for (int i_index = 1; i_index < i_argument_count; i_index++) {
         const std::string s_argument = p_arguments[i_index];
         if ("--tool" == s_argument && i_argument_count > i_index + 1) {
@@ -1646,6 +1866,10 @@ int main(int i_argument_count, char **p_arguments) {
         }
         if ("--activate" == s_argument && i_argument_count > i_index + 1) {
             s_activate = p_arguments[++i_index];
+            continue;
+        }
+        if ("--start" == s_argument && i_argument_count > i_index + 1) {
+            s_start = p_arguments[++i_index];
             continue;
         }
         if ("--help" == s_argument || "-h" == s_argument) {
@@ -1671,24 +1895,33 @@ int main(int i_argument_count, char **p_arguments) {
     o_context.s_tool = s_tool;
     o_context.s_path = s_path;
     o_context.s_set_name = s_set_name;
-    std::size_t i_begin = 0;
-    while (i_begin <= s_activate.size() && !s_activate.empty()) {
-        const std::size_t i_comma = s_activate.find(',', i_begin);
-        const std::string s_name = s_activate.substr(
-            i_begin, std::string::npos == i_comma ? std::string::npos : i_comma - i_begin);
-        if (!s_name.empty()) {
-            const std::optional<action_e> e_action = action_from_name(s_name);
-            if (!e_action.has_value()) {
-                std::cerr << "error: unknown action: " << s_name << '\n';
-                print_usage(std::cerr);
-                return 2;
+    // A list of actions, comma-separated, in the form the buttons use.
+    const auto parse_actions = [](const std::string &s_list,
+                                  std::vector<action_e> &o_actions) -> bool {
+        std::size_t i_begin = 0;
+        while (i_begin <= s_list.size() && !s_list.empty()) {
+            const std::size_t i_comma = s_list.find(',', i_begin);
+            const std::string s_name = s_list.substr(
+                i_begin, std::string::npos == i_comma ? std::string::npos : i_comma - i_begin);
+            if (!s_name.empty()) {
+                const std::optional<action_e> e_action = action_from_name(s_name);
+                if (!e_action.has_value()) {
+                    std::cerr << "error: unknown action: " << s_name << '\n';
+                    return false;
+                }
+                o_actions.push_back(*e_action);
             }
-            o_context.o_actions.push_back(*e_action);
+            if (std::string::npos == i_comma) {
+                break;
+            }
+            i_begin = i_comma + 1;
         }
-        if (std::string::npos == i_comma) {
-            break;
-        }
-        i_begin = i_comma + 1;
+        return true;
+    };
+    if (!parse_actions(s_activate, o_context.o_actions)
+        || !parse_actions(s_start, o_context.o_start_actions)) {
+        print_usage(std::cerr);
+        return 2;
     }
 
     // NON_UNIQUE: a second launch opens its own window for its own AppImage,

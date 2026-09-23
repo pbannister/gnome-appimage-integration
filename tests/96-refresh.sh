@@ -78,7 +78,7 @@ FILE_TWO="$DIRECTORY_APPLICATIONS/org.example.Probe-2.desktop"
 if [ ! -f "$FILE_ONE" ] || [ ! -f "$FILE_TWO" ]; then
     fail_test "the two launchers were not installed"
 fi
-grep -q '^Actions=AppImage-Activator;Update-AppImage;Remove-AppImage;$' "$FILE_ONE" \
+grep -q '^Actions=AppImage-Activator;Remove-AppImage;$' "$FILE_ONE" \
     || fail_test "the launcher has no context-menu actions"
 
 echo "=== an older launcher is missing the new keys ==="
@@ -112,12 +112,16 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" refresh --yes \
 grep -q "rewritten launchers: 2 of 2" "$DIRECTORY_TEMP/refresh.txt" \
     || fail_test "refresh did not rewrite both launchers: $(cat "$DIRECTORY_TEMP/refresh.txt")"
 for FILE_LAUNCHER in "$FILE_ONE" "$FILE_TWO"; do
-    grep -q '^Actions=AppImage-Activator;Update-AppImage;Remove-AppImage;$' "$FILE_LAUNCHER" \
+    grep -q '^Actions=AppImage-Activator;Remove-AppImage;$' "$FILE_LAUNCHER" \
         || fail_test "refresh did not restore the context-menu actions in $FILE_LAUNCHER"
     grep -q '^StartupWMClass=ChosenClass$' "$FILE_LAUNCHER" \
         || fail_test "refresh did not restore the class in $FILE_LAUNCHER"
     grep -q '^\[Desktop Action AppImage-Activator\]$' "$FILE_LAUNCHER" \
         || fail_test "refresh did not write the action group in $FILE_LAUNCHER"
+    # The AppImage carries no update information, so there is nothing to offer.
+    if grep -q '^Update-AppImage;\|^\[Desktop Action Update-AppImage\]$' "$FILE_LAUNCHER"; then
+        fail_test "an Update item was written for a file with no update information"
+    fi
     grep -q "^Exec=$FILE_INSTALLED %U$" "$FILE_LAUNCHER" \
         || fail_test "refresh changed the target of $FILE_LAUNCHER"
 done

@@ -196,11 +196,37 @@ if [ "$1" = "explain" ] && [ "$2" != "--json" ]; then
         "$2" "${STUB_MODE:-another launcher already represents this application}"
     exit 0
 fi
+if [ "$1" = "update" ] && [ "$2" = "--check" ]; then
+    # The AppImage is the last argument, whatever the flags before it.
+    eval "STUB_TARGET=\${$#}"
+    printf '{"checks":[{"appimage":"%s","relation":"%s","update_available":%s,"download_url":"%s","latest_version":"%s","appimage_asset":"%s","problem":"%s"}]}\n' \
+        "$STUB_TARGET" "${STUB_UPDATE_RELATION:-newer}" "${STUB_UPDATE_AVAILABLE:-true}" \
+        "${STUB_UPDATE_URL:-https://example.invalid/Probe-2.0.0.AppImage}" \
+        "${STUB_UPDATE_LATEST:-2.0.0}" "${STUB_UPDATE_ASSET:-Probe-2.0.0.AppImage}" \
+        "${STUB_UPDATE_PROBLEM:-}"
+    exit 0
+fi
+if [ "$1" = "update" ]; then
+    eval "STUB_TARGET=\${$#}"
+    STUB_INSTALLED="${STUB_UPDATE_INSTALLED:-/tmp/Probe-2.0.0.AppImage}"
+    if [ "${STUB_UPDATE_APPLIED:-true}" = "true" ]; then
+        mkdir -p "$(dirname "$STUB_INSTALLED")"
+        : > "$STUB_INSTALLED"
+    fi
+    printf '{"updates":[{"appimage":"%s","applied":%s,"installed":"%s","detail":"downloaded it","problem":"%s"}],"written":1}\n' \
+        "$STUB_TARGET" "${STUB_UPDATE_APPLIED:-true}" "$STUB_INSTALLED" \
+        "${STUB_UPDATE_FAILURE:-}"
+    exit 0
+fi
 if [ "$1" = "explain" ]; then
     # The story of this AppImage is chosen by the caller: its version, the installed
     # version, how the two compare, and how many launchers already exist.
+    STUB_VERSION_NOW="${STUB_VERSION:-9.9.10}"
+    if [ -n "${STUB_UPDATE_INSTALLED:-}" ] && [ "$3" = "$STUB_UPDATE_INSTALLED" ]; then
+        STUB_VERSION_NOW="${STUB_UPDATE_VERSION:-2.0.0}"
+    fi
     printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","signature_mismatch":%s,"signature_stored":"%s","signature_computed":"%s","update_information":"%s","update_usable":%s,"update_description":"%s","update_problem":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
-        "$3" "${STUB_VERSION:-9.9.10}" \
+        "$3" "$STUB_VERSION_NOW" \
         "${STUB_MODE:-another launcher already represents this application}" \
         "${STUB_INSTALLED_VERSION:-9.9.9}" "${STUB_RELATION:-same}" \
         "${STUB_SIGNATURE_MISMATCH:-false}" "${STUB_SIGNATURE_STORED:-}" \
@@ -385,6 +411,56 @@ STUB_UPDATE_INFORMATION="guess" STUB_UPDATE_USABLE=false \
 grep -q 'cannot be used' "$DIRECTORY_TEMP/story-update-bad.txt" \
     || fail_test "the window does not flag an unusable update information value"
 
+echo "=== the Update button appears only when the AppImage says where updates come from ==="
+STUB_MODE="properly integrated" run_driven --activate back \
+    > "$DIRECTORY_TEMP/no-update-button.txt" 2>&1
+grep -q '^=== buttons: Integrate Run once Inspect Close\* ===$' \
+    "$DIRECTORY_TEMP/no-update-button.txt" \
+    || fail_test "the window offers Update for an AppImage with no update information"
+
+STUB_MODE="properly integrated" STUB_UPDATE_USABLE=true \
+    STUB_UPDATE_INFORMATION="gh-releases-zsync|FreeCAD|FreeCAD|latest|*.AppImage.zsync" \
+    run_driven --activate back > "$DIRECTORY_TEMP/update-button.txt" 2>&1
+grep -q '^=== buttons: Integrate Run once Inspect Update Close\* ===$' \
+    "$DIRECTORY_TEMP/update-button.txt" \
+    || fail_test "the Update button is not between Inspect and Close: $(grep -m1 '=== buttons' "$DIRECTORY_TEMP/update-button.txt")"
+
+echo "=== Update downloads the new AppImage and the window switches to it ==="
+: > "$FILE_RECORD"
+STUB_UPDATE_USABLE=true \
+    STUB_UPDATE_INFORMATION="zsync|https://example.invalid/Probe-latest-x86_64.AppImage.zsync" \
+    STUB_UPDATE_RELATION="other-file" \
+    STUB_UPDATE_AVAILABLE=false \
+    STUB_UPDATE_INSTALLED="$DIRECTORY_TEMP/Probe-2.0.0-x86_64.AppImage" \
+    STUB_UPDATE_VERSION=2.0.0 \
+    run_driven --activate update > "$DIRECTORY_TEMP/update-run.txt" 2>&1
+grep -Fq 'update|--check|--json|' "$FILE_RECORD" \
+    || fail_test "the window did not ask what the transport offers"
+grep -Fq 'update|--yes|--json|--force|' "$FILE_RECORD" \
+    || fail_test "the window did not take the offered file, although the transport names no version"
+grep -q 'Updated to' "$DIRECTORY_TEMP/update-run.txt" \
+    || fail_test "the window did not report the update: $(sed -n '/=== Status ===/,/=== Discovered ===/p' "$DIRECTORY_TEMP/update-run.txt" | head -6)"
+grep -q 'Probe-2.0.0-x86_64.AppImage' "$DIRECTORY_TEMP/update-run.txt" \
+    || fail_test "the window did not switch to the file it downloaded"
+
+echo "=== a new version is taken without --force ==="
+: > "$FILE_RECORD"
+STUB_UPDATE_USABLE=true STUB_UPDATE_INFORMATION="zsync|https://example.invalid/x.zsync" \
+    STUB_UPDATE_RELATION="newer" STUB_UPDATE_AVAILABLE=true \
+    STUB_UPDATE_INSTALLED="$DIRECTORY_TEMP/Probe-2.0.0-x86_64.AppImage" \
+    run_driven --activate update > /dev/null 2>&1
+if grep -Fq 'update|--yes|--json|--force|' "$FILE_RECORD"; then
+    fail_test "a version the check could compare was taken with --force"
+fi
+
+echo "=== an update the tool refuses is reported and changes nothing ==="
+STUB_UPDATE_USABLE=true STUB_UPDATE_INFORMATION="zsync|https://example.invalid/x.zsync" \
+    STUB_UPDATE_APPLIED=false STUB_UPDATE_FAILURE="the downloaded file is not an AppImage" \
+    STUB_UPDATE_INSTALLED="$DIRECTORY_TEMP/Refused-2.0.0.AppImage" \
+    run_driven --activate update > "$DIRECTORY_TEMP/update-refused.txt" 2>&1
+grep -q 'The update did not complete' "$DIRECTORY_TEMP/update-refused.txt" \
+    || fail_test "a refused update is not reported"
+
 # 2. The same version, a different file: integrate it.
 expect_row "same version, different file" " Integrate* Run once Inspect Close" same 1 back
 # 3. A newer version: integrate it.
@@ -432,6 +508,27 @@ if command -v Xvfb >/dev/null 2>&1 && command -v xprop >/dev/null 2>&1 \
     sleep 2
     DISPLAY_NUMBER=$(tr -d '\n' < "$DIRECTORY_TEMP/display")
     if [ -n "$DISPLAY_NUMBER" ]; then
+        # --start is what the launcher's Update item uses: it performs the action and
+        # leaves the window open, where --activate reports and quits.
+        : > "$FILE_RECORD"
+        STUB_RECORD="$FILE_RECORD" STUB_UPDATE_USABLE=true \
+            STUB_UPDATE_INFORMATION="zsync|https://example.invalid/x.zsync" \
+            STUB_UPDATE_INSTALLED="$DIRECTORY_TEMP/Started-2.0.0.AppImage" \
+            DISPLAY=":$DISPLAY_NUMBER" GDK_BACKEND=x11 \
+            XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
+            "$FILE_ACTIVATOR" --tool "$FILE_STUB" --start update "$FILE_FAKE_IMAGE" \
+            > /dev/null 2>&1 &
+        ACTIVATOR_PROCESS=$!
+        sleep 3
+        grep -Fq 'update|--check|--json|' "$FILE_RECORD" \
+            || fail_test "--start update did not run the update action"
+        if ! kill -0 "$ACTIVATOR_PROCESS" 2>/dev/null; then
+            fail_test "the window closed itself after --start, so nobody can see the result"
+        fi
+        kill "$ACTIVATOR_PROCESS" 2>/dev/null || true
+        wait "$ACTIVATOR_PROCESS" 2>/dev/null || true
+
+        : > "$FILE_RECORD"
         STUB_RECORD="$FILE_RECORD" DISPLAY=":$DISPLAY_NUMBER" GDK_BACKEND=x11 \
             XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
             "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$FILE_FAKE_IMAGE" > /dev/null 2>&1 &

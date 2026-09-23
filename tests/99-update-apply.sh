@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-# Tool-gated test: `update` replaces an installed AppImage with the file the transport
-# offers, after verifying the download, and re-renders the launcher.
+# Tool-gated test: `update` downloads the offered AppImage under its own name, points the
+# launcher and the record at it, and keeps the file it replaced.
 #
 # Prerequisites: mksquashfs, objcopy and od for the synthetic AppImages, and python3 for
 # a local HTTP server on 127.0.0.1.  No outside network is used.
@@ -50,78 +50,126 @@ trap cleanup EXIT
 PORT=8081
 BASE_URL="http://127.0.0.1:$PORT"
 
-# The AppImage being updated: version 1.0.0, and it embeds the transport to use.
-DIRECTORY_OLD="$DIRECTORY_TEMP/payload-old"
-mkdir -p "$DIRECTORY_OLD/usr/share/icons/hicolor/48x48/apps"
-printf 'fake-png-old' > "$DIRECTORY_OLD/usr/share/icons/hicolor/48x48/apps/probe.png"
-printf 'fake-diricon-old' > "$DIRECTORY_OLD/.DirIcon"
-cat > "$DIRECTORY_OLD/org.example.Probe.desktop" <<'ENTRY'
+# One payload builder: the version and a marker are what differ between builds.
+make_payload() { # <directory> <version> <marker>
+    mkdir -p "$1/usr/share/icons/hicolor/48x48/apps"
+    printf 'png-%s' "$3" > "$1/usr/share/icons/hicolor/48x48/apps/probe.png"
+    printf 'diricon-%s' "$3" > "$1/.DirIcon"
+    cat > "$1/org.example.Probe.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application
 Name=Probe App
 Exec=probe %U
 Icon=probe
 Categories=Utility;
-X-AppImage-Version=1.0.0
+X-AppImage-Version=$2
 ENTRY
+}
 
-# The AppImage the transport offers: version 2.0.0.
-DIRECTORY_NEW="$DIRECTORY_TEMP/payload-new"
-mkdir -p "$DIRECTORY_NEW/usr/share/icons/hicolor/48x48/apps"
-printf 'fake-png-new-and-longer' > "$DIRECTORY_NEW/usr/share/icons/hicolor/48x48/apps/probe.png"
-printf 'fake-diricon-new' > "$DIRECTORY_NEW/.DirIcon"
-cat > "$DIRECTORY_NEW/org.example.Probe.desktop" <<'ENTRY'
+make_payload "$DIRECTORY_TEMP/old" 1.0.0 old
+make_payload "$DIRECTORY_TEMP/new" 2.0.0 new-and-longer
+# The second application is a different one, so its launcher cannot be mistaken for a
+# competitor of the first.
+make_second_payload() { # <directory> <version> <marker>
+    mkdir -p "$1/usr/share/icons/hicolor/48x48/apps"
+    printf 'png-%s' "$3" > "$1/usr/share/icons/hicolor/48x48/apps/second.png"
+    printf 'diricon-%s' "$3" > "$1/.DirIcon"
+    cat > "$1/org.example.Second.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application
-Name=Probe App
-Exec=probe %U
-Icon=probe
+Name=Second App
+Exec=second %U
+Icon=second
 Categories=Utility;
-X-AppImage-Version=2.0.0
+X-AppImage-Version=$2
 ENTRY
+}
+make_second_payload "$DIRECTORY_TEMP/second" 1.0.0 second
+make_second_payload "$DIRECTORY_TEMP/second-new" 2.0.0 second-new-and-longer
 
 DIRECTORY_WWW="$DIRECTORY_TEMP/www"
 mkdir -p "$DIRECTORY_WWW"
-build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_OLD" "$DIRECTORY_TEMP/Old.AppImage" gzip
 
-# The .upd_info section goes into the ELF before the payload is appended.
-build_with_upd_info() { # <value> <output> <payload-dir>
-    printf '%s' "$1" > "$DIRECTORY_TEMP/upd_value"
+# The .upd_info section goes into the ELF before the payload is appended; objcopy
+# rewriting a file that already carries the payload would move it.
+write_upd_value() { # <url>
+    printf '%s' "zsync|$1" > "$DIRECTORY_TEMP/upd_value"
+}
+build_appimage_with_upd() { # <payload-dir> <output> <upd-url>
+    write_upd_value "$3"
     objcopy --add-section ".upd_info=$DIRECTORY_TEMP/upd_value" "$FILE_ELF" \
         "$DIRECTORY_TEMP/elf-upd"
-    build_synthetic_appimage "$DIRECTORY_TEMP/elf-upd" "$3" "$2" gzip
+    build_synthetic_appimage "$DIRECTORY_TEMP/elf-upd" "$1" "$2" gzip
 }
-UPD_VALUE="zsync|$BASE_URL/Probe-latest-x86_64.AppImage.zsync"
-build_with_upd_info "$UPD_VALUE" "$DIRECTORY_TEMP/Probe.AppImage" "$DIRECTORY_OLD"
-# The offered build carries the same transport, so the updated file can be updated again.
-build_with_upd_info "$UPD_VALUE" "$DIRECTORY_WWW/Probe-latest-x86_64.AppImage" "$DIRECTORY_NEW"
 
+# The installed file, and the file the transport offers for it.
+build_appimage_with_upd "$DIRECTORY_TEMP/old" "$DIRECTORY_TEMP/Probe.AppImage" \
+    "$BASE_URL/Probe-latest-x86_64.AppImage.zsync"
+build_appimage_with_upd "$DIRECTORY_TEMP/new" "$DIRECTORY_WWW/Probe-latest-x86_64.AppImage" \
+    "$BASE_URL/Probe-latest-x86_64.AppImage.zsync"
 cat > "$DIRECTORY_WWW/Probe-latest-x86_64.AppImage.zsync" <<'ZSYNC'
 zsync: 0.6.2
 Filename: Probe-2.0.0-x86_64.AppImage
 Length: 4096
 ZSYNC
 
-# A second transport, whose offered file is not an AppImage at all.
+# A second installed file, updated with --no-backup.
+build_appimage_with_upd "$DIRECTORY_TEMP/second" "$DIRECTORY_TEMP/Second.AppImage" \
+    "$BASE_URL/Second-latest-x86_64.AppImage.zsync"
+build_appimage_with_upd "$DIRECTORY_TEMP/second-new" \
+    "$DIRECTORY_WWW/Second-latest-x86_64.AppImage" \
+    "$BASE_URL/Second-latest-x86_64.AppImage.zsync"
+cat > "$DIRECTORY_WWW/Second-latest-x86_64.AppImage.zsync" <<'ZSYNC'
+zsync: 0.6.2
+Filename: Second-2.0.0-x86_64.AppImage
+ZSYNC
+
+# A transport whose offered file is not an AppImage at all.
 printf 'this is not an AppImage' > "$DIRECTORY_WWW/Broken-latest-x86_64.AppImage"
 cat > "$DIRECTORY_WWW/Broken-latest-x86_64.AppImage.zsync" <<'ZSYNC'
 zsync: 0.6.2
 Filename: Broken-2.0.0-x86_64.AppImage
 ZSYNC
+build_appimage_with_upd "$DIRECTORY_TEMP/old" "$DIRECTORY_TEMP/Broken.AppImage" \
+    "$BASE_URL/Broken-latest-x86_64.AppImage.zsync"
 
-DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
-DIRECTORY_HOME="$DIRECTORY_XDG/home"
-FILE_MANAGED="$DIRECTORY_HOME/Applications/Probe.AppImage"
-mkdir -p "$DIRECTORY_HOME/.local/share/applications" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc" \
+# A valid AppImage whose own .sha256_sig does not match it, which is what a corrupted or
+# substituted download looks like.
+printf 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' \
+    > "$DIRECTORY_TEMP/upd_sig"
+write_upd_value "$BASE_URL/Sig-latest-x86_64.AppImage.zsync"
+objcopy --add-section ".upd_info=$DIRECTORY_TEMP/upd_value" \
+    --add-section ".sha256_sig=$DIRECTORY_TEMP/upd_sig" "$FILE_ELF" \
+    "$DIRECTORY_TEMP/elf-badsig"
+build_synthetic_appimage "$DIRECTORY_TEMP/elf-badsig" "$DIRECTORY_TEMP/new" \
+    "$DIRECTORY_WWW/Sig-latest-x86_64.AppImage" gzip
+cat > "$DIRECTORY_WWW/Sig-latest-x86_64.AppImage.zsync" <<'ZSYNC'
+zsync: 0.6.2
+Filename: Sig-2.0.0-x86_64.AppImage
+ZSYNC
+build_appimage_with_upd "$DIRECTORY_TEMP/old" "$DIRECTORY_TEMP/Sig.AppImage" \
+    "$BASE_URL/Sig-latest-x86_64.AppImage.zsync"
+
+DIRECTORY_HOME="$DIRECTORY_TEMP/home"
+DIRECTORY_APPLICATIONS="$DIRECTORY_HOME/.local/share/applications"
+mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_TEMP/share" "$DIRECTORY_TEMP/etc" \
     "$DIRECTORY_HOME/Applications"
 
 run_in_sandbox() {
     env HOME="$DIRECTORY_HOME" \
         XDG_DATA_HOME="$DIRECTORY_HOME/.local/share" \
-        XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
+        XDG_DATA_DIRS="$DIRECTORY_TEMP/share" \
         XDG_CONFIG_HOME="$DIRECTORY_HOME/.config" \
-        XDG_CONFIG_DIRS="$DIRECTORY_XDG/etc" \
+        XDG_CONFIG_DIRS="$DIRECTORY_TEMP/etc" \
         "$@"
+}
+
+version_of() { # <AppImage> -> the version the tool reads out of it
+    run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$1" 2>/dev/null \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'
+}
+hash_of() { # <file> -> sha256
+    sha256sum < "$1" | cut -d' ' -f1
 }
 
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY_WWW" \
@@ -129,104 +177,128 @@ python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY_WWW" \
 PID_SERVER=$!
 sleep 1
 
-echo "=== the AppImage is integrated first ==="
+FILE_MANAGED="$DIRECTORY_HOME/Applications/Probe.AppImage"
+FILE_NEW="$DIRECTORY_HOME/Applications/Probe-2.0.0-x86_64.AppImage"
+
+echo "=== two launchers for one file, and the transport's Update action ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
     "$DIRECTORY_TEMP/Probe.AppImage" > "$DIRECTORY_TEMP/install.txt" 2>&1
-HASH_BEFORE=$(sha256sum < "$FILE_MANAGED" | cut -d" " -f1)
-version_of() { # <AppImage> -> its version, from the tool that extracts it
-    run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$1" 2>/dev/null \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'
-}
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes --add \
+    "$DIRECTORY_TEMP/Probe.AppImage" > "$DIRECTORY_TEMP/add.txt" 2>&1
 if [ "$(version_of "$FILE_MANAGED")" != "1.0.0" ]; then
     fail_test "the installed file does not report version 1.0.0"
 fi
+for FILE_LAUNCHER in "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    "$DIRECTORY_APPLICATIONS/org.example.Probe-2.desktop"; do
+    grep -q '^Actions=AppImage-Activator;Update-AppImage;Remove-AppImage;$' "$FILE_LAUNCHER" \
+        || fail_test "$FILE_LAUNCHER does not offer Update although the file carries update information"
+    grep -q '^Name=Update$' "$FILE_LAUNCHER" || fail_test "$FILE_LAUNCHER has no Update item"
+    grep -q ' handle --update ' "$FILE_LAUNCHER" \
+        || fail_test "$FILE_LAUNCHER's Update item does not open the activator"
+done
+
+HASH_BEFORE=$(hash_of "$FILE_MANAGED")
 
 echo "=== without --force the transport is not enough to act on ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update "$FILE_MANAGED" \
     > "$DIRECTORY_TEMP/noforce.txt" 2>&1
 grep -q 'pass --force' "$DIRECTORY_TEMP/noforce.txt" \
     || fail_test "the update did not ask for --force when the transport names no version"
-if [ "$(sha256sum < "$FILE_MANAGED" | cut -d" " -f1)" != "$HASH_BEFORE" ]; then
+if [ "$(hash_of "$FILE_MANAGED")" != "$HASH_BEFORE" ]; then
     fail_test "the update replaced the file although it was not asked to"
 fi
 
-echo "=== a dry run downloads nothing ==="
+echo "=== a dry run downloads nothing and names the new file ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --dry-run "$FILE_MANAGED" \
     > "$DIRECTORY_TEMP/dry.txt" 2>&1
 grep -q 'dry run: nothing was written' "$DIRECTORY_TEMP/dry.txt" \
     || fail_test "the dry run did not say it wrote nothing"
-grep -q 'download: ' "$DIRECTORY_TEMP/dry.txt" || fail_test "the dry run named no download"
-if [ "$(sha256sum < "$FILE_MANAGED" | cut -d" " -f1)" != "$HASH_BEFORE" ]; then
-    fail_test "the dry run replaced the file"
+grep -q 'will be placed beside it as: Probe-2.0.0-x86_64.AppImage' "$DIRECTORY_TEMP/dry.txt" \
+    || fail_test "the dry run did not name the file it would download"
+if [ -f "$FILE_NEW" ]; then
+    fail_test "the dry run downloaded the file"
 fi
 
-echo "=== update --force replaces the file and re-renders the launcher ==="
-run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes --backup \
-    "$FILE_MANAGED" > "$DIRECTORY_TEMP/update.txt" 2>&1
-HASH_AFTER=$(sha256sum < "$FILE_MANAGED" | cut -d" " -f1)
-if [ "$HASH_AFTER" = "$HASH_BEFORE" ]; then
-    fail_test "the file was not replaced: $(cat "$DIRECTORY_TEMP/update.txt")"
+echo "=== update downloads the offered file, retargets, and keeps the old one ==="
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes "$FILE_MANAGED" \
+    > "$DIRECTORY_TEMP/update.txt" 2>&1
+if [ ! -f "$FILE_NEW" ]; then
+    fail_test "the offered file was not installed as its own name: $(cat "$DIRECTORY_TEMP/update.txt")"
+fi
+if [ -f "$FILE_MANAGED" ]; then
+    fail_test "the file that was replaced is still there"
 fi
 grep -q '^updated: ' "$DIRECTORY_TEMP/update.txt" || fail_test "the update was not reported"
-grep -q 'launcher re-rendered:' "$DIRECTORY_TEMP/update.txt" \
-    || fail_test "the launcher was not re-rendered"
-if [ ! -f "$FILE_MANAGED.previous" ]; then
-    fail_test "--backup did not keep the previous file"
+if [ "$(version_of "$FILE_NEW")" != "2.0.0" ]; then
+    fail_test "the installed file is not the offered build"
 fi
-if [ "$(sha256sum < "$FILE_MANAGED.previous" | cut -d" " -f1)" != "$HASH_BEFORE" ]; then
-    fail_test "the kept file is not the one that was replaced"
+if [ ! -x "$FILE_NEW" ]; then
+    fail_test "the downloaded file is not executable"
 fi
-if [ ! -x "$FILE_MANAGED" ]; then
-    fail_test "the replaced file is not executable"
+if [ ! -f "$FILE_MANAGED.previous" ] || [ "$(hash_of "$FILE_MANAGED.previous")" != "$HASH_BEFORE" ]; then
+    fail_test "the previous file was not kept as <name>.previous"
 fi
-FILE_VERSION=$(version_of "$FILE_MANAGED")
-if [ "$FILE_VERSION" != "2.0.0" ]; then
-    fail_test "the replaced file is version $FILE_VERSION instead of 2.0.0"
+# Both launchers, and both records, now run the new file.
+for FILE_LAUNCHER in "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    "$DIRECTORY_APPLICATIONS/org.example.Probe-2.desktop"; do
+    grep -q "^Exec=$FILE_NEW %U$" "$FILE_LAUNCHER" \
+        || fail_test "$FILE_LAUNCHER was not retargeted: $(grep '^Exec=' "$FILE_LAUNCHER")"
+    grep -q "^TryExec=$FILE_NEW$" "$FILE_LAUNCHER" \
+        || fail_test "$FILE_LAUNCHER's TryExec was not retargeted"
+done
+if [ "$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -c "$FILE_NEW")" != "2" ]; then
+    fail_test "the records were not retargeted"
 fi
-grep -q "^Exec=$FILE_MANAGED %U$" \
-    "$DIRECTORY_HOME/.local/share/applications/org.example.Probe.desktop" \
-    || fail_test "the launcher no longer runs the managed file"
+
+echo "=== --no-backup removes the file instead of keeping it ==="
+FILE_SECOND="$DIRECTORY_HOME/Applications/Second.AppImage"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/Second.AppImage" > /dev/null 2>&1
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes --no-backup \
+    "$FILE_SECOND" > "$DIRECTORY_TEMP/nobackup.txt" 2>&1
+if [ -f "$FILE_SECOND" ]; then
+    fail_test "--no-backup left the replaced file behind"
+fi
+if [ -f "$FILE_SECOND.previous" ]; then
+    fail_test "--no-backup kept a previous file anyway"
+fi
+if [ ! -f "$DIRECTORY_HOME/Applications/Second-2.0.0-x86_64.AppImage" ]; then
+    fail_test "--no-backup did not install the offered file"
+fi
 
 echo "=== a download that is not an AppImage is refused ==="
-build_with_upd_info "zsync|$BASE_URL/Broken-latest-x86_64.AppImage.zsync" \
-    "$DIRECTORY_TEMP/Broken.AppImage" "$DIRECTORY_OLD"
-cp "$DIRECTORY_TEMP/Broken.AppImage" "$DIRECTORY_HOME/Applications/Broken.AppImage"
-HASH_BROKEN=$(sha256sum < "$DIRECTORY_HOME/Applications/Broken.AppImage" | cut -d" " -f1)
+FILE_BROKEN="$DIRECTORY_HOME/Applications/Broken.AppImage"
+cp "$DIRECTORY_TEMP/Broken.AppImage" "$FILE_BROKEN"
 if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes \
-        "$DIRECTORY_HOME/Applications/Broken.AppImage" > "$DIRECTORY_TEMP/broken.txt" 2>&1; then
+        "$FILE_BROKEN" > "$DIRECTORY_TEMP/broken.txt" 2>&1; then
     fail_test "a download that is not an AppImage was accepted"
 fi
 grep -q 'cannot be read as an AppImage' "$DIRECTORY_TEMP/broken.txt" \
     || fail_test "the refusal does not say the download is not an AppImage"
-if [ "$(sha256sum < "$DIRECTORY_HOME/Applications/Broken.AppImage" | cut -d" " -f1)" != "$HASH_BROKEN" ]; then
-    fail_test "the refused download replaced the file"
+if [ ! -f "$FILE_BROKEN" ]; then
+    fail_test "the refused download removed the working file"
 fi
-if [ -f "$DIRECTORY_HOME/Applications/Broken.AppImage.part" ]; then
+if [ -f "$FILE_BROKEN.part" ] || [ -f "$DIRECTORY_HOME/Applications/Broken-2.0.0-x86_64.AppImage" ]; then
     fail_test "the refused download was left behind"
 fi
 
 echo "=== a mismatch in the file's own signature is refused ==="
-# The offered file is a valid AppImage whose .sha256_sig holds a digest that is not
-# the file's, which is what a corrupted or substituted download looks like.
-printf 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' \
-    > "$DIRECTORY_TEMP/upd_sig"
-objcopy --add-section ".upd_info=$DIRECTORY_TEMP/upd_value" \
-    --add-section ".sha256_sig=$DIRECTORY_TEMP/upd_sig" "$FILE_ELF" \
-    "$DIRECTORY_TEMP/elf-badsig"
-build_synthetic_appimage "$DIRECTORY_TEMP/elf-badsig" "$DIRECTORY_NEW" \
-    "$DIRECTORY_WWW/Probe-latest-x86_64.AppImage" gzip
+FILE_SIG="$DIRECTORY_HOME/Applications/Sig.AppImage"
+cp "$DIRECTORY_TEMP/Sig.AppImage" "$FILE_SIG"
+HASH_SIG=$(hash_of "$FILE_SIG")
 if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes \
-        "$FILE_MANAGED" > "$DIRECTORY_TEMP/badsig.txt" 2>&1; then
+        "$FILE_SIG" > "$DIRECTORY_TEMP/badsig.txt" 2>&1; then
     fail_test "a file whose signature does not match it was accepted"
 fi
 grep -q 'does not match' "$DIRECTORY_TEMP/badsig.txt" \
     || fail_test "the refusal does not say the signature does not match: $(cat "$DIRECTORY_TEMP/badsig.txt")"
-if [ "$(sha256sum < "$FILE_MANAGED" | cut -d" " -f1)" != "$HASH_AFTER" ]; then
+if [ "$(hash_of "$FILE_SIG")" != "$HASH_SIG" ] \
+    || [ -f "$DIRECTORY_HOME/Applications/Sig-2.0.0-x86_64.AppImage" ]; then
     fail_test "the refused download replaced the working file"
 fi
 
-echo "=== update --json reports what was written ==="
-run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --json "$FILE_MANAGED" \
+echo "=== update --json reports the installed path ==="
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --json "$FILE_NEW" \
     > "$DIRECTORY_TEMP/update.json" 2>&1 || true
 python3 - "$DIRECTORY_TEMP/update.json" <<'PYTHON'
 import json

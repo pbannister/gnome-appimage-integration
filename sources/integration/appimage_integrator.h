@@ -157,6 +157,9 @@ struct integration_options_o {
     // for the same AppImage file (a deliberate second copy for one application) is not
     // a conflict, because the file is not claiming anything new.
     bool refresh_own_launchers = false;
+    // While rewriting a record against a file that replaces the one the record names,
+    // launchers that ran the replaced file are this application too, not competitors.
+    std::string replaced_appimage_path;
 };
 
 // One installed AppImage, read back from its manifest.

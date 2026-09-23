@@ -162,7 +162,7 @@ downloaded AppImage can offer its own lifecycle:
 | Action | Label | Runs |
 | ------ | ----- | ---- |
 | `AppImage-Activator` | `AppImage Activator` | `appimage-integrate handle <AppImage>`, which opens the graphical activator on that file |
-| `Update-AppImage` | `Check for updates` | `appimage-integrate update --check --notify <AppImage>`, which asks the update information and shows the answer in a notification |
+| `Update-AppImage` | `Update` | `appimage-integrate handle --update <AppImage>`, which opens the activator and clicks its Update button.  The item is written only when the AppImage carries usable update information, because an item that could only report that it cannot do anything is worse than no item |
 | `Remove-AppImage` | `Remove this AppImage` | `appimage-integrate uninstall --identifier <id>` |
 
 The shell also adds its own **App Details** item to that menu, which opens GNOME Software. That
@@ -262,15 +262,22 @@ AppImages have an update waiting. Two of the specification's transports are dead
 `appimagetool`'s `--guess` option has been embedded as if it were a transport; all three are named
 rather than treated as a network error.
 
-`appimage-integrate update` replaces the file with what the transport offers, and only after
-verifying the download: the release's published `<asset>-SHA256.txt` is compared when the release
+`appimage-integrate update` downloads the file the transport offers **under its own name**, beside
+the one it replaces, and only after verifying the download: the release's published `<asset>-SHA256.txt` is compared when the release
 publishes one, and the downloaded file's own `.sha256_sig` is always checked (a PGP signature
 there is the strongest evidence available). A mismatch refuses the update and leaves the working
 file alone; a download with nothing published to check against is reported as exactly that rather
-than as verified. The replacement goes through `<name>.part`, keeps the previous file with
-`--backup`, makes the new file executable, and re-renders that one launcher, so its record, icon,
-name and window class survive. `--force` takes the offered file when the transport names no
-version.
+than as verified. The download goes through `<name>.part`; the replaced file is kept as `<name>.previous`
+(`--no-backup` removes it instead); the new file is made executable; and every record and launcher
+that ran the old file is re-rendered against the new one, keeping its desktop id, icon, `Name=` and
+window class.  So the file name tells the truth about the version it holds, and nothing that ran
+the old file is left pointing at a file that is gone.  `--force` takes the offered file when the
+transport names no version.
+
+The window's **Update** button, and the launcher's **Update** item, do the same thing: both ask the
+update information first, and the button sits between Inspect and Close, present only when the
+AppImage carries usable update information.  The download runs without freezing the window, and
+when it finishes the window switches to the file that was installed.
 
 Two things are deliberately still out of scope. A zsync *delta* needs a zsync client, which is not
 installed here, so an update downloads the whole file — the check prints the size so the cost is

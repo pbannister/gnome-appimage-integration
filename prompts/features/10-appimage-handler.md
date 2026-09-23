@@ -10,7 +10,7 @@ default.
 
 - The project must provide a handler that accepts one AppImage path.
 - The handler must read the embedded application name for its prompt.
-- The handler must offer Run once, Integrate, Inspect, and Cancel.
+- The handler must offer Run once, Integrate, Inspect, Cancel, and -- when the AppImage carries usable update information -- Update, which sits between Inspect and Close.
 - The handler must fall back to `zenity` when the graphical activator is not available and a graphical display exists.
 - The handler must fall back to printing the equivalent commands when no display is available.
 - Integrate must install the AppImage, report what was written, and offer to run it.
@@ -35,7 +35,7 @@ default.
 - The Discovered log must emphasise the `This run` and `Error` fields, in the composed facts and in the appended report, and no other line.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
 - Each action must raise the page that answers it: Integrate the Status page, Inspect the Discovered page, and Run once or Run now the Actions page.
-- The first view's buttons must be ordered by how likely the owner is to use them: Integrate, Run once, Inspect, Close.
+- The first view's buttons must be ordered by how likely the owner is to use them: Integrate, Run once, Inspect, Update (when there is update information), Close.
 - Integration must check the `.sha256_sig` section: a hex digest is compared with the SHA-256 of the file with that section zeroed, and a PGP signature is checked with `gpg --verify` against the digest computed here.
 - A definite mismatch must refuse the install unless `--ignore-signature` is given, and must be visible in the activator's Status log; a missing gpg or an unknown key must be reported as not verified, never as a mismatch.
 - `explain --json` must report the newest installed version and how this file compares with it: `newer`, `older`, `same`, or `unknown`.
@@ -48,6 +48,7 @@ default.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
 - After Integrate succeeds, the window must follow the AppImage to its installed path, so File, Run now, and Inspect refer to the new location.
+- Update must ask the update information what is offered, say why when there is nothing to do, and otherwise download the offered file, keeping the previous one as `<name>.previous`.  The download must not freeze the window, and when it finishes the window must switch to the file that was installed, so Inspect, Integrate, and Run now refer to it.
 - The window must show the new location in its output after a move.
 - Inspect must write its details into that text area.
 - Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
