@@ -90,6 +90,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install <AppImage>` | integrate the AppImage, after confirmation |
 | `appimage-integrate install --replace <AppImage>` | replace an existing launcher, backing it up |
 | `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
+| `appimage-integrate install --wm-class CLASS <AppImage>` | set the window class the dock matches on |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
 | `appimage-integrate list` | list AppImages integrated by this tool |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
@@ -135,6 +136,7 @@ The practical choices are:
 Position is saved and restored only through the XWayland path; on a Wayland session the handler still remembers and restores the size.
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
 Every icon write refreshes the icon theme cache with `gtk4-update-icon-cache`, because GTK trusts a cache that is not older than the theme directory and then never rescans it — a stale cache hides every newly installed icon.
+Re-running `install` for the same AppImage is harmless: it overwrites its own launcher, icons, and manifest, so it also repairs a faulty install. A missing `StartupWMClass` is recovered from a previous manifest, from a conflicting launcher, or from one this tool displaced, and the chosen class is remembered. Use `--wm-class` when the embedded entry does not name the class the dock matches on.
 
 ## Project Pages (publishing conventions)
 

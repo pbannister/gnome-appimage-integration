@@ -381,20 +381,9 @@ class Handler:
 
         box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        details = Gtk.Grid(column_spacing=12, row_spacing=4)
-        row = 0
-        for key, value in self.detail_rows():
-            key_label = Gtk.Label(label=key)
-            key_label.set_xalign(0)
-            key_label.add_css_class("dim-label")
-            value_label = Gtk.Label(label=value)
-            value_label.set_xalign(0)
-            value_label.set_wrap(True)
-            value_label.set_selectable(True)
-            details.attach(key_label, 0, row, 1, 1)
-            details.attach(value_label, 1, row, 1, 1)
-            row += 1
-        box.append(details)
+        self.details_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(self.details_container)
+        self.update_details()
 
         if self.conflicts():
             notice = Gtk.Label()
@@ -428,6 +417,28 @@ class Handler:
         box.append(scroller)
 
         self.window.set_child(box)
+
+    def update_details(self):
+        """Rebuild the details rows, so File follows the AppImage when it moves."""
+        child = self.details_container.get_first_child()
+        while child is not None:
+            following = child.get_next_sibling()
+            self.details_container.remove(child)
+            child = following
+        details = Gtk.Grid(column_spacing=12, row_spacing=4)
+        row = 0
+        for key, value in self.detail_rows():
+            key_label = Gtk.Label(label=key)
+            key_label.set_xalign(0)
+            key_label.add_css_class("dim-label")
+            value_label = Gtk.Label(label=value)
+            value_label.set_xalign(0)
+            value_label.set_wrap(True)
+            value_label.set_selectable(True)
+            details.attach(key_label, 0, row, 1, 1)
+            details.attach(value_label, 1, row, 1, 1)
+            row += 1
+        self.details_container.append(details)
 
     def detail_rows(self):
         rows = [
@@ -540,8 +551,14 @@ class Handler:
         code, out, err = run_tool(self.tool, ["install", "--yes"] + policy + [self.path])
         report = combined_output(out, err)
         if code == 0:
+            # Integrate moves the AppImage; follow it so Run now and Inspect work.
+            installed_path = self.data.get("installed") or ""
             self.data = self.load_description()
-            self.set_text(report)
+            if installed_path and os.path.exists(installed_path):
+                self.path = installed_path
+                self.data = self.load_description()
+            self.update_details()
+            self.set_text(report + "\n\nFile is now:\n  " + self.path)
             self.set_buttons(
                 [
                     ("Run now", self.on_run_now),

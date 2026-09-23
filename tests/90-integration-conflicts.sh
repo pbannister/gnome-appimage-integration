@@ -132,7 +132,6 @@ X-AppImage-Version=9.9.10
 Exec=probe %U
 Icon=probe
 Categories=Utility;
-StartupWMClass=ProbeApp
 ENTRY
 build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_TWO" "$DIRECTORY_TEMP/work2.AppImage" gzip
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --replace --yes "$DIRECTORY_TEMP/work2.AppImage" > "$DIRECTORY_TEMP/upgrade.txt" 2>&1
@@ -148,6 +147,25 @@ if [ "$COUNT_ENTRIES" -ne 1 ]; then
 fi
 if grep -E '^icon=' "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/"*.manifest | grep -q '\.desktop$'; then
     fail_test "an upgrade installed a .desktop file as an icon"
+fi
+
+echo "=== re-integrating is harmless and remembers the window class ==="
+FILE_INSTALLED="$DIRECTORY_XDG/home/Applications/work2.AppImage"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes --wm-class ProbeAppClass "$FILE_INSTALLED" > /dev/null 2>&1
+grep -q '^StartupWMClass=ProbeAppClass$' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "the window class was not written"
+grep -q '^startup_wm_class=ProbeAppClass$' "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/"*.manifest \
+    || fail_test "the window class was not remembered"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$FILE_INSTALLED" > /dev/null 2>&1
+grep -q '^StartupWMClass=ProbeAppClass$' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "re-integrating lost the window class"
+COUNT_LAUNCHERS=$(ls -1 "$DIRECTORY_APPLICATIONS"/org.example.Probe*.desktop | wc -l)
+if [ "$COUNT_LAUNCHERS" -ne 1 ]; then
+    fail_test "re-integrating left $COUNT_LAUNCHERS launchers"
+fi
+COUNT_ENTRIES=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -c . || true)
+if [ "$COUNT_ENTRIES" -ne 1 ]; then
+    fail_test "re-integrating left $COUNT_ENTRIES manifests"
 fi
 
 echo "=== explain shows the embedded entry ==="

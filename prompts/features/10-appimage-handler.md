@@ -13,7 +13,7 @@ default.
 - The handler must offer Run once, Integrate, Inspect, and Cancel.
 - The handler must use `zenity` when it is available and a graphical display exists.
 - The handler must fall back to printing the equivalent commands when no display is available.
-- Integrate must install the AppImage and then run it.
+- Integrate must install the AppImage, report what was written, and offer to run it.
 - Inspect must show the embedded desktop entry.
 - Registering the handler must write a `NoDisplay=true` desktop entry whose `Exec` runs the installed tool with `%f`.
 - Registering the handler must set it as the default for `application/vnd.appimage`, `application/x-appimage`, and `application/x-iso9660-appimage`.
@@ -29,6 +29,8 @@ default.
 - The main window must show the application Name, Comment, and GenericName, the detected version, and a details block containing File, Size, and Will install as.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
+- After Integrate succeeds, the window must follow the AppImage to its installed path, so File, Run now, and Inspect refer to the new location.
+- The window must show the new location in its output after a move.
 - Inspect must write its details into that text area.
 - Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
 - The window must remember its size on resize and on close, and honour a remembered size even when it is larger than the reported work area; only the position is clamped on-screen.

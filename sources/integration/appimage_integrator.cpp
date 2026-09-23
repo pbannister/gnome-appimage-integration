@@ -833,9 +833,68 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                                       : o_entry.value("Desktop Entry", "StartupWMClass")
                                             .value_or(std::string());
         if (o_plan.startup_wm_class.empty()) {
+            // A class set by an earlier install of this same AppImage is remembered.
+            const std::vector<std::pair<std::string, std::string>> o_installed_lines =
+                read_manifest(join_path(s_state_directory_, o_plan.identifier + ".manifest"));
+            o_plan.startup_wm_class = manifest_get(o_installed_lines, "startup_wm_class");
+        }
+        if (o_plan.startup_wm_class.empty()) {
+            // Borrow the class from a launcher that already represents this application.
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                if (!o_conflict.wm_class.empty()) {
+                    o_plan.startup_wm_class = o_conflict.wm_class;
+                    o_plan.notes.push_back("adopted StartupWMClass=" + o_conflict.wm_class
+                                           + " from " + o_conflict.path);
+                    break;
+                }
+            }
+        }
+        if (o_plan.startup_wm_class.empty()) {
+            // Repair path: a launcher this tool displaced may carry the class.
+            const std::string s_backup_directory = join_path(s_state_directory_, "backup");
+            std::error_code o_backup_error;
+            if (fs::is_directory(s_backup_directory, o_backup_error)) {
+                std::vector<std::string> o_backups;
+                for (const fs::directory_entry &o_item :
+                     fs::directory_iterator(s_backup_directory, o_backup_error)) {
+                    if (".desktop" == o_item.path().extension().string()) {
+                        o_backups.push_back(o_item.path().string());
+                    }
+                }
+                std::sort(o_backups.begin(), o_backups.end());
+                const std::string s_name_key = normalize_application_name(
+                    o_entry.value("Desktop Entry", "Name").value_or(std::string()));
+                for (const std::string &s_backup : o_backups) {
+                    desktop_entry_file_o o_backup_entry;
+                    std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o>
+                        o_backup_diagnostics;
+                    if (!desktop_entry_reader_c::parse_file(s_backup, o_backup_entry,
+                                                            o_backup_diagnostics)) {
+                        continue;
+                    }
+                    if (normalize_application_name(o_backup_entry
+                                                       .value("Desktop Entry", "Name")
+                                                       .value_or(std::string()))
+                        != s_name_key) {
+                        continue;
+                    }
+                    const std::string s_class =
+                        o_backup_entry.value("Desktop Entry", "StartupWMClass")
+                            .value_or(std::string());
+                    if (!s_class.empty()) {
+                        o_plan.startup_wm_class = s_class;
+                        o_plan.notes.push_back("adopted StartupWMClass=" + s_class
+                                               + " from the backed-up launcher " + s_backup);
+                        break;
+                    }
+                }
+            }
+        }
+        if (o_plan.startup_wm_class.empty()) {
             o_plan.warnings.push_back(
-                "the embedded entry has no StartupWMClass; the dock may show a generic icon "
-                "until one is set (run: xprop WM_CLASS, then reinstall with --wm-class)");
+                "the embedded entry has no StartupWMClass and no earlier launcher supplied one; "
+                "the dock may show a generic icon until one is set (read the window app id with "
+                "'lg', then reinstall with --wm-class)");
         }
 
         // Launchers that already represent this application.
@@ -1296,6 +1355,9 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
                    << "desktop_id=" << o_plan.desktop_id << '\n'
                    << "desktop_entry=" << o_plan.desktop_entry_path << '\n'
                    << "icon_name=" << o_plan.icon_name << '\n';
+        if (!o_plan.startup_wm_class.empty()) {
+            o_manifest << "startup_wm_class=" << o_plan.startup_wm_class << '\n';
+        }
         for (const std::string &s_path : o_written_icons) {
             o_manifest << "icon=" << s_path << '\n';
         }

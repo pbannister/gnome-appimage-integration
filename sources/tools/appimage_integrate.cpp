@@ -388,6 +388,7 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
               << ",\"identifier\":\"" << json_escape(o_plan.identifier) << "\""
               << ",\"desktop_id\":\"" << json_escape(o_plan.desktop_id) << "\""
+              << ",\"installed\":\"" << json_escape(o_plan.installed_path) << "\""
               << ",\"icon_name\":\"" << json_escape(o_plan.icon_name) << "\""
               << ",\"exec\":\"" << json_escape(o_plan.exec_command) << "\""
               << ",\"startup_wm_class\":\"" << json_escape(o_plan.startup_wm_class) << "\""

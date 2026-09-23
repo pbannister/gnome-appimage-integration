@@ -33,6 +33,8 @@ make every step printable, plannable, and reversible.
 - `--add` must choose a distinct desktop file identifier instead of overwriting.
 - The integrator must retire the manifest of a launcher it upgrades in place, so `list` stays accurate.
 - The integrator must expose a human-readable description of the AppImage and of a plan.
+- The integrator must recover a missing `StartupWMClass` from a previous manifest for the same AppImage, from a conflicting launcher, or from a launcher this tool displaced, and must persist the chosen class in the manifest.
+- Re-running install for the same AppImage must be harmless: it must overwrite its own launcher, icons, and manifest and must never create a duplicate, so it can repair a faulty install.
 - The integrator must extract the application version from `X-AppImage-Version`, then AppStream metadata, then the file name, and report which source it used.
 
 ## Behavior
