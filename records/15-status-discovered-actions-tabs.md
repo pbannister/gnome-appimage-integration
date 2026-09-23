@@ -72,6 +72,34 @@ and in Discovered:
 
 which is the deduction the owner asked to see.
 
+## Follow-Up: the Tool's Report Is Status Too
+
+The first version of the tabs left one block above the buttons: the tool's own report, which
+`explain --json` carries in its `error` field — "N existing launcher(s) already represent this
+application: <paths> choose --replace … or --add …". The owner sent a screenshot of exactly that
+block and said it belongs in the Status tab box. It does, so the label was removed from the widget
+tree and the text is now part of the Status log, between the already-installed notice and, when
+the prompt is open, the detailed launcher list.
+
+Status therefore reads, for the real FreeCAD 1.1.3 AppImage:
+
+```
+State:     another launcher already represents this application
+Launcher:  org.freecad.FreeCAD.desktop
+File:      /home/preston/Downloads/Applications/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage
+
+This application is already installed.
+Integrate will show details, then offer to replace or add alongside.
+
+2 existing launcher(s) already represent this application:
+  /home/preston/.local/share/applications/org.freecad.FreeCAD-2.desktop  (this tool)
+  /home/preston/.local/share/applications/org.freecad.FreeCAD.desktop  (this tool (a different AppImage for the same identifier))
+choose --replace to back them up and install this version in their place, or --add to install alongside them
+```
+
+`tests/95-activator-ui.sh`'s stub now reports an `error` alongside its conflicts, and the test
+asserts that both the report line and the two choices appear in the driven run's Status output.
+
 ## Verification
 
 Verified 2026-09-23 with `make test`; all sixteen test scripts passed. The installed activator was
@@ -81,3 +109,4 @@ run against the real AppImage on a virtual display with `--activate integrate` a
 ## Commits
 
 - `dc331a1` Give the activator Status, Discovered, and Actions tabs
+- `5bc7a39` Move the tool's report into the Status tab

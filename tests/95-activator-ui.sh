@@ -193,7 +193,8 @@ if [ "$1" = "explain" ]; then
     cat <<'JSON'
 {"path":"/tmp/Probe.AppImage","name":"Probe App","generic_name":"Probe Tool",
  "comment":"Probe comment","version":"9.9.10","version_source":"X-AppImage-Version",
- "valid":true,"file_size":1024,"installed":"",
+ "valid":false,"file_size":1024,"installed":"",
+ "error":"1 existing launcher(s) already represent this application:\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\nchoose --replace to back them up and install this version in their place, or --add to install alongside them",
  "conflicts":[{"desktop_id":"org.example.Probe.desktop",
                "path":"/tmp/org.example.Probe.desktop","name":"Probe App",
                "origin":"this tool (upgrade)","upgrade":true,"repair":false,
@@ -229,6 +230,12 @@ grep -q 'This application is already installed.' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Status tab does not carry the already-installed notice"
 grep -q 'Existing launchers for this application:' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Discovered tab does not list the launchers it found"
+# The tool's own report belongs in Status, not in a label above the buttons.
+grep -q '1 existing launcher(s) already represent this application:' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Status tab does not carry the tool's report"
+grep -q 'choose --replace to back them up and install this version in their place' \
+    "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Status tab does not carry the tool's two choices"
 grep -q 'Identifier' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Discovered tab does not report the identifier it computed"
 grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven.txt" \

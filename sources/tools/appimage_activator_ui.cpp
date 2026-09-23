@@ -766,13 +766,8 @@ private:
         gtk_box_append(GTK_BOX(p_box), p_details_container_);
         update_details();
 
-        // The "already installed" block is not repeated here: it is part of the
-        // Status tab, which is where the current state lives.
-        const std::string s_error = o_data_.string_or("error");
-        if (!s_error.empty()) {
-            gtk_box_append(GTK_BOX(p_box), make_label(s_error, true));
-        }
-
+        // The tool's own report, and the already-installed notice, are the Status
+        // tab's business, not separate labels above the buttons.
         // The name the launcher will carry sits to the left of the buttons, and is
         // only shown when a choice is offered, because it only matters when another
         // launcher for the same application already exists.
@@ -1037,6 +1032,14 @@ private:
         if (!o_conflicts.empty()) {
             o_text << "\nThis application is already installed.\n"
                       "Integrate will show details, then offer to replace or add alongside.\n";
+        }
+        // Whatever the tool reported about this file, in its own words: the state it
+        // could not reach, or why it stopped.
+        const std::string s_error = o_data_.string_or("error");
+        if (!s_error.empty()) {
+            o_text << "\n" << s_error << '\n';
+        }
+        if (!o_conflicts.empty()) {
             if (b_prompt_active_) {
                 o_text << '\n';
                 bool b_all_upgrade = true;
