@@ -49,11 +49,12 @@ reads `properly integrated` by itself.
 
 ## On This Host
 
-No AppImage is currently complete, and the modes say why: `~/Applications` was moved to
-`~/Downloads/Applications`, so OpenShot, OrcaSlicer, and Cura 5.13 are `repair the launcher (the
-AppImage is not where it was)`, while FreeCAD 1.1.3 and Cura 5.10.1 are `another launcher already
-represents this application`. Integrating any of them returns the state to `properly integrated`,
-which is the state the owner asked to be able to recognise.
+When this work was done, no AppImage was complete and the modes said why: `~/Applications` had
+been moved to `~/Downloads/Applications`, so OpenShot, OrcaSlicer, and Cura 5.13 were `repair the
+launcher (the AppImage is not where it was)`, while FreeCAD 1.1.3 and Cura 5.10.1 were `another
+launcher already represents this application`. The owner then moved the directory back, and
+re-reading every AppImage now reports `properly integrated` for FreeCAD 1.1.3, NETGEAR Discovery
+Tool, OpenShot, OrcaSlicer, and Cura 5.13 — the state this episode added.
 
 ## Where the Window Lands
 
@@ -62,6 +63,24 @@ not what the state had become. Each action now raises the page that answers it: 
 Status page, which is where `properly integrated` appears; Inspect the Discovered page, with the
 appended report; and Run once or Run now the Actions page, where the output of the run belongs.
 A driven run prints which page is showing, and the test asserts all three.
+
+## Button Order and the Suggested Hint
+
+The first view offered `Run once, Integrate, Inspect, Close`; it is now `Integrate, Run once,
+Inspect, Close`, ordered by how likely the owner is to use each button, and Integrate carries the
+GNOME HIG's
+[suggested-action](https://developer.gnome.org/hig/patterns/controls/buttons.html) style, which
+"highlights a button for affirmative action … to draw attention to the next step in a process".
+The HIG allows one suggested button per view, so after a successful integration the row is
+`Run now, Inspect, Close` with Run now suggested, and the conflict choices carry none: which of
+Replace existing and Add alongside is likely depends on what the launcher is, and Status explains
+both.
+
+No button is bound to Return. The HIG permits leaving the default unset, and a keystroke should
+not move files; the suggestion is a visual hint.
+
+A driven run prints the real widget row with `*` on the suggested button, and the test asserts
+both rows, so the order and the style are checked against the widgets rather than the source text.
 
 ## Verification
 
@@ -72,3 +91,4 @@ run over every AppImage in `~/Downloads/Applications` to read the modes above.
 
 - `a021f7b` Report a complete integration as properly integrated
 - `1317732` Show the Status tab after Integrate
+- `a0554d8` Order the first view's buttons by likely use, and hint Integrate
