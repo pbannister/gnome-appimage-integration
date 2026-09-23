@@ -36,6 +36,8 @@ default.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
 - Each action must raise the page that answers it: Integrate the Status page, Inspect the Discovered page, and Run once or Run now the Actions page.
 - The first view's buttons must be ordered by how likely the owner is to use them: Integrate, Run once, Inspect, Close.
+- Integration must check the `.sha256_sig` section: a hex digest is compared with the SHA-256 of the file with that section zeroed, and a PGP signature is checked with `gpg --verify` against the digest computed here.
+- A definite mismatch must refuse the install unless `--ignore-signature` is given, and must be visible in the activator's Status log; a missing gpg or an unknown key must be reported as not verified, never as a mismatch.
 - `explain --json` must report the newest installed version and how this file compares with it: `newer`, `older`, `same`, or `unknown`.
 - Close must be the suggested first-view action when the file is already integrated, and when it is older than the installed version.
 - An older file must be clearly visible in the Status log, with both versions, and integrating it anyway must suggest Add alongside and append its version to the name.

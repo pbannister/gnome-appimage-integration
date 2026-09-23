@@ -1209,6 +1209,16 @@ private:
             }
         }
 
+        // A payload that does not match its recorded digest is a refusal, not a note.
+        if (o_data_.boolean_or("signature_mismatch", false)) {
+            o_text << "\nThe payload does not match the digest recorded in .sha256_sig.\n"
+                   << "  stored:   "
+                   << o_data_.string_or("signature_stored", "(unknown)") << '\n'
+                   << "  computed: "
+                   << o_data_.string_or("signature_computed", "(unknown)") << '\n'
+                   << "Integrate is refused unless --ignore-signature is given.\n";
+        }
+
         const std::vector<value_c> o_conflicts = conflicts();
         if (MODE_INTEGRATED == s_mode) {
             // Nothing is wrong and nothing is left to do; do not offer to replace

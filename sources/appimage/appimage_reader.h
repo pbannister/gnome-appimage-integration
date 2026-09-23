@@ -17,6 +17,24 @@ enum class appimage_detection_e {
     unrecognized_type,
 };
 
+// What the `.sha256_sig` section holds, and how checking it went.  The reader
+// classifies the section cheaply; the verification is in appimage_signature.h,
+// because it hashes the whole file.
+enum class appimage_signature_e {
+    absent,
+    empty_padding,
+    hex_digest,
+    pgp_signature,
+    unrecognised,
+};
+
+enum class appimage_signature_result_e {
+    not_checked,
+    verified,
+    mismatch,
+    unverifiable,
+};
+
 // Selected facts from the ELF header.
 struct appimage_elf_info_o {
     int elf_class = 0;
@@ -51,6 +69,15 @@ struct appimage_info_o {
     std::string update_information;
     appimage_section_o signature_section;
     bool signature_is_empty = false;
+    // What the signature section holds, the digest it states, what this file hashes
+    // to, and whether the two were checked.  Filled by classify_appimage_signature()
+    // and verify_appimage_signature(); reading alone never hashes the file.
+    appimage_signature_e signature = appimage_signature_e::absent;
+    std::string signature_text;
+    std::string signature_digest;
+    std::string computed_digest;
+    appimage_signature_result_e signature_result = appimage_signature_result_e::not_checked;
+    std::string signature_result_note;
     bool has_squashfs = false;
     squashfs_superblock_o squashfs;
     std::string payload_error;

@@ -199,10 +199,12 @@ fi
 if [ "$1" = "explain" ]; then
     # The story of this AppImage is chosen by the caller: its version, the installed
     # version, how the two compare, and how many launchers already exist.
-    printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
+    printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","signature_mismatch":%s,"signature_stored":"%s","signature_computed":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
         "$3" "${STUB_VERSION:-9.9.10}" \
         "${STUB_MODE:-another launcher already represents this application}" \
-        "${STUB_INSTALLED_VERSION:-9.9.9}" "${STUB_RELATION:-same}"
+        "${STUB_INSTALLED_VERSION:-9.9.9}" "${STUB_RELATION:-same}" \
+        "${STUB_SIGNATURE_MISMATCH:-false}" "${STUB_SIGNATURE_STORED:-}" \
+        "${STUB_SIGNATURE_COMPUTED:-}"
     CONFLICT_INDEX=1
     while [ "$CONFLICT_INDEX" -le "${STUB_CONFLICTS:-1}" ]; do
         if [ "$CONFLICT_INDEX" -gt 1 ]; then
@@ -230,6 +232,9 @@ run_driven() {
         STUB_INSTALLED_VERSION="${STUB_INSTALLED_VERSION:-9.9.9}" \
         STUB_RELATION="${STUB_RELATION:-same}" \
         STUB_CONFLICTS="${STUB_CONFLICTS:-1}" \
+        STUB_SIGNATURE_MISMATCH="${STUB_SIGNATURE_MISMATCH:-false}" \
+        STUB_SIGNATURE_STORED="${STUB_SIGNATURE_STORED:-}" \
+        STUB_SIGNATURE_COMPUTED="${STUB_SIGNATURE_COMPUTED:-}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
@@ -345,6 +350,17 @@ STUB_MODE="properly integrated" STUB_RELATION=same run_driven --activate back \
     > "$DIRECTORY_TEMP/story-same-file.txt" 2>&1
 grep -q '^=== buttons: Integrate Run once Inspect Close\* ===$' "$DIRECTORY_TEMP/story-same-file.txt" \
     || fail_test "same version and same file should suggest Close"
+# A payload that does not match its recorded digest must say so, and say that
+# integrating it needs the override.
+STUB_SIGNATURE_MISMATCH=true STUB_SIGNATURE_STORED=aaaa STUB_SIGNATURE_COMPUTED=bbbb \
+    run_driven --activate back > "$DIRECTORY_TEMP/story-signature.txt" 2>&1
+grep -q 'The payload does not match the digest recorded in .sha256_sig.' \
+    "$DIRECTORY_TEMP/story-signature.txt" \
+    || fail_test "a signature mismatch is not visible in Status"
+grep -q 'Integrate is refused unless --ignore-signature is given.' \
+    "$DIRECTORY_TEMP/story-signature.txt" \
+    || fail_test "a signature mismatch does not name the override"
+
 # 2. The same version, a different file: integrate it.
 expect_row "same version, different file" " Integrate* Run once Inspect Close" same 1 back
 # 3. A newer version: integrate it.

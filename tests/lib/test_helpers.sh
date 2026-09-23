@@ -22,15 +22,23 @@ pass_test() {
 
 # Build a synthetic type-2 AppImage: a host ELF, the AppImage magic at offset 8,
 # and an appended SquashFS payload. Requires mksquashfs, od, dd, and a 64-bit
-# little-endian ELF. Usage: build_synthetic_appimage <elf> <payload-dir> <output> [compression]
+# little-endian ELF.
+# Usage: build_synthetic_appimage <elf> <payload-dir> <output> [compression] [prebuilt-squashfs]
+# A prebuilt SquashFS is appended as it is, so a test can hash exactly the bytes it
+# appended (the signature covers the payload as written).
 build_synthetic_appimage() {
     file_elf=$1
     directory_payload=$2
     file_output=$3
     compression_image=${4:-gzip}
+    prebuilt_squashfs=${5:-}
     file_squashfs="$file_output.squashfs"
 
-    mksquashfs "$directory_payload" "$file_squashfs" -comp "$compression_image" -noappend -quiet >/dev/null
+    if [ -n "$prebuilt_squashfs" ]; then
+        file_squashfs="$prebuilt_squashfs"
+    else
+        mksquashfs "$directory_payload" "$file_squashfs" -comp "$compression_image" -noappend -quiet >/dev/null
+    fi
 
     offset_section_headers=$(od -An -tu8 -j 40 -N 8 "$file_elf" | tr -d ' \n')
     size_section_header=$(od -An -tu2 -j 58 -N 2 "$file_elf" | tr -d ' \n')
@@ -51,5 +59,7 @@ build_synthetic_appimage() {
         dd if=/dev/zero bs=1 count=$((size_elf - size_current)) >> "$file_output" 2>/dev/null
     fi
     cat "$file_squashfs" >> "$file_output"
-    rm -f "$file_squashfs"
+    if [ -z "$prebuilt_squashfs" ]; then
+        rm -f "$file_squashfs"
+    fi
 }

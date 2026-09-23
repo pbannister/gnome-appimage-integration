@@ -1,5 +1,6 @@
 // appimage-inspect: read AppImage containers, their payloads, and the embedded desktop entry.
 #include "appimage/appimage_reader.h"
+#include "appimage/appimage_signature.h"
 #include "appimage/squashfs_reader.h"
 #include "desktop/desktop_entry_reader.h"
 #include "tools/desktop_entry_output.h"
@@ -74,8 +75,9 @@ void print_summary(const appimage_info_o &o_info,
         std::cout << "update-information: (absent)\n";
     }
     if (o_info.signature_section.present) {
-        std::cout << "signature: present size=" << o_info.signature_section.size
-                  << " empty=" << (o_info.signature_is_empty ? "true" : "false") << '\n';
+        std::cout << "signature: "
+                  << gnome_appimage::appimage::appimage_signature_label(o_info)
+                  << " size=" << o_info.signature_section.size << '\n';
     } else {
         std::cout << "signature: (absent)\n";
     }
@@ -132,8 +134,14 @@ void print_json(const appimage_info_o &o_info,
     std::cout << ",\"update_information\":\"" << json_escape(o_info.update_information) << "\"";
     std::cout << ",\"signature_present\":"
               << (o_info.signature_section.present ? "true" : "false");
-    std::cout << ",\"signature_empty\":"
-              << (o_info.signature_is_empty ? "true" : "false");
+    std::cout << ",\"signature\":\""
+              << json_escape(gnome_appimage::appimage::appimage_signature_label(o_info))
+              << "\"";
+    std::cout << ",\"signature_mismatch\":"
+              << (gnome_appimage::appimage::appimage_signature_result_e::mismatch
+                          == o_info.signature_result
+                      ? "true"
+                      : "false");
     if (o_info.has_squashfs) {
         std::cout << ",\"squashfs\":{\"present\":true,\"compression\":\""
                   << gnome_appimage::appimage::squashfs_compression_name(
@@ -219,6 +227,14 @@ int main(int i_argument_count, char **p_arguments) {
     if (!appimage_reader_c::read(s_path, o_info)) {
         std::cerr << "error: " << o_info.error << '\n';
         return EXIT_ERROR;
+    }
+
+    // Check the signature once, before either output form: inspecting a file is a
+    // deliberate, one-off command, so it pays for the hash of a signed file.
+    if (o_info.signature_section.present) {
+        std::string s_signature_error;
+        static_cast<void>(gnome_appimage::appimage::verify_appimage_signature(
+            o_info.path, o_info, s_signature_error));
     }
 
     std::vector<squashfs_entry_o> o_entries;

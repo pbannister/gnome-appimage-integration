@@ -73,6 +73,7 @@ void print_usage(std::ostream &o_out) {
           << "  --wm-class CLASS          set StartupWMClass explicitly\n"
           << "  --icon-name NAME          override the installed icon name\n"
           << "  --name NAME               set Name= in the launcher, e.g. with a version\n"
+          << "  --ignore-signature        integrate although .sha256_sig does not match\n"
           << "  --no-move                 copy instead of move\n"
           << "  --no-icons                do not install icons\n"
           << "  --replace                 replace an existing launcher for this application\n"
@@ -248,6 +249,8 @@ void print_plan_text(const integration_plan_o &o_plan) {
               << "embedded-desktop: " << o_plan.embedded_desktop_path << '\n'
               << "startup-wm-class: "
               << (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class) << '\n';
+    std::cout << "signature: " << (o_plan.signature.empty() ? "(absent)" : o_plan.signature)
+              << '\n';
     std::cout << "mime-types:";
     for (const std::string &s_type : o_plan.mime_types) {
         std::cout << ' ' << s_type;
@@ -321,6 +324,7 @@ integration_options_o options_from(const std::string &s_install_dir,
                                   const std::string &s_wm_class,
                                   const std::string &s_icon_name,
                                   const std::string &s_name,
+                                  bool b_ignore_signature,
                                   bool b_move,
                                   bool b_icons,
                                   integration_conflict_policy_e e_policy) {
@@ -331,6 +335,7 @@ integration_options_o options_from(const std::string &s_install_dir,
     o_options.startup_wm_class_override = s_wm_class;
     o_options.icon_name_override = s_icon_name;
     o_options.name_override = s_name;
+    o_options.ignore_signature = b_ignore_signature;
     o_options.move_appimage = b_move;
     o_options.write_icons = b_icons;
     o_options.conflict_policy = e_policy;
@@ -378,6 +383,9 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"payload_size\":" << o_plan.payload_size
               << ",\"payload_offset\":" << o_plan.payload_offset
               << ",\"signature\":\"" << json_escape(o_plan.signature) << "\""
+              << ",\"signature_stored\":\"" << json_escape(o_plan.signature_stored) << "\""
+              << ",\"signature_computed\":\"" << json_escape(o_plan.signature_computed) << "\""
+              << ",\"signature_mismatch\":" << (o_plan.signature_mismatch ? "true" : "false")
               << ",\"compression\":\"" << json_escape(o_plan.compression_name) << "\""
               << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
               << ",\"identifier\":\"" << json_escape(o_plan.identifier) << "\""
@@ -1190,6 +1198,7 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_json = false;
     bool b_assume_yes = false;
     bool b_remove_appimage = false;
+    bool b_ignore_signature = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -1225,6 +1234,8 @@ int main(int i_argument_count, char **p_arguments) {
             b_move = false;
         } else if ("--no-icons" == s_argument) {
             b_icons = false;
+        } else if ("--ignore-signature" == s_argument) {
+            b_ignore_signature = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -1262,7 +1273,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_plan_or_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
-                          s_name,
+                          s_name, b_ignore_signature,
                           b_move, b_icons, e_conflict_policy),
             b_json);
     }
@@ -1275,12 +1286,13 @@ int main(int i_argument_count, char **p_arguments) {
             return command_explain_json(
                 s_path,
                 options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class,
-                              s_icon_name, s_name, b_move, b_icons, e_conflict_policy));
+                              s_icon_name, s_name, b_ignore_signature, b_move, b_icons,
+                              e_conflict_policy));
         }
         return command_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
-                          s_name,
+                          s_name, b_ignore_signature,
                           b_move, b_icons, e_conflict_policy));
     }
     if ("install" == s_command) {
@@ -1291,7 +1303,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_install(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
-                          s_name,
+                          s_name, b_ignore_signature,
                           b_move, b_icons, e_conflict_policy),
             b_assume_yes);
     }

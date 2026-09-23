@@ -108,8 +108,14 @@ struct integration_plan_o {
     std::uint64_t file_size = 0;
     std::uint64_t payload_size = 0;
     std::uint64_t payload_offset = 0;
-    // "present", "present (empty padding)", or empty when there is no signature.
+    // A label for the signature section: empty when there is none, otherwise
+    // "present (empty padding)", "present, payload digest verified", and so on.
     std::string signature;
+    std::string signature_stored;
+    std::string signature_computed;
+    bool signature_mismatch = false;
+    // The owner asked to integrate a mismatching file anyway.
+    bool signature_ignored = false;
     bool replace_conflicts = false;
     bool move_appimage = true;
 
@@ -138,6 +144,8 @@ struct integration_options_o {
     bool write_icons = true;
     bool make_executable = true;
     bool update_caches = true;
+    // Integrate a file whose payload does not match its recorded digest.
+    bool ignore_signature = false;
 };
 
 // One installed AppImage, read back from its manifest.

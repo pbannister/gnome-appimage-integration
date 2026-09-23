@@ -1,5 +1,7 @@
 #include "appimage/appimage_reader.h"
 
+#include "appimage/appimage_signature.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -100,7 +102,10 @@ bool read_section_header(file_reader_o &o_reader,
     }
     o_section = section_header_o{};
     o_section.name_offset = static_cast<std::uint32_t>(read_uint(o_buffer.data(), 4, b_little_endian));
-    if (ELF_CLASS_64 == i_elf_class) {
+    // i_elf_class is the bit width (see read()), not the raw e_ident class, so a
+    // 64-bit file must be recognised here as 64 or every section offset and size is
+    // read from the 32-bit field positions.
+    if (64 == i_elf_class) {
         o_section.offset = read_uint(o_buffer.data() + 24, 8, b_little_endian);
         o_section.size = read_uint(o_buffer.data() + 32, 8, b_little_endian);
         o_section.link = static_cast<std::uint32_t>(read_uint(o_buffer.data() + 40, 4, b_little_endian));
@@ -358,14 +363,10 @@ bool appimage_reader_c::read(const std::string &s_path, appimage_info_o &o_info)
             std::min<std::uint64_t>(o_info.signature_section.size, MAX_SIGNATURE_CHECK_SIZE));
         std::vector<std::uint8_t> o_signature(i_read_size);
         if (read_at(o_reader, o_info.signature_section.offset, o_signature.data(), i_read_size)) {
-            bool b_all_zero = true;
-            for (const std::uint8_t u_byte : o_signature) {
-                if (0 != u_byte) {
-                    b_all_zero = false;
-                    break;
-                }
-            }
-            o_info.signature_is_empty = b_all_zero;
+            classify_appimage_signature(
+                std::string(reinterpret_cast<const char *>(o_signature.data()),
+                            o_signature.size()),
+                o_info);
         }
     }
 

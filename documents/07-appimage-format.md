@@ -106,6 +106,24 @@ The GitHub release tag accepts the special values `latest`, `latest-pre`, and `l
 Type 2 AppImages may store a signature in the ELF section `.sha256_sig`.
 The signature covers the SHA-256 digest of the AppImage with the `.sha256_sig` section replaced by zero padding.
 
+This project checks that section when it holds something to check:
+
+| Content | What happens |
+| ------- | ------------ |
+| absent, or zero padding | nothing to check |
+| 64 hexadecimal digits, optionally prefixed `sha256:` | the digest of the file with the section zeroed is computed and compared |
+| an ASCII-armoured PGP signature | the computed digest is passed to `gpg --verify` against the signature; a missing gpg or an unknown key is reported as not verified, and only a bad signature is a mismatch |
+| anything else | reported as present, unrecognised |
+
+`explain`, `plan`, `appimage-inspect` and `install` report the result; a definite mismatch makes
+`install` refuse unless `--ignore-signature` is given. Checking a signed file hashes the whole
+file, which is why an unsigned file costs nothing.
+
+The comparison assumes the section's *file offset and size* are read correctly. Modern AppImages
+are 64-bit ELF, whose section header fields sit at different offsets from the 32-bit form; reading
+a 64-bit file with the 32-bit offsets yields zero for both, so the section looks absent. That was
+a real defect here until a signature test exposed it.
+
 ## Payload Filesystem: SquashFS
 
 The type 2 payload is a SquashFS image. Its superblock begins at `payload_offset`.

@@ -98,6 +98,9 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
+| `appimage-integrate install --ignore-signature <AppImage>` | integrate although `.sha256_sig` does not match the payload |
+
+An AppImage whose `.sha256_sig` section holds a digest or a signature is checked: the digest covers the file with that section zeroed. `explain`, `plan`, `appimage-inspect` and `install` report the result, a mismatch refuses the install unless `--ignore-signature` is given, and the activator shows it in Status.
 
 The launcher each integration writes carries two context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |

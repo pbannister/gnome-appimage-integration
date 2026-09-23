@@ -38,9 +38,10 @@ target_include_directories(desktop_entry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_library(appimage_reader STATIC
     appimage/appimage_reader.cpp
+    appimage/appimage_signature.cpp
     appimage/squashfs_reader.cpp)
 target_include_directories(appimage_reader PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(appimage_reader PUBLIC ZLIB::ZLIB)
+target_link_libraries(appimage_reader PUBLIC ZLIB::ZLIB crypto)
 target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZLIB=1)
 
 if(LibLZMA_FOUND)
@@ -52,6 +53,9 @@ if(TARGET PkgConfig::ZSTD)
     target_link_libraries(appimage_reader PUBLIC PkgConfig::ZSTD)
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZSTD=1)
 endif()
+
+add_library(crypto STATIC crypto/sha256.cpp)
+target_include_directories(crypto PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_library(json_value STATIC json/json_reader.cpp)
 target_include_directories(json_value PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -108,3 +112,6 @@ target_link_libraries(squashfs-reader-test PRIVATE appimage_reader)
 
 add_executable(json-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/json_reader_test.cpp")
 target_link_libraries(json-reader-test PRIVATE json_value)
+
+add_executable(sha256-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/sha256_test.cpp")
+target_link_libraries(sha256-test PRIVATE crypto)

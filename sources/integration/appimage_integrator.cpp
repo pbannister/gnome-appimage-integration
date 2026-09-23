@@ -1,6 +1,7 @@
 #include "integration/appimage_integrator.h"
 
 #include "appimage/appimage_reader.h"
+#include "appimage/appimage_signature.h"
 #include "appimage/squashfs_reader.h"
 #include "desktop/desktop_entry_locator.h"
 #include "desktop/icon_theme_locator.h"
@@ -36,6 +37,10 @@ using gnome_appimage::appimage::appimage_detection_e;
 using gnome_appimage::appimage::appimage_detection_name;
 using gnome_appimage::appimage::appimage_info_o;
 using gnome_appimage::appimage::appimage_reader_c;
+using gnome_appimage::appimage::appimage_signature_e;
+using gnome_appimage::appimage::appimage_signature_label;
+using gnome_appimage::appimage::appimage_signature_result_e;
+using gnome_appimage::appimage::verify_appimage_signature;
 using gnome_appimage::appimage::squashfs_compression_name;
 using gnome_appimage::appimage::squashfs_entry_o;
 using gnome_appimage::appimage::squashfs_node_type_e;
@@ -998,9 +1003,31 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_plan.file_size = o_info.file_size;
         o_plan.payload_size = o_info.payload_size;
         o_plan.payload_offset = o_info.payload_offset;
-        if (o_info.signature_section.present) {
-            o_plan.signature =
-                o_info.signature_is_empty ? "present (empty padding)" : "present";
+        // Check the signature when the section holds something to check.  This hashes
+        // the file, which is why only a file that carries a digest or a signature pays
+        // for it; a definite mismatch is reported here and refused by install().
+        if (appimage_signature_e::hex_digest == o_info.signature
+            || appimage_signature_e::pgp_signature == o_info.signature) {
+            std::string s_signature_error;
+            if (!verify_appimage_signature(o_plan.appimage_path, o_info, s_signature_error)) {
+                o_plan.warnings.push_back("the signature could not be checked: "
+                                          + s_signature_error);
+            }
+        }
+        o_plan.signature = appimage_signature_label(o_info);
+        o_plan.signature_stored = o_info.signature_digest;
+        o_plan.signature_computed = o_info.computed_digest;
+        o_plan.signature_mismatch =
+            appimage_signature_result_e::mismatch == o_info.signature_result;
+        o_plan.signature_ignored = o_options.ignore_signature;
+        if (o_plan.signature_mismatch && o_plan.signature_ignored) {
+            o_plan.notes.push_back("the signature mismatch is ignored on request");
+        }
+        if (o_plan.signature_mismatch) {
+            o_plan.warnings.push_back(
+                "the payload does not match the digest recorded in .sha256_sig: stored "
+                + o_plan.signature_stored + ", computed " + o_plan.signature_computed
+                + "; integrate it anyway with --ignore-signature");
         }
         if (o_info.has_squashfs) {
             o_plan.compression_name = squashfs_compression_name(o_info.squashfs.compression);
@@ -1511,6 +1538,12 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
             s_error = "the plan is not valid";
             return false;
         }
+        if (o_plan.signature_mismatch && !o_plan.signature_ignored) {
+            s_error = "the payload does not match the digest recorded in .sha256_sig: stored "
+                      + o_plan.signature_stored + ", computed " + o_plan.signature_computed
+                      + "; pass --ignore-signature to integrate it anyway";
+            return false;
+        }
         std::error_code o_error;
         const bool b_manifest_exists = fs::exists(o_plan.manifest_path, o_error);
         // The write is allowed when the launcher at the target path is one this plan
@@ -1813,10 +1846,17 @@ std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
         if (o_info.update_information_section.present) {
             o_out << "update information: " << o_info.update_information << "\n";
         }
+        // Inspect is a deliberate command, so it pays for the hash when the section
+        // holds something to check.
+        if (appimage_signature_e::hex_digest == o_info.signature
+            || appimage_signature_e::pgp_signature == o_info.signature) {
+            std::string s_signature_error;
+            static_cast<void>(verify_appimage_signature(s_appimage_path, o_info,
+                                                        s_signature_error));
+        }
         o_out << "signature: "
-              << (o_info.signature_section.present
-                      ? (o_info.signature_is_empty ? "present (empty padding)" : "present")
-                      : "(absent)")
+              << (o_info.signature_section.present ? appimage_signature_label(o_info)
+                                                   : "(absent)")
               << "\n";
 
         if (appimage_detection_e::type2 == o_info.detection && o_info.has_squashfs) {
@@ -1888,6 +1928,9 @@ std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_pla
           << "manifest:     " << o_plan.manifest_path << "\n";
     if (!o_plan.version.empty()) {
         o_out << "version:      " << o_plan.version << "  (from " << o_plan.version_source << ")\n";
+    }
+    if (!o_plan.signature.empty()) {
+        o_out << "signature:    " << o_plan.signature << "\n";
     }
     if (!o_plan.startup_wm_class.empty()) {
         o_out << "wm class:     " << o_plan.startup_wm_class << "\n";
