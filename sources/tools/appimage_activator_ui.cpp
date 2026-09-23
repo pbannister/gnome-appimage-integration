@@ -679,6 +679,15 @@ public:
         o_out << "=== showing: " << tab_name(static_cast<tab_e>(
                                          gtk_notebook_get_current_page(GTK_NOTEBOOK(p_notebook_))))
               << " ===\n";
+        // The row as built, with * on the suggested action.
+        o_out << "=== buttons:";
+        for (GtkWidget *p_child = gtk_widget_get_first_child(p_button_box_);
+             nullptr != p_child; p_child = gtk_widget_get_next_sibling(p_child)) {
+            const char *s_label = gtk_button_get_label(GTK_BUTTON(p_child));
+            o_out << ' ' << (nullptr == s_label ? "?" : s_label)
+                  << (gtk_widget_has_css_class(p_child, "suggested-action") ? "*" : "");
+        }
+        o_out << " ===\n";
         o_out << "=== Status ===\n" << tab_text(tab_e::status);
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
@@ -890,13 +899,26 @@ private:
         gtk_box_append(GTK_BOX(p_details_container_), p_grid);
     }
 
-    void set_buttons(const std::vector<std::pair<std::string, action_e>> &o_specs) {
+    // One button: its label, what it does, and whether it is the suggested action.
+    // The buttons are ordered by how likely the owner is to use them, and the GNOME
+    // HIG's suggested-action style marks the next step in the process; it allows
+    // only one per view.
+    struct button_spec_o {
+        std::string s_label;
+        action_e e_action;
+        bool b_suggested = false;
+    };
+
+    void set_buttons(const std::vector<button_spec_o> &o_specs) {
         clear_container(p_button_box_);
-        for (const std::pair<std::string, action_e> &o_spec : o_specs) {
-            GtkWidget *p_button = gtk_button_new_with_label(o_spec.first.c_str());
+        for (const button_spec_o &o_spec : o_specs) {
+            GtkWidget *p_button = gtk_button_new_with_label(o_spec.s_label.c_str());
             g_signal_connect(p_button, "clicked", G_CALLBACK(on_button_clicked), this);
             g_object_set_data(G_OBJECT(p_button), "activator-action",
-                              GINT_TO_POINTER(static_cast<int>(o_spec.second)));
+                              GINT_TO_POINTER(static_cast<int>(o_spec.e_action)));
+            if (o_spec.b_suggested) {
+                gtk_widget_add_css_class(p_button, "suggested-action");
+            }
             gtk_box_append(GTK_BOX(p_button_box_), p_button);
         }
     }
@@ -909,10 +931,10 @@ private:
     }
 
     void show_initial_buttons() {
-        set_buttons({{"Run once", action_e::run_once},
-                     {"Integrate", action_e::integrate},
-                     {"Inspect", action_e::inspect},
-                     {"Close", action_e::close}});
+        set_buttons({{"Integrate", action_e::integrate, true},
+                     {"Run once", action_e::run_once, false},
+                     {"Inspect", action_e::inspect, false},
+                     {"Close", action_e::close, false}});
     }
 
     // -- the three logs -----------------------------------------------------
@@ -1309,9 +1331,11 @@ private:
         refresh_status();
         show_tab(tab_e::status);
         show_name_field();
-        set_buttons({{"Back", action_e::back},
-                     {"Add alongside", action_e::add_alongside},
-                     {"Replace existing", action_e::replace_existing}});
+        // No suggested choice here: which of the two is likely depends on what the
+        // launcher is, and Status explains both.
+        set_buttons({{"Back", action_e::back, false},
+                     {"Add alongside", action_e::add_alongside, false},
+                     {"Replace existing", action_e::replace_existing, false}});
     }
 
     void on_back() {
@@ -1353,9 +1377,9 @@ private:
             refresh_status();
             refresh_discovered();
             update_details();
-            set_buttons({{"Run now", action_e::run_now},
-                         {"Inspect", action_e::inspect},
-                         {"Close", action_e::close}});
+            set_buttons({{"Run now", action_e::run_now, true},
+                         {"Inspect", action_e::inspect, false},
+                         {"Close", action_e::close, false}});
             return;
         }
         s_status_note_ = "The integration did not complete.";

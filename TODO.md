@@ -20,6 +20,7 @@
 
 ## Recently Completed
 
+* [x] order the first view's buttons by likely use (Integrate first) and mark the likely action with the HIG suggested-action style.
 * [x] report a complete integration as `properly integrated` in the details row and the Status tab, instead of implying work remains.
 * [x] split the activator's text area into Status, Discovered, and Actions tabs, and drop "blocked:" from the conflict mode.
 * [x] convert the graphical activator from Python/PyGObject to C++ with GTK4, with a minimal JSON reader and no Python at run time.

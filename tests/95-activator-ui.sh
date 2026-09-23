@@ -245,9 +245,12 @@ grep -q 'Identifier' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Discovered tab does not report the identifier it computed"
 grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Actions tab does not log the install command"
-# Integrate leaves the resulting state on screen; the log waits in Actions.
+# Integrate leaves the resulting state on screen; the log waits in Actions. The
+# buttons become the next step, with Run now suggested.
 grep -q '^=== showing: Status ===$' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "Integrate did not leave the Status tab showing"
+grep -q '^=== buttons: Run now\* Inspect Close ===$' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the post-integration buttons are not Run now, Inspect, Close with Run now suggested"
 # Inspect leaves its report on screen.
 run_driven --activate inspect > "$DIRECTORY_TEMP/inspected.txt" 2>&1
 grep -q '^=== showing: Discovered ===$' "$DIRECTORY_TEMP/inspected.txt" \
@@ -275,6 +278,11 @@ grep -q '^State:     properly integrated$' "$DIRECTORY_TEMP/integrated.txt" \
     || fail_test "the Status tab does not report a properly integrated AppImage"
 grep -q 'Nothing more to do' "$DIRECTORY_TEMP/integrated.txt" \
     || fail_test "the Status tab does not say that nothing is left to do"
+# The first view is ordered by how likely the owner is to use each button, and the
+# most likely one carries the GNOME HIG's suggested-action style. This is read from
+# the real widget row, so the order and the style are both checked.
+grep -q '^=== buttons: Integrate\* Run once Inspect Close ===$' "$DIRECTORY_TEMP/integrated.txt" \
+    || fail_test "the first view is not Integrate, Run once, Inspect, Close with Integrate suggested"
 if grep -q 'This application is already installed.' "$DIRECTORY_TEMP/integrated.txt"; then
     fail_test "a properly integrated AppImage still offers to replace what is correct"
 fi
