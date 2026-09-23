@@ -55,8 +55,11 @@ Fixes, in `sources/integration/appimage_integrator.cpp`:
 - The origin of a launcher that carries `X-AppImage-Identifier` but has no record now checks
   `X-Integrated-By` first. Both this tool and AppImageLauncher write the identifier key, so
   provenance decides: `this tool (launcher with no record)` versus `AppImageLauncher`.
-- `audit` gained the same distinction, plus a warning when a record disagrees with the AppImage
-  its launcher actually runs, which is the state a silent takeover leaves behind.
+- `audit` gained the same distinction, plus a warning for every record whose `appimage_path`
+  disagrees with the AppImage its launcher actually runs, and a warning when more than one record
+  claims one launcher. On this host that turns the FreeCAD state into two findings: the weekly
+  record says the weekly AppImage while the launcher runs 1.1.3, and two records claim
+  `org.freecad.FreeCAD.desktop`.
 - Upgrade conflicts now carry their version, icon, window class, and whether the target exists,
   so the handler's list is complete.
 
@@ -68,7 +71,7 @@ Fixes, in `sources/integration/appimage_integrator.cpp`:
   third AppImage wanting the same identifier makes `plan` fail and name the takeover, and
   `--add` then installs it as `org.example.Probe-3.desktop`.
 - `tests/70-integration-sandbox.sh`: a record edited to disagree with its launcher is reported
-  by `audit`.
+  by `audit`, and so are two records that claim one launcher.
 - `tests/95-handler-ui.sh`: the handler is multi-instance and reports existing integrations.
 
 ## State on This Host After the Fix

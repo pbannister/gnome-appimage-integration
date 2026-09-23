@@ -121,6 +121,14 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" audit > "$DIRECTORY_TEMP/au
 grep -q 'but the launcher runs' "$DIRECTORY_TEMP/audit.txt" \
     || fail_test "audit did not report a record that disagrees with its launcher"
 
+# Two records claiming one launcher must be reported as well.
+FILE_MANIFEST_DUPLICATE="$(dirname -- "$FILE_MANIFEST")/duplicate.manifest"
+cp "$FILE_MANIFEST" "$FILE_MANIFEST_DUPLICATE"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" audit > "$DIRECTORY_TEMP/audit-duplicate.txt" 2>&1 || true
+grep -q 'records claim this launcher' "$DIRECTORY_TEMP/audit-duplicate.txt" \
+    || fail_test "audit did not report two records claiming one launcher"
+rm -f "$FILE_MANIFEST_DUPLICATE"
+
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_IDENTIFIER" > /dev/null
 if [ -f "$FILE_DESKTOP" ]; then
     fail_test "uninstall left the desktop entry behind"

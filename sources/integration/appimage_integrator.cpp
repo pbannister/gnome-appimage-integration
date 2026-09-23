@@ -1729,14 +1729,13 @@ std::vector<audit_finding_o> appimage_integrator_c::audit() const {
             if (!o_entry.value("Desktop Entry", "X-AppImage-Identifier").value_or("").empty()) {
                 // This tool writes X-AppImage-Identifier too, so match it against the
                 // records before blaming AppImageLauncher.
-                const installed_appimage_o *p_record = nullptr;
+                std::vector<const installed_appimage_o *> o_records;
                 for (const installed_appimage_o &o_installed : o_installed) {
                     if (o_installed.desktop_entry_path == o_candidate.path) {
-                        p_record = &o_installed;
-                        break;
+                        o_records.push_back(&o_installed);
                     }
                 }
-                if (nullptr == p_record) {
+                if (o_records.empty()) {
                     const bool b_written_by_this_tool =
                         !o_entry.value("Desktop Entry", "X-Integrated-By").value_or("").empty();
                     o_findings.push_back(
@@ -1746,16 +1745,30 @@ std::vector<audit_finding_o> appimage_integrator_c::audit() const {
                              : "entry was written by AppImageLauncher (X-AppImage-Identifier "
                                "present)",
                          "re-integrate with: appimage-integrate install <AppImage>"});
-                } else if (!p_record->appimage_path.empty() && !s_program.empty()
-                           && !same_file_path(s_program, p_record->appimage_path)) {
-                    // The launcher and its record disagree: usually a second AppImage took
-                    // over the same identifier, leaving the first record pointing at a
-                    // launcher that no longer runs it.
+                }
+                for (const installed_appimage_o *p_record : o_records) {
+                    // A record and its launcher disagree when a second AppImage took the
+                    // identifier over, leaving the record pointing somewhere else.
+                    if (!p_record->appimage_path.empty() && !s_program.empty()
+                        && !same_file_path(s_program, p_record->appimage_path)) {
+                        o_findings.push_back(
+                            {audit_finding_o::severity_e::warning, o_candidate.id,
+                             "the record " + p_record->identifier + " says "
+                                 + p_record->appimage_path + " but the launcher runs "
+                                 + s_program,
+                             "re-integrate whichever AppImage should own this launcher"});
+                    }
+                }
+                if (1 < o_records.size()) {
+                    std::string s_identifiers;
+                    for (const installed_appimage_o *p_record : o_records) {
+                        s_identifiers += (s_identifiers.empty() ? "" : ", ") + p_record->identifier;
+                    }
                     o_findings.push_back(
                         {audit_finding_o::severity_e::warning, o_candidate.id,
-                         "the record " + p_record->identifier + " says " + p_record->appimage_path
-                             + " but the launcher runs " + s_program,
-                         "re-integrate whichever AppImage should own this launcher"});
+                         std::to_string(o_records.size()) + " records claim this launcher: "
+                             + s_identifiers,
+                         "uninstall the record that should not own this launcher"});
                 }
             }
             const std::string s_icon = o_entry.value("Desktop Entry", "Icon").value_or("");
