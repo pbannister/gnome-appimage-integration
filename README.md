@@ -91,6 +91,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --replace <AppImage>` | replace an existing launcher, backing it up |
 | `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
 | `appimage-integrate install --wm-class CLASS <AppImage>` | set the window class the dock matches on |
+| `appimage-integrate install --name NAME <AppImage>` | set `Name=` in the launcher, e.g. to carry a version |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
 | `appimage-integrate list` | list AppImages integrated by this tool |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
@@ -118,6 +119,7 @@ It is a single window: the application name, version, generic name, and comment,
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
 `handler install` gives the handler its own AppImage Activator icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the right-click item share one icon.
 It sets its program name to `appimage-activator` and the entry sets `StartupWMClass=appimage-activator`, so the dock matches the running window to the entry instead of showing a generic icon.
+The window's application id is its program name, `appimage-activator`, because no `Gtk.Application` id is set: GTK uses the application id when there is one and the program name otherwise, and GNOME only matches a Wayland window to a launcher whose file name is that same id.
 The right-click "Open With" item is named `AppImage Activator`, because `AppImage Handler` is another project's name; `handler install` also removes the pre-rename `appimage-handler` entry, icon, and record, and carries their recorded previous defaults into the new record.
 It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json` and honours it on the next run; the remembered position is clamped so the window stays on the screen.
 

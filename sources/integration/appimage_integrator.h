@@ -116,6 +116,9 @@ struct integration_options_o {
     std::string extra_exec_arguments;
     std::string startup_wm_class_override;
     std::string icon_name_override;
+    // Replaces the Name= written to the launcher, so several launchers for one
+    // application can be told apart in the menu.
+    std::string name_override;
     std::string tool_path;
     integration_conflict_policy_e conflict_policy = integration_conflict_policy_e::fail;
     bool move_appimage = true;

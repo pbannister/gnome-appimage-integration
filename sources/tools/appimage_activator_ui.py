@@ -399,9 +399,27 @@ class Handler:
             error_label.set_wrap(True)
             box.append(error_label)
 
+        # The name the launcher will carry sits to the left of the buttons, and is
+        # only shown when a choice is offered, because it only matters when another
+        # launcher for the same application already exists.
+        self.name_label = Gtk.Label(label="Name:")
+        self.name_entry = Gtk.Entry()
+        self.name_entry.set_width_chars(28)
+        self.name_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.name_box.append(self.name_label)
+        self.name_box.append(self.name_entry)
+        self.name_box.set_visible(False)
+
         self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.button_box.set_halign(Gtk.Align.END)
-        box.append(self.button_box)
+
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        action_row.append(self.name_box)
+        action_row.append(spacer)
+        action_row.append(self.button_box)
+        box.append(action_row)
 
         scroller = Gtk.ScrolledWindow()
         scroller.set_vexpand(True)
@@ -531,6 +549,7 @@ class Handler:
                     "Add alongside keeps them and installs this version under a new identifier."
                 )
             self.set_text("\n".join(lines))
+            self.show_name_field()
             self.set_buttons(
                 [
                     ("Back", self.on_back),
@@ -541,7 +560,22 @@ class Handler:
             return
         self.run_install([])
 
+    def show_name_field(self):
+        """Prefill the launcher name from the AppImage, and show the field."""
+        self.name_entry.set_text(self.data.get("name") or "")
+        self.name_box.set_visible(True)
+
+    def hide_name_field(self):
+        self.name_box.set_visible(False)
+
+    def typed_name(self):
+        """The name to write, or an empty string when the field is not in use."""
+        if not self.name_box.get_visible():
+            return ""
+        return self.name_entry.get_text().strip()
+
     def on_back(self, _button):
+        self.hide_name_field()
         self.set_text("")
         self.show_initial_buttons()
 
@@ -552,7 +586,15 @@ class Handler:
         self.run_install(["--replace"])
 
     def run_install(self, policy):
-        code, out, err = run_tool(self.tool, ["install", "--yes"] + policy + [self.path])
+        # The typed name decides Name= in the launcher, so two launchers for one
+        # application can be told apart in the menu.
+        command = ["install", "--yes"] + list(policy)
+        typed = self.typed_name()
+        if typed:
+            command += ["--name", typed]
+        command.append(self.path)
+        self.hide_name_field()
+        code, out, err = run_tool(self.tool, command)
         report = combined_output(out, err)
         if code == 0:
             # Integrate moves the AppImage; follow it so Run now and Inspect work.
@@ -596,17 +638,19 @@ def main(argv):
         )
         return 2
 
-    # GNOME matches a running window to appimage-activator.desktop by this name,
-    # so the dock shows the activator icon instead of a generic one.
+    # The window's Wayland application id is this program name, because no
+    # Gtk.Application id is set: GTK uses the application id when there is one and
+    # g_get_prgname() otherwise (gtk 4.14, gdk/wayland/gdktoplevel-wayland.c:874).
+    # It must equal the desktop entry's file name, or GNOME cannot match the window
+    # to its launcher and the dock shows a generic icon.
     GLib.set_prgname("appimage-activator")
     GLib.set_application_name("AppImage Activator")
 
     # NON_UNIQUE: a second launch opens its own window for its own AppImage,
     # instead of activating the already-running instance with the first path.
-    application = Gtk.Application(
-        application_id="us.bannister.appimage-activator",
-        flags=Gio.ApplicationFlags.NON_UNIQUE,
-    )
+    # No application_id: a dotted id here would become the window's Wayland app id
+    # and would no longer match appimage-activator.desktop.
+    application = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
     holder = {}
 
     def on_activate(app):

@@ -72,6 +72,7 @@ void print_usage(std::ostream &o_out) {
           << "  --exec-args ARGUMENTS     extra arguments inserted into Exec\n"
           << "  --wm-class CLASS          set StartupWMClass explicitly\n"
           << "  --icon-name NAME          override the installed icon name\n"
+          << "  --name NAME               set Name= in the launcher, e.g. with a version\n"
           << "  --no-move                 copy instead of move\n"
           << "  --no-icons                do not install icons\n"
           << "  --replace                 replace an existing launcher for this application\n"
@@ -344,6 +345,7 @@ integration_options_o options_from(const std::string &s_install_dir,
                                   const std::string &s_exec_args,
                                   const std::string &s_wm_class,
                                   const std::string &s_icon_name,
+                                  const std::string &s_name,
                                   bool b_move,
                                   bool b_icons,
                                   integration_conflict_policy_e e_policy) {
@@ -353,6 +355,7 @@ integration_options_o options_from(const std::string &s_install_dir,
     o_options.extra_exec_arguments = s_exec_args;
     o_options.startup_wm_class_override = s_wm_class;
     o_options.icon_name_override = s_icon_name;
+    o_options.name_override = s_name;
     o_options.move_appimage = b_move;
     o_options.write_icons = b_icons;
     o_options.conflict_policy = e_policy;
@@ -1190,6 +1193,7 @@ int main(int i_argument_count, char **p_arguments) {
     std::string s_exec_args;
     std::string s_wm_class;
     std::string s_icon_name;
+    std::string s_name;
     std::string s_identifier;
     bool b_move = true;
     bool b_icons = true;
@@ -1211,7 +1215,8 @@ int main(int i_argument_count, char **p_arguments) {
         const bool b_needs_value =
             "--install-dir" == s_argument || "--desktop-file-name" == s_argument
             || "--exec-args" == s_argument || "--wm-class" == s_argument
-            || "--icon-name" == s_argument || "--identifier" == s_argument;
+            || "--icon-name" == s_argument || "--identifier" == s_argument
+            || "--name" == s_argument;
         if (b_needs_value && i_argument_count > i_index + 1) {
             const std::string s_value = p_arguments[++i_index];
             if ("--install-dir" == s_argument) {
@@ -1224,6 +1229,8 @@ int main(int i_argument_count, char **p_arguments) {
                 s_wm_class = s_value;
             } else if ("--icon-name" == s_argument) {
                 s_icon_name = s_value;
+            } else if ("--name" == s_argument) {
+                s_name = s_value;
             } else {
                 s_identifier = s_value;
             }
@@ -1268,6 +1275,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_plan_or_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
+                          s_name,
                           b_move, b_icons, e_conflict_policy),
             b_json);
     }
@@ -1280,11 +1288,12 @@ int main(int i_argument_count, char **p_arguments) {
             return command_explain_json(
                 s_path,
                 options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class,
-                              s_icon_name, b_move, b_icons, e_conflict_policy));
+                              s_icon_name, s_name, b_move, b_icons, e_conflict_policy));
         }
         return command_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
+                          s_name,
                           b_move, b_icons, e_conflict_policy));
     }
     if ("install" == s_command) {
@@ -1295,6 +1304,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_install(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
+                          s_name,
                           b_move, b_icons, e_conflict_policy),
             b_assume_yes);
     }

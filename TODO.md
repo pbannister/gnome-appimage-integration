@@ -25,6 +25,8 @@
 
 ## Recently Completed
 
+* [x] make the window's application id match `appimage-activator.desktop`, so the dock shows the activator icon instead of a generic one.
+* [x] add a prefilled `Name:` field to the conflict prompt, so `--add` and `--replace` can name the launcher after a version.
 * [x] rename the right-click "Open With" item to AppImage Activator, because AppImage Handler is another project's name, and migrate the pre-rename entry, icon, and record.
 * [x] make the handler multi-instance, so opening a second AppImage opens a window for that file.
 * [x] show every existing launcher, upgrades included, instead of filtering them out.

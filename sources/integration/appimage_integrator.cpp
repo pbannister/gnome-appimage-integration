@@ -67,9 +67,25 @@ std::string trim_spaces(const std::string &s_text) {
     return s_text.substr(i_begin, i_end - i_begin);
 }
 
+// A Name= value is shown in the menu and may not contain a newline; any control
+// character becomes a single separating space.
+std::string sanitize_name(const std::string &s_name) {
+    std::string s_result;
+    for (const char c_character : s_name) {
+        const unsigned char u_character = static_cast<unsigned char>(c_character);
+        if (0x20 > u_character || 0x7f == u_character) {
+            if (!s_result.empty() && ' ' != s_result.back()) {
+                s_result += ' ';
+            }
+            continue;
+        }
+        s_result += c_character;
+    }
+    return trim_spaces(s_result);
+}
+
 std::optional<std::string> environment_value(const std::map<std::string, std::string> &o_environment,
-                                             const char *s_name) {
-    const auto o_found = o_environment.find(s_name);
+                                             const char *s_name) {    const auto o_found = o_environment.find(s_name);
     if (o_environment.end() == o_found || o_found->second.empty()) {
         return std::nullopt;
     }
@@ -830,6 +846,19 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_plan.identifier = integration_identifier(s_probe);
 
         o_plan.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+        if (!o_options.name_override.empty()) {
+            // A launcher may be renamed so several of them can be told apart; the
+            // embedded name still drives conflict detection.
+            o_plan.name = sanitize_name(o_options.name_override);
+            if (o_plan.name.empty()) {
+                o_plan.warnings.push_back(
+                    "the requested name has no printable characters; the name from the "
+                    "embedded entry is used instead");
+                o_plan.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+            } else if (o_plan.name != o_options.name_override) {
+                o_plan.notes.push_back("launcher name: " + o_plan.name);
+            }
+        }
         o_plan.generic_name = o_entry.value("Desktop Entry", "GenericName").value_or(std::string());
         o_plan.comment = o_entry.value("Desktop Entry", "Comment").value_or(std::string());
         o_plan.detection_name = appimage_detection_name(o_info.detection);
@@ -1178,8 +1207,8 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         // Build the desktop entry text.
         std::ostringstream o_text;
         o_text << "[Desktop Entry]\n";
-        std::map<std::string, std::string> o_replacements;
-        o_replacements["Icon"] = o_plan.icon_name;
+        std::map<std::string, std::string> o_replacements;        o_replacements["Icon"] = o_plan.icon_name;
+        o_replacements["Name"] = o_plan.name;
         o_replacements["Exec"] = o_plan.exec_command;
         o_replacements["TryExec"] = o_plan.installed_path;
         o_replacements["Terminal"] = "false";
@@ -1226,6 +1255,16 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
                << " uninstall --identifier " << o_plan.identifier << "\n";
         o_plan.desktop_entry_text = o_text.str();
+        if (!o_options.name_override.empty()) {
+            for (const desktop_entry_key_o &o_key : p_group->keys) {
+                if ("Name" == o_key.name && !o_key.locale.empty()) {
+                    o_plan.notes.push_back(
+                        "the embedded entry's localised Name lines are kept as written; only "
+                        "the plain Name was renamed");
+                    break;
+                }
+            }
+        }
 
         // Actions list.
         integration_action_o o_move;

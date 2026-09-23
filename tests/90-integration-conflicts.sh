@@ -222,6 +222,29 @@ if [ ! -f "$DIRECTORY_APPLICATIONS/org.example.Probe-3.desktop" ]; then
     fail_test "add alongside a same-identifier AppImage made no distinct launcher"
 fi
 
+echo "=== --name renames the launcher without touching the embedded entry ==="
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes --add \
+    --name "Probe App 9.9.10" "$FILE_INSTALLED" > "$DIRECTORY_TEMP/named.txt" 2>&1
+if [ ! -f "$DIRECTORY_APPLICATIONS/org.example.Probe-4.desktop" ]; then
+    fail_test "install --add --name made no fourth launcher"
+fi
+grep -q '^Name=Probe App 9.9.10$' "$DIRECTORY_APPLICATIONS/org.example.Probe-4.desktop" \
+    || fail_test "--name did not rename the new launcher"
+# The other launchers keep the author's name.
+grep -q '^Name=Probe App$' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "--name changed a launcher that was not being written"
+# The AppImage still reports the embedded name, not the launcher's.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$FILE_INSTALLED" \
+    > "$DIRECTORY_TEMP/named.json" 2>/dev/null || true
+python3 - "$DIRECTORY_TEMP/named.json" <<'PYTHON'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["name"] == "Probe App", data["name"]
+print("embedded name preserved ok")
+PYTHON
+
 echo "=== explain shows the embedded entry ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain "$DIRECTORY_XDG/home/Applications/work.AppImage" > "$DIRECTORY_TEMP/explain.txt" 2>&1 || true
 grep -q 'embedded desktop entry' "$DIRECTORY_TEMP/explain.txt" || fail_test "explain did not show the embedded entry"

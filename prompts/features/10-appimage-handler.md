@@ -43,6 +43,10 @@ default.
 - The entry, its record, and its icon must be `appimage-activator.desktop`, `appimage-activator.manifest`, and `appimage-activator.svg`.
 - `handler install` must migrate the pre-rename `appimage-handler.desktop`, `appimage-handler.svg`, and `appimage-handler.manifest` away, and carry their recorded previous defaults into the new record.
 - `handler status` must report a pre-rename entry that is still on disk and name the command that removes it.
+- After Integrate is clicked and a choice is offered, the window must show a `Name:` label and a single-line editable field to the left of the buttons, prefilled with the `Name` from the AppImage.
+- Add alongside and Replace existing must pass the field's value as `Name=` in the launcher, so several launchers for one application can carry their version or another hint.
+- The window's application id must equal the launcher's file name: the program name is `appimage-activator` and no `Gtk.Application` id is set, because GTK would otherwise send the application id as the Wayland app id and GNOME would show a generic dock icon.
+- `install --name NAME` must set `Name=` in the launcher while conflict detection keeps using the name from the embedded entry.
 
 ## Behavior
 

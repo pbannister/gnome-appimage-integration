@@ -34,7 +34,7 @@ Live-state facts were verified 2026-09-21 on this Ubuntu 24.04 GNOME Shell 46.0 
 | --- | ---- | -------- | ------------------ |
 | `Type` | string | yes | `Application`, `Link`, or `Directory`; determines which other keys are legal |
 | `Version` | string | no | the specification version the entry conforms to, `1.5` today; ignored by most desktops |
-| `Name` | localestring | yes | the label in the menu and dock |
+| `Name` | localestring | yes | the label in the menu and dock; `--name` overrides it, so several launchers for one application can be told apart by version |
 | `GenericName` | localestring | no | a category label such as `Web Browser` |
 | `Comment` | localestring | no | the tooltip |
 | `Keywords` | localestring(s) | no | extra search terms; a semicolon list |

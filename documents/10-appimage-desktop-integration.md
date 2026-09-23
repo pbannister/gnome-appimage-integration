@@ -124,6 +124,22 @@ xprop WM_CLASS          # then click the running window
 
 or, for a running application, `lg` (Looking Glass) in GNOME shows the window's `wmclass`.
 
+On Wayland the shell matches on the window's **application id**, not on a WM class. GTK takes
+that id from the `Gtk.Application` id when one is set and from the program name otherwise
+(GTK 4.14, `gdk/wayland/gdktoplevel-wayland.c`). Whichever value is in play, it must equal the
+launcher's file name: a window whose application id is `us.example.Thing` does not match
+`thing.desktop`, and the dock then shows a generic icon even though `StartupWMClass` is set.
+A handler that wants the file name `appimage-activator.desktop` therefore sets no
+`Gtk.Application` id and uses `appimage-activator` as its program name.
+
+### Naming a launcher the user can tell apart
+
+`Name=` is the menu label, and it may be set independently of the AppImage: several launchers can
+run different versions of one application, so `--name` overrides the plain `Name=` with something
+like `OrcaSlicer 2.4.2` while the embedded entry keeps supplying everything else. Conflict
+detection still uses the embedded name, so a renamed launcher is still recognised as the same
+application. Localised `Name[xx]` lines in the embedded entry are kept as the author wrote them.
+
 ### When two AppImages want the same launcher
 
 The launcher identifier comes from the embedded `.desktop` file name, which is a property of

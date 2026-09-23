@@ -108,6 +108,18 @@ grep -q '^Icon=appimage-activator$' "$FILE_ACTIVATOR_ENTRY" \
     || fail_test "the activator entry does not use the AppImage Activator icon"
 grep -q '^StartupWMClass=appimage-activator$' "$FILE_ACTIVATOR_ENTRY" \
     || fail_test "the activator entry has no StartupWMClass, so the dock cannot match the window"
+
+# GNOME matches a Wayland window to a launcher by the window's application id, and
+# GTK uses the Gtk.Application id when one is set and the program name otherwise.
+# So the program name must equal the launcher's file name, and no Gtk.Application id
+# may be set, or the dock shows a generic icon.
+FILE_PROGRAM_NAME=$(sed -n 's/.*set_prgname("\([^"]*\)").*/\1/p' "$FILE_UI" | head -1)
+if [ "$FILE_PROGRAM_NAME.desktop" != "$(basename -- "$FILE_ACTIVATOR_ENTRY")" ]; then
+    fail_test "the window application id and the launcher id disagree"
+fi
+if grep -q 'application_id=' "$FILE_UI"; then
+    fail_test "a Gtk.Application id would become the window application id and break the match"
+fi
 if [ ! -f "$FILE_ACTIVATOR_ICON" ]; then
     fail_test "handler install did not install the activator icon"
 fi
@@ -156,5 +168,80 @@ if ! python3 -c "import gi; gi.require_version('Gtk','4.0'); from gi.repository 
     pass_test "graphical activator (script only)"
     exit 0
 fi
+
+# The Name: field is driven through the real window under a virtual display. The
+# tool is a stub, so this checks the window's own behaviour, not integration.
+if ! command -v xvfb-run >/dev/null 2>&1; then
+    echo "SKIP: xvfb-run is not available (tool-gated)"
+    pass_test "graphical activator (script only)"
+    exit 0
+fi
+
+FILE_STUB="$DIRECTORY_TEMP/appimage-integrate-stub"
+FILE_RECORD="$DIRECTORY_TEMP/stub-calls.txt"
+: > "$FILE_RECORD"
+cat > "$FILE_STUB" <<'STUB'
+#!/bin/sh
+# Stand-in for appimage-integrate: record the call, and answer explain --json.
+printf '%s|' "$@" >> "$STUB_RECORD"
+printf '\n' >> "$STUB_RECORD"
+if [ "$1" = "explain" ]; then
+    cat <<'JSON'
+{"path":"/tmp/Probe.AppImage","name":"Probe App","generic_name":"Probe Tool",
+ "comment":"Probe comment","version":"9.9.10","version_source":"X-AppImage-Version",
+ "valid":true,"file_size":1024,"installed":"",
+ "conflicts":[{"desktop_id":"org.example.Probe.desktop",
+               "path":"/tmp/org.example.Probe.desktop","name":"Probe App",
+               "origin":"this tool (upgrade)","upgrade":true,"exec_exists":true,
+               "version":"9.9.9","appimage":"/tmp/Probe.AppImage"}]}
+JSON
+fi
+exit 0
+STUB
+chmod 755 "$FILE_STUB"
+FILE_FAKE_IMAGE="$DIRECTORY_TEMP/Probe.AppImage"
+: > "$FILE_FAKE_IMAGE"
+
+STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
+    xvfb-run -a python3 - "$FILE_UI" "$FILE_STUB" "$FILE_FAKE_IMAGE" <<'PYTHON'
+import importlib.util
+import sys
+
+module_path, tool_path, image_path = sys.argv[1:4]
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, Gtk  # noqa: E402
+
+spec = importlib.util.spec_from_file_location("activator", module_path)
+activator = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(activator)
+
+application = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
+outcome = {}
+
+
+def on_activate(app):
+    handler = activator.Handler(app, tool_path, image_path)
+    assert not handler.name_box.get_visible(), "the Name field must start hidden"
+    handler.on_integrate(None)
+    assert handler.name_box.get_visible(), "Integrate must show the Name field"
+    assert handler.name_entry.get_text() == "Probe App", handler.name_entry.get_text()
+    handler.name_entry.set_text("Probe App 9.9.10")
+    handler.on_add_alongside(None)
+    assert not handler.name_box.get_visible(), "choosing must hide the Name field"
+    outcome["ok"] = True
+    app.quit()
+
+
+application.connect("activate", on_activate)
+application.run([])
+assert outcome.get("ok"), "the window never activated"
+print("name field ok")
+PYTHON
+
+grep -Fq 'install|--yes|--add|--name|Probe App 9.9.10|' "$FILE_RECORD" \
+    || fail_test "the typed name was not passed to install"
 
 pass_test "graphical activator"
