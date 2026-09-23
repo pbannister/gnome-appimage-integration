@@ -21,7 +21,7 @@ import sys
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 MINIMUM_WIDTH = 420
 MINIMUM_HEIGHT = 320
@@ -336,11 +336,8 @@ class Handler:
         return data
 
     def conflicts(self):
-        return [
-            item
-            for item in self.data.get("conflicts", [])
-            if not item.get("upgrade")
-        ]
+        """Every existing launcher for this application, upgrades included."""
+        return list(self.data.get("conflicts", []))
 
     def is_missing(self):
         return not os.path.exists(self.path)
@@ -511,7 +508,7 @@ class Handler:
         conflicts = self.conflicts()
         if conflicts:
             lines = [
-                "%s is already represented by:" % (self.data.get("name") or "This AppImage"),
+                "%s is already installed:" % (self.data.get("name") or "This AppImage"),
                 "",
             ]
             for index, conflict in enumerate(conflicts, start=1):
@@ -520,12 +517,18 @@ class Handler:
             if self.data.get("version"):
                 lines.append("This AppImage is version %s." % self.data["version"])
                 lines.append("")
-            lines.append(
-                "Replace existing backs those launchers up and installs this version in their place."
-            )
-            lines.append(
-                "Add alongside keeps them and installs this version under a new identifier."
-            )
+            if all(conflict.get("upgrade") for conflict in conflicts):
+                lines.append("Replace existing upgrades that launcher in place.")
+                lines.append(
+                    "Add alongside keeps it and installs this version under a new identifier."
+                )
+            else:
+                lines.append(
+                    "Replace existing backs those launchers up and installs this version in their place."
+                )
+                lines.append(
+                    "Add alongside keeps them and installs this version under a new identifier."
+                )
             self.set_text("\n".join(lines))
             self.set_buttons(
                 [
@@ -597,7 +600,12 @@ def main(argv):
     GLib.set_prgname("appimage-handler")
     GLib.set_application_name("AppImage Handler")
 
-    application = Gtk.Application(application_id="us.bannister.appimage-handler")
+    # NON_UNIQUE: a second launch opens its own window for its own AppImage,
+    # instead of activating the already-running instance with the first path.
+    application = Gtk.Application(
+        application_id="us.bannister.appimage-handler",
+        flags=Gio.ApplicationFlags.NON_UNIQUE,
+    )
     holder = {}
 
     def on_activate(app):

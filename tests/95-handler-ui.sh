@@ -25,6 +25,11 @@ if [ ! -f "$DIRECTORY_BUILD/icons/appimage-handler.svg" ]; then
     fail_test "the handler icon was not copied to the build tree"
 fi
 
+# A second launch must open its own window for its own AppImage.
+grep -q 'NON_UNIQUE' "$FILE_UI" || fail_test "the handler is not multi-instance"
+# An existing integration must be reported, not silently replaced.
+grep -q 'is already installed:' "$FILE_UI" || fail_test "the handler does not report existing integrations"
+
 # The handler must look for the UI script next to the tool.
 grep -q 'appimage_handler_ui.py' "$DIRECTORY_BUILD/appimage-integrate" \
     || fail_test "the tool does not reference the graphical handler"

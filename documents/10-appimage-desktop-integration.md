@@ -124,6 +124,28 @@ xprop WM_CLASS          # then click the running window
 
 or, for a running application, `lg` (Looking Glass) in GNOME shows the window's `wmclass`.
 
+### When two AppImages want the same launcher
+
+The launcher identifier comes from the embedded `.desktop` file name, which is a property of
+the application, not of the file, so two different AppImages can want the same identifier.
+The tool never resolves that silently.
+
+| Situation | What happens |
+| --------- | ------------ |
+| the same file is integrated again | in-place upgrade: the launcher, icon, and record are rewritten, and the previous window class is remembered |
+| a different AppImage wants an identifier this tool already owns | reported as a conflict, named as `this tool (a different AppImage for the same identifier)`, and refused until a policy is chosen |
+| a launcher written by another tool represents the application | reported as a conflict with its origin, and refused until a policy is chosen |
+| `--replace` | the displaced launcher is backed up and restored by `uninstall`; the identifier changes hands |
+| `--add` | the existing launcher, its record, and its icon are all left untouched, and this AppImage is installed alongside as a distinct launcher |
+
+A record is keyed by identifier, so an added copy needs a record of its own:
+`--add` writes `<id>-N.desktop`, the record `<identifier>-N`, and the icon `<icon-name>-N`.
+Without that, the new record would overwrite the record that still describes the launcher
+it was asked to keep, and the kept launcher would look like a foreign one.
+
+`appimage-integrate audit` reports a launcher whose record disagrees with the AppImage it
+actually runs, which is the state a silent takeover used to leave behind.
+
 ## The Double-Click Problem
 
 Desktop environments deliberately do not execute arbitrary downloaded files.

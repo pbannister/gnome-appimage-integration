@@ -8,9 +8,11 @@
 * [ ] decide whether `run` should retry with `APPIMAGE_EXTRACT_AND_RUN=1` after a FUSE failure at runtime, not only when FUSE is absent.
 * [ ] decide whether integration should verify the `.sha256_sig` signature when the section is non-empty.
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
-* [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu; suffixing the Name with a version is the obvious option.
+* [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu. The identifier, record, and icon are all suffixed already, so only the visible `Name` is still identical; suffixing the Name with a version is the obvious option.
+* [ ] decide whether to offer a repair for two records that claim one launcher, which is the state the FreeCAD installs were left in, or whether `audit` reporting it is enough.
+* [ ] decide whether to remove the AppImageLauncher-era `~/.local/share/icons/hicolor/0x0` icon directory, which `audit` now reports and nothing else reads.
 * [ ] decide whether the zenity fallback should persist a window size at all; zenity cannot report a dragged size, so only the GTK handler can remember one.
-* [ ] decide whether the handler should set `org.gnome.mutter center-new-windows true` on install; it is a session-wide setting, so it is left to the owner.
+* [NO] decide whether the handler should set `org.gnome.mutter center-new-windows true` on install; it is a session-wide setting, so it is left to the owner.
 * [ ] consider offering a one-command way to run the handler under XWayland with `xdotool` for owners who want saved window positions.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
@@ -23,6 +25,11 @@
 
 ## Recently Completed
 
+* [x] make the handler multi-instance, so opening a second AppImage opens a window for that file.
+* [x] show every existing launcher, upgrades included, instead of filtering them out.
+* [x] treat a different AppImage claiming an owned identifier as a conflict, never a silent takeover.
+* [x] keep the existing launcher, its record, and its icon when `--add` installs alongside.
+* [x] report in `audit` when a record disagrees with the AppImage its launcher actually runs.
 * [x] add a GTK4 handler dialog (`sources/tools/appimage_handler_ui.py`) that remembers its window size between runs.
 * [x] show Name, Comment, GenericName, and the detected version in the handler's first window.
 * [x] make Inspect open a separate window with only a Close button, returning to the AppImage window.

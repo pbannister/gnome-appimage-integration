@@ -111,6 +111,16 @@ if command -v gtk4-update-icon-cache >/dev/null 2>&1 || command -v gtk-update-ic
 fi
 
 FILE_IDENTIFIER=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | awk '{print $1}')
+
+# A record that disagrees with the launcher it describes must be reported, because
+# that is what a second AppImage taking over an identifier used to leave behind.
+FILE_MANIFEST="$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/$FILE_IDENTIFIER.manifest"
+sed 's|^appimage_path=.*|appimage_path=/nonexistent/Other.AppImage|' "$FILE_MANIFEST" > "$FILE_MANIFEST.edited"
+mv "$FILE_MANIFEST.edited" "$FILE_MANIFEST"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" audit > "$DIRECTORY_TEMP/audit.txt" 2>&1 || true
+grep -q 'but the launcher runs' "$DIRECTORY_TEMP/audit.txt" \
+    || fail_test "audit did not report a record that disagrees with its launcher"
+
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_IDENTIFIER" > /dev/null
 if [ -f "$FILE_DESKTOP" ]; then
     fail_test "uninstall left the desktop entry behind"

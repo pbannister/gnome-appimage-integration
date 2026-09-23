@@ -138,6 +138,8 @@ The `.desktop` file is never installed as an icon, and a replaced launcher is ba
 Every icon write refreshes the icon theme cache with `gtk4-update-icon-cache`, because GTK trusts a cache that is not older than the theme directory and then never rescans it — a stale cache hides every newly installed icon.
 Re-running `install` for the same AppImage is harmless: it overwrites its own launcher, icons, and manifest, so it also repairs a faulty install. A missing `StartupWMClass` is recovered from a previous manifest, from a conflicting launcher, or from one this tool displaced, and the chosen class is remembered. Use `--wm-class` when the embedded entry does not name the class the dock matches on.
 
+A *different* AppImage that wants an identifier this tool already owns is never a silent takeover: `explain` and `plan` name it, and `install` refuses until `--replace` (the displaced launcher is backed up and restored by `uninstall`) or `--add` (the existing launcher, its record, and its icon are kept, and this AppImage is installed alongside as `<id>-2.desktop` with the record `<identifier>-2`) is chosen. `audit` reports any launcher whose record disagrees with the AppImage it actually runs.
+
 ## Project Pages (publishing conventions)
 
 - A project derived from the skeleton publishes the standard page set
