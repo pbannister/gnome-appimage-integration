@@ -20,6 +20,7 @@
 
 ## Recently Completed
 
+* [x] report a complete integration as `properly integrated` in the details row and the Status tab, instead of implying work remains.
 * [x] split the activator's text area into Status, Discovered, and Actions tabs, and drop "blocked:" from the conflict mode.
 * [x] convert the graphical activator from Python/PyGObject to C++ with GTK4, with a minimal JSON reader and no Python at run time.
 * [x] treat a moved AppImage as a repair rather than a different AppImage, repair it in place, and label every run as new, update, repair, replace, or add alongside.

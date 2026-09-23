@@ -190,10 +190,12 @@ cat > "$FILE_STUB" <<'STUB'
 printf '%s|' "$@" >> "$STUB_RECORD"
 printf '\n' >> "$STUB_RECORD"
 if [ "$1" = "explain" ]; then
-    cat <<'JSON'
+    # The mode is chosen by the caller, so one stub can describe either a conflict
+    # or an AppImage that is already where it belongs.
+    sed "s/@MODE@/${STUB_MODE:-another launcher already represents this application}/" <<'JSON'
 {"path":"/tmp/Probe.AppImage","name":"Probe App","generic_name":"Probe Tool",
  "comment":"Probe comment","version":"9.9.10","version_source":"X-AppImage-Version",
- "valid":false,"file_size":1024,"installed":"",
+ "mode":"@MODE@","valid":false,"file_size":1024,"installed":"",
  "error":"1 existing launcher(s) already represent this application:\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\nchoose --replace to back them up and install this version in their place, or --add to install alongside them",
  "conflicts":[{"desktop_id":"org.example.Probe.desktop",
                "path":"/tmp/org.example.Probe.desktop","name":"Probe App",
@@ -208,7 +210,10 @@ chmod 755 "$FILE_STUB"
 # GDK_BACKEND is forced so the window can only appear on the virtual display: this
 # host runs a Wayland session, and GTK would otherwise prefer it.
 run_driven() {
-    STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
+    # STUB_MODE decides what the stub reports; the assignment on the command line
+    # exports it, which a plain shell variable set for the function would not.
+    STUB_MODE="${STUB_MODE:-another launcher already represents this application}" \
+        STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
 
@@ -246,6 +251,18 @@ grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven
 run_driven --activate integrate,add-alongside > /dev/null 2>&1
 grep -Fq 'install|--yes|--add|--name|Probe App|' "$FILE_RECORD" \
     || fail_test "the Name field was not prefilled from the AppImage"
+
+# An AppImage that is already where it belongs must say so, and stop offering to
+# replace what is correct.
+STUB_MODE="properly integrated" run_driven --activate back > "$DIRECTORY_TEMP/integrated.txt" 2>&1 \
+    || fail_test "the activator did not run for a properly integrated AppImage"
+grep -q '^State:     properly integrated$' "$DIRECTORY_TEMP/integrated.txt" \
+    || fail_test "the Status tab does not report a properly integrated AppImage"
+grep -q 'Nothing more to do' "$DIRECTORY_TEMP/integrated.txt" \
+    || fail_test "the Status tab does not say that nothing is left to do"
+if grep -q 'This application is already installed.' "$DIRECTORY_TEMP/integrated.txt"; then
+    fail_test "a properly integrated AppImage still offers to replace what is correct"
+fi
 
 # The window's WM_CLASS must be the activator's own name, which is what GNOME
 # matches the launcher against.

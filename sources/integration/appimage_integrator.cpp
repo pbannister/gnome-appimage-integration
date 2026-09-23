@@ -1102,8 +1102,21 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                     + ", and this run rewrites it to the AppImage's managed path");
                 o_plan.mode = "repair the launcher (the AppImage is not where it was)";
             } else {
-                o_plan.notes.push_back("upgrades this tool's existing launcher in place");
-                o_plan.mode = "update the launcher in place";
+                // Reaching here means a record exists for this launcher, so the only
+                // question left is whether the AppImage is already where the launcher
+                // runs it from: then nothing is missing, and saying so is more useful
+                // than reporting work that would only rewrite the same files.
+                if (same_file_path(o_plan.appimage_path, o_plan.installed_path)) {
+                    o_plan.notes.push_back(
+                        "already integrated: the launcher runs this file, the file is at its "
+                        "managed path, and the record exists");
+                    o_plan.mode = "properly integrated";
+                } else {
+                    o_plan.notes.push_back(
+                        "upgrades this tool's existing launcher in place, and places the "
+                        "AppImage in the managed directory");
+                    o_plan.mode = "update the launcher in place";
+                }
             }
         } else {
             o_plan.mode = "new integration";

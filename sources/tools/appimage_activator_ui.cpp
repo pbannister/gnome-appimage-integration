@@ -328,6 +328,10 @@ std::string describe_conflict(int i_index, const value_c &o_conflict) {
     return o_text.str();
 }
 
+// The tool's mode for an AppImage that is already where it belongs, with a record
+// whose launcher runs it.  It mirrors integration_plan_o::mode.
+constexpr const char *MODE_INTEGRATED = "properly integrated";
+
 // The union of the monitor work areas, or no value when the platform does not
 // report a usable area, in which case the caller must not clamp anything.
 std::optional<GdkRectangle> work_area() {
@@ -1029,7 +1033,12 @@ private:
         o_text << "File:      " << s_path_ << (is_missing() ? "  [MISSING]" : "") << '\n';
 
         const std::vector<value_c> o_conflicts = conflicts();
-        if (!o_conflicts.empty()) {
+        if (MODE_INTEGRATED == s_mode) {
+            // Nothing is wrong and nothing is left to do; do not offer to replace
+            // what is already correct.
+            o_text << "\nThis AppImage is properly integrated.\n"
+                      "Nothing more to do: the launcher and its record already match it.\n";
+        } else if (!o_conflicts.empty()) {
             o_text << "\nThis application is already installed.\n"
                       "Integrate will show details, then offer to replace or add alongside.\n";
         }
@@ -1063,6 +1072,9 @@ private:
                         o_text << "Replace existing repairs that launcher: the AppImage is not "
                                   "where the launcher expects it, so its Exec and TryExec are "
                                   "rewritten.\n";
+                    } else if (MODE_INTEGRATED == s_mode) {
+                        o_text << "Replace existing rewrites that launcher and its record in "
+                                  "place; nothing is missing.\n";
                     } else {
                         o_text << "Replace existing updates that launcher in place.\n";
                     }

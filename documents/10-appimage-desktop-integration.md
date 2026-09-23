@@ -75,22 +75,23 @@ AppImage is an executable. Two conventions compete:
 
 Recommended: choose one managed directory, default `$HOME/Applications`, and let the tool move the file there.
 
-### The Four Things Integrate Can Do
+### The Things Integrate Can Report
 
 `appimage-integrate` says in one line which of them a run is, under `this-run:` in the plan and
 in the `mode` field of `explain --json`, and the graphical activator shows the same line in its
-details block:
+details block and its Status tab:
 
 | Situation | `this-run:` | What happens |
 | --------- | ----------- | ------------ |
 | nothing represents the application yet | `new integration` | the launcher, icons, and record are written |
-| the same file is integrated again | `update the launcher in place` | the same launcher and record are rewritten; nothing is displaced |
+| it is already complete | `properly integrated` | nothing: the launcher runs this file, the file is in the managed directory, and the record exists |
+| the launcher runs this file, but the AppImage is not in the managed directory | `update the launcher in place` | the launcher and record are rewritten and the AppImage is placed in the managed directory |
 | the same AppImage is somewhere else now | `repair the launcher (the AppImage is not where it was)` | the AppImage returns to the managed directory and the launcher's `Exec` and `TryExec` are rewritten |
 | a different AppImage wants a launcher this tool owns | `replace an existing launcher` (with `--replace`) or `add alongside as <id>` (with `--add`) | the old launcher is backed up and restored by `uninstall`, or kept and a distinct launcher is added |
+| a different AppImage wants it, and no choice was given | `another launcher already represents this application` | nothing yet: the plan stops with the list of launchers and the two choices |
 
-Without `--replace` or `--add`, the fourth case stops with the list of launchers and the two
-choices. The distinction between the second and the third case is the AppImage's identifier: it
-is a hash of the embedded entry, the file size, and the payload offset, so the same AppImage
+The distinction between an update, a repair, and a different build is the AppImage's identifier:
+it is a hash of the embedded entry, the file size, and the payload offset, so the same AppImage
 keeps its identifier when it moves, while a different build does not.
 
 ## What Integration Writes

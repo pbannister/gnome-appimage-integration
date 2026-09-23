@@ -304,17 +304,28 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$DIRECTORY_T
 grep -q '^this-run: new integration$' "$DIRECTORY_TEMP/mode-new.txt" \
     || fail_test "a first install is not labelled as a new integration"
 
-# 2. The same file again is an update in place. One plan must be printed exactly
+# 2. The same file again is a complete integration: say so, rather than reporting
+#    work that would only rewrite the same files. One plan must be printed exactly
 #    once: the cache-refresh children fork, and their inherited stdout buffer must
 #    not print the plan a second and third time.
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$FILE_REPAIR_MANAGED" \
     > "$DIRECTORY_TEMP/mode-update.txt" 2>&1
-grep -q '^this-run: update the launcher in place$' "$DIRECTORY_TEMP/mode-update.txt" \
-    || fail_test "re-integrating the same file is not labelled as an update"
+grep -q '^this-run: properly integrated$' "$DIRECTORY_TEMP/mode-update.txt" \
+    || fail_test "a complete integration is not reported as properly integrated"
+grep -q '^note: already integrated:' "$DIRECTORY_TEMP/mode-update.txt" \
+    || fail_test "the properly-integrated run did not say why nothing is left to do"
 COUNT_PLANS=$(grep -c '^this-run:' "$DIRECTORY_TEMP/mode-update.txt" || true)
 if [ "$COUNT_PLANS" -ne 1 ]; then
     fail_test "the plan was printed $COUNT_PLANS times instead of once"
 fi
+
+# 2b. A launcher that runs this file, but whose managed directory is not where the
+#     AppImage is, is an update rather than a complete integration.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" plan \
+    --install-dir "$DIRECTORY_XDG/home/Elsewhere" "$FILE_REPAIR_MANAGED" \
+    > "$DIRECTORY_TEMP/mode-elsewhere.txt" 2>&1
+grep -q '^this-run: update the launcher in place$' "$DIRECTORY_TEMP/mode-elsewhere.txt" \
+    || fail_test "an AppImage outside its managed directory is not labelled as an update"
 
 # 3. The whole managed directory is removed, as an owner might do, taking the
 #    AppImage with it.

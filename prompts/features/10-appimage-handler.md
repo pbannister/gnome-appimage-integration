@@ -34,6 +34,7 @@ default.
 - The Discovered log must list the facts the state was deduced from, with the command that produced them, and must gain the full report when Inspect runs.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
 - A conflict must be described from the owner's point of view: the mode says "another launcher already represents this application", not that the run is blocked.
+- An AppImage that is in its managed directory, whose launcher runs it, and which has a record must be reported as `properly integrated`; the details row and the Status tab must say so and must not offer to replace what is already correct.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
 - After Integrate succeeds, the window must follow the AppImage to its installed path, so File, Run now, and Inspect refer to the new location.
