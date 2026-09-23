@@ -108,3 +108,7 @@ On the live session, `refresh` rewrote all eight launchers, `audit` no longer re
 read from the running window `0x20000e`. Cura's class was read from its own window
 (`UltiMaker-Cura`) before the feature was extended. The owner is to confirm the dock icons for
 Cura and OpenShot.
+
+## Commits
+
+- `2726fac` Add refresh, and trace a payload back to its AppImage by APPIMAGE
