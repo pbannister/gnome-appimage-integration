@@ -16,6 +16,8 @@ make every step printable, plannable, and reversible.
 - The launcher must set `TryExec`, `Terminal=false`, and `StartupNotify=true`.
 - The launcher must install icons under `hicolor/<size>/apps` and reference the icon by name.
 - The integrator must prefer themed payload icons over root icons and must never write a `0x0` size directory.
+- The integrator must remap a payload size directory that the icon theme does not list to a standard one.
+- The integrator must refresh the icon theme cache after writing or removing icons, because GTK trusts a cache that is not older than the theme directory and then never rescans the directories.
 - The integrator must derive the icon size from a payload theme directory, a PNG header, or the `scalable` convention.
 - The integrator must record a manifest listing every file it wrote, so the install can be reversed.
 - The integrator must refuse to overwrite a launcher it did not write unless the manifest exists.

@@ -41,4 +41,11 @@ if [ -f "$DIRECTORY_ICON/appimage-handler.svg" ]; then
     cp "$DIRECTORY_ICON/appimage-handler.svg" "$DIRECTORY_THEME/appimage-handler.svg"
     chmod 644 "$DIRECTORY_THEME/appimage-handler.svg"
     echo "program-install: $DIRECTORY_THEME/appimage-handler.svg"
+    # A stale cache hides the icon from GTK, which trusts a cache that is not
+    # older than the theme directory and then never rescans it.
+    if command -v gtk4-update-icon-cache >/dev/null 2>&1; then
+        gtk4-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+    elif command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+    fi
 fi

@@ -90,6 +90,9 @@ FILE_MANIFEST="$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/$FILE
 if grep -E '^icon=' "$FILE_MANIFEST" | grep -q '\.desktop$'; then
     fail_test "a .desktop file was installed as an icon"
 fi
+if grep -E '^icon=' "$FILE_MANIFEST" | grep -q '/0x0/'; then
+    fail_test "an icon was installed into an invalid size directory"
+fi
 if [ ! -f "$FILE_MANIFEST" ]; then
     fail_test "install did not write a manifest"
 fi

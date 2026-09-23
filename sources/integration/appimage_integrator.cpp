@@ -196,6 +196,50 @@ bool run_command(const std::vector<std::string> &o_arguments, int &o_exit_code) 
     return false;
 }
 
+// After icons change, the theme cache must be refreshed.  GTK trusts a cache
+// whose mtime is not older than the theme directory, and then never rescans the
+// size directories, so a stale cache hides every newly installed icon.
+void refresh_icon_cache(const std::string &s_theme_directory) {
+    if (s_theme_directory.empty()) {
+        return;
+    }
+    std::error_code o_error;
+    if (!fs::is_directory(s_theme_directory, o_error)) {
+        return;
+    }
+    const char *s_tool = nullptr;
+    if (command_exists("gtk4-update-icon-cache")) {
+        s_tool = "gtk4-update-icon-cache";
+    } else if (command_exists("gtk-update-icon-cache")) {
+        s_tool = "gtk-update-icon-cache";
+    }
+    if (nullptr == s_tool) {
+        return;
+    }
+    int i_exit_code = 0;
+    run_command({s_tool, "-f", "-t", s_theme_directory}, i_exit_code);
+}
+
+// True when a payload size directory is one the icon theme actually lists.
+bool is_valid_icon_size_directory(const std::string &s_name) {
+    if ("scalable" == s_name) {
+        return true;
+    }
+    const std::size_t i_cross = s_name.find('x');
+    if (std::string::npos == i_cross) {
+        return false;
+    }
+    const std::string s_width = s_name.substr(0, i_cross);
+    const std::string s_height = s_name.substr(i_cross + 1);
+    const auto is_positive_number = [](const std::string &s_text) {
+        if (s_text.empty() || std::string::npos != s_text.find_first_not_of("0123456789")) {
+            return false;
+        }
+        return 0 != std::stoi(s_text);
+    };
+    return is_positive_number(s_width) && is_positive_number(s_height);
+}
+
 std::string current_timestamp() {
     const std::time_t i_now = std::time(nullptr);
     std::tm o_time{};
@@ -899,7 +943,13 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                             && ".svgz" != s_extension && ".xpm" != s_extension) {
                             continue;
                         }
-                        const std::string s_slot = o_size_entry.name + "|" + s_extension;
+                        std::string s_size_directory = o_size_entry.name;
+                        if (!is_valid_icon_size_directory(s_size_directory)) {
+                            // A malformed AppImage may ship a size directory the
+                            // theme does not list, such as 0x0; use a standard one.
+                            s_size_directory = "256x256";
+                        }
+                        const std::string s_slot = s_size_directory + "|" + s_extension;
                         if (0 != o_installed_slots.count(s_slot)) {
                             continue;
                         }
@@ -910,11 +960,11 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                         integration_icon_o o_icon;
                         o_icon.source_in_payload = o_icon_entry.path;
                         o_icon.installed_name = o_plan.icon_name;
-                        o_icon.size_directory = o_size_entry.name;
+                        o_icon.size_directory = s_size_directory;
                         o_icon.extension = s_extension.empty() ? std::string(".png") : s_extension;
                         o_icon.content = s_data;
                         o_icon.pixel_size = std::max(
-                            0, icon_theme_locator_c::size_from_directory_name(o_size_entry.name));
+                            0, icon_theme_locator_c::size_from_directory_name(s_size_directory));
                         o_installed_slots.insert(s_slot);
                         o_plan.icons.push_back(std::move(o_icon));
                     }
@@ -1266,6 +1316,9 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
             int i_exit_code = 0;
             run_command({"update-desktop-database", s_applications_directory_}, i_exit_code);
         }
+        if (!o_written_icons.empty()) {
+            refresh_icon_cache(s_icon_directory_);
+        }
         if (!o_written_mime.empty() && command_exists("update-mime-database")) {
             int i_exit_code = 0;
             run_command({"update-mime-database", join_path(s_data_home_, "mime")}, i_exit_code);
@@ -1294,6 +1347,7 @@ bool appimage_integrator_c::uninstall(const std::string &s_identifier,
             o_error.clear();
             fs::remove(s_path, o_error);
         }
+        refresh_icon_cache(s_icon_directory_);
         for (const std::string &s_path : manifest_get_all(o_lines, "mime_package")) {
             o_error.clear();
             fs::remove(s_path, o_error);

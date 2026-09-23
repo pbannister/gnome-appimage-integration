@@ -134,6 +134,7 @@ The practical choices are:
 
 Position is saved and restored only through the XWayland path; on a Wayland session the handler still remembers and restores the size.
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
+Every icon write refreshes the icon theme cache with `gtk4-update-icon-cache`, because GTK trusts a cache that is not older than the theme directory and then never rescans it — a stale cache hides every newly installed icon.
 
 ## Project Pages (publishing conventions)
 

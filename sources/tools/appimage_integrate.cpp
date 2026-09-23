@@ -179,6 +179,26 @@ std::string capture_command(const std::vector<std::string> &o_arguments) {
     return s_result;
 }
 
+// Refresh the icon theme cache after an icon is installed or removed; GTK keeps
+// using a stale cache and then never sees the new icon.
+void refresh_icon_cache(const std::string &s_theme_directory) {
+    std::error_code o_error;
+    if (!fs::is_directory(s_theme_directory, o_error)) {
+        return;
+    }
+    const char *s_tool = nullptr;
+    if (command_exists("gtk4-update-icon-cache")) {
+        s_tool = "gtk4-update-icon-cache";
+    } else if (command_exists("gtk-update-icon-cache")) {
+        s_tool = "gtk-update-icon-cache";
+    }
+    if (nullptr == s_tool) {
+        return;
+    }
+    const std::string s_result = capture_command({s_tool, "-f", "-t", s_theme_directory});
+    static_cast<void>(s_result);
+}
+
 std::string tool_path(const appimage_integrator_c &o_integrator) {
     const std::string s_installed = fs::path(std::getenv("HOME") ? std::getenv("HOME") : "")
                                         .append(".local/bin/appimage-integrate")
@@ -675,6 +695,7 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
                       o_icon_error);
         if (!o_icon_error) {
             s_icon_installed = s_icon_target;
+            refresh_icon_cache((o_data_home / "icons/hicolor").string());
         }
     }
 
@@ -814,6 +835,8 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
         fs::remove(s_icon, o_error);
         o_error.clear();
     }
+    refresh_icon_cache((fs::path(o_integrator.state_directory()).parent_path() / "icons/hicolor")
+                           .string());
     if (!s_mime_package.empty() && !s_mime_backup.empty()
         && fs::exists(s_mime_backup, o_error)) {
         std::error_code o_restore_error;

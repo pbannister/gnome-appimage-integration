@@ -103,6 +103,13 @@ fi
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -q 'org.example.Test.desktop' \
     || fail_test "list did not report the installed AppImage"
 
+# A stale icon-theme cache hides new icons from GTK, so install must refresh it.
+if command -v gtk4-update-icon-cache >/dev/null 2>&1 || command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    if [ ! -f "$DIRECTORY_XDG/home/.local/share/icons/hicolor/icon-theme.cache" ]; then
+        fail_test "install did not refresh the icon theme cache"
+    fi
+fi
+
 FILE_IDENTIFIER=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | awk '{print $1}')
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_IDENTIFIER" > /dev/null
 if [ -f "$FILE_DESKTOP" ]; then
