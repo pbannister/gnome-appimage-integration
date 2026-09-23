@@ -92,8 +92,9 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
 | `appimage-integrate install --wm-class CLASS <AppImage>` | set the window class the dock matches on |
 | `appimage-integrate install --name NAME <AppImage>` | set `Name=` in the launcher, e.g. to carry a version |
+| `appimage-integrate install --install-dir DIR <AppImage>` | use another managed directory |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
-| `appimage-integrate list` | list AppImages integrated by this tool |
+| `appimage-integrate list` | list AppImages integrated by this tool, marking any whose file is gone |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |

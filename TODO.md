@@ -25,6 +25,9 @@
 
 ## Recently Completed
 
+* [x] treat a moved AppImage as a repair rather than a different AppImage, repair it in place, and label every run as new, update, repair, replace, or add alongside.
+* [x] mark missing AppImages in `list`, and fix `--replace` when the conflicting launcher sits at the target identifier.
+* [x] stop forked cache-refresh children from printing the plan again from their inherited stdout buffer.
 * [x] make the window's application id match `appimage-activator.desktop`, so the dock shows the activator icon instead of a generic one.
 * [x] add a prefilled `Name:` field to the conflict prompt, so `--add` and `--replace` can name the launcher after a version.
 * [x] rename the right-click "Open With" item to AppImage Activator, because AppImage Handler is another project's name, and migrate the pre-rename entry, icon, and record.

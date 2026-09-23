@@ -262,7 +262,8 @@ std::string embedded_name(const std::string &s_appimage_path) {
 }
 
 void print_plan_text(const integration_plan_o &o_plan) {
-    std::cout << "appimage: " << o_plan.appimage_path << '\n'
+    std::cout << "this-run: " << (o_plan.mode.empty() ? "(unknown)" : o_plan.mode) << '\n'
+              << "appimage: " << o_plan.appimage_path << '\n'
               << "installed: " << o_plan.installed_path << '\n'
               << "identifier: " << o_plan.identifier << '\n'
               << "desktop-id: " << o_plan.desktop_id << '\n'
@@ -311,7 +312,8 @@ void print_plan_text(const integration_plan_o &o_plan) {
 void print_plan_json(const integration_plan_o &o_plan) {
     using gnome_appimage::tools::json_escape;
     std::cout << "{\"appimage\":\"" << json_escape(o_plan.appimage_path) << "\",\"installed\":\""
-              << json_escape(o_plan.installed_path) << "\",\"identifier\":\""
+              << json_escape(o_plan.installed_path) << "\",\"mode\":\""
+              << json_escape(o_plan.mode) << "\",\"identifier\":\""
               << json_escape(o_plan.identifier) << "\",\"desktop_id\":\""
               << json_escape(o_plan.desktop_id) << "\",\"desktop_entry\":\""
               << json_escape(o_plan.desktop_entry_path) << "\",\"icon_name\":\""
@@ -409,6 +411,7 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"startup_wm_class\":\"" << json_escape(o_plan.startup_wm_class) << "\""
               << ",\"embedded_desktop\":\"" << json_escape(o_plan.embedded_desktop_path) << "\""
               << ",\"desktop_entry\":\"" << json_escape(o_plan.desktop_entry_text) << "\""
+              << ",\"mode\":\"" << json_escape(o_plan.mode) << "\""
               << ",\"valid\":" << (b_valid ? "true" : "false")
               << ",\"error\":\"" << json_escape(o_plan.error) << "\""
               << ",\"conflicts\":[";
@@ -428,6 +431,7 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
                   << "\",\"origin\":\"" << json_escape(o_conflict.origin)
                   << "\",\"managed\":" << (o_conflict.managed ? "true" : "false")
                   << ",\"upgrade\":" << (o_conflict.upgrade ? "true" : "false")
+                  << ",\"repair\":" << (o_conflict.repair ? "true" : "false")
                   << ",\"exec_exists\":" << (o_conflict.exec_exists ? "true" : "false") << '}';
     }
     std::cout << "]}\n";
@@ -500,6 +504,8 @@ int command_list(bool b_json) {
     }
     bool b_first = true;
     for (const installed_appimage_o &o_entry : o_installed) {
+        std::error_code o_exists_error;
+        const bool b_missing = !fs::exists(o_entry.appimage_path, o_exists_error);
         if (b_json) {
             if (!b_first) {
                 std::cout << ',';
@@ -509,10 +515,15 @@ int command_list(bool b_json) {
                       << "\",\"appimage\":\""
                       << gnome_appimage::tools::json_escape(o_entry.appimage_path)
                       << "\",\"desktop_entry\":\""
-                      << gnome_appimage::tools::json_escape(o_entry.desktop_entry_path) << "\"}";
+                      << gnome_appimage::tools::json_escape(o_entry.desktop_entry_path)
+                      << "\",\"missing\":" << (b_missing ? "true" : "false") << "}";
         } else {
             std::cout << o_entry.identifier << '\t' << o_entry.appimage_path << '\t'
-                      << o_entry.desktop_entry_path << '\n';
+                      << o_entry.desktop_entry_path
+                      << (b_missing ? "\t[MISSING: the launcher points at a file that is not "
+                                      "there]"
+                                    : "")
+                      << '\n';
         }
         b_first = false;
     }

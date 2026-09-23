@@ -266,4 +266,102 @@ assert isinstance(data["conflicts"], list)
 print("json fields ok")
 PYTHON
 
+echo "=== every install says which of the four things it is doing ==="
+# A second application, so these checks do not disturb the Probe launchers.
+DIRECTORY_PAYLOAD_REPAIR="$DIRECTORY_TEMP/payload-repair"
+mkdir -p "$DIRECTORY_PAYLOAD_REPAIR/usr/share/icons/hicolor/48x48/apps"
+printf 'repair-png' > "$DIRECTORY_PAYLOAD_REPAIR/usr/share/icons/hicolor/48x48/apps/repair.png"
+printf 'repair-diricon' > "$DIRECTORY_PAYLOAD_REPAIR/.DirIcon"
+cat > "$DIRECTORY_PAYLOAD_REPAIR/org.example.Repair.desktop" <<'ENTRY'
+[Desktop Entry]
+Type=Application
+Name=Repair App
+X-AppImage-Version=1.0
+Exec=repair %U
+Icon=repair
+Categories=Utility;
+StartupWMClass=RepairApp
+ENTRY
+build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_REPAIR" "$DIRECTORY_TEMP/Repair.AppImage" gzip
+FILE_REPAIR_LAUNCHER="$DIRECTORY_APPLICATIONS/org.example.Repair.desktop"
+FILE_REPAIR_MANAGED="$DIRECTORY_XDG/home/Applications/Repair.AppImage"
+
+# 1. A new AppImage.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$DIRECTORY_TEMP/Repair.AppImage" \
+    > "$DIRECTORY_TEMP/mode-new.txt" 2>&1
+grep -q '^this-run: new integration$' "$DIRECTORY_TEMP/mode-new.txt" \
+    || fail_test "a first install is not labelled as a new integration"
+
+# 2. The same file again is an update in place. One plan must be printed exactly
+#    once: the cache-refresh children fork, and their inherited stdout buffer must
+#    not print the plan a second and third time.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$FILE_REPAIR_MANAGED" \
+    > "$DIRECTORY_TEMP/mode-update.txt" 2>&1
+grep -q '^this-run: update the launcher in place$' "$DIRECTORY_TEMP/mode-update.txt" \
+    || fail_test "re-integrating the same file is not labelled as an update"
+COUNT_PLANS=$(grep -c '^this-run:' "$DIRECTORY_TEMP/mode-update.txt" || true)
+if [ "$COUNT_PLANS" -ne 1 ]; then
+    fail_test "the plan was printed $COUNT_PLANS times instead of once"
+fi
+
+# 3. The whole managed directory is removed, as an owner might do, taking the
+#    AppImage with it.
+mkdir -p "$DIRECTORY_XDG/home/Downloads"
+mv "$FILE_REPAIR_MANAGED" "$DIRECTORY_XDG/home/Downloads/Repair.AppImage"
+rm -rf "$DIRECTORY_XDG/home/Applications"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list > "$DIRECTORY_TEMP/list-missing.txt" 2>&1
+grep 'org.example.Repair.desktop' "$DIRECTORY_TEMP/list-missing.txt" | grep -q '\[MISSING' \
+    || fail_test "list did not mark the launcher whose AppImage is missing"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" audit > "$DIRECTORY_TEMP/audit-missing.txt" 2>&1 || true
+grep -q 'Exec target is missing' "$DIRECTORY_TEMP/audit-missing.txt" \
+    || fail_test "audit did not report the broken launcher"
+
+# 4. Re-integrating from the new location repairs the launcher, and is not mistaken
+#    for a different AppImage wanting the same identifier.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes \
+    "$DIRECTORY_XDG/home/Downloads/Repair.AppImage" > "$DIRECTORY_TEMP/mode-repair.txt" 2>&1
+grep -q '^this-run: repair the launcher' "$DIRECTORY_TEMP/mode-repair.txt" \
+    || fail_test "a moved AppImage is not labelled as a repair"
+if [ ! -f "$FILE_REPAIR_MANAGED" ]; then
+    fail_test "the repair did not recreate the managed directory and replace the AppImage"
+fi
+grep -q "Applications/Repair.AppImage %U" "$FILE_REPAIR_LAUNCHER" \
+    || fail_test "the repair did not point the launcher at the managed path"
+if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list \
+    | grep 'org.example.Repair.desktop' | grep -q '\[MISSING'; then
+    fail_test "the repair left the record reporting a missing AppImage"
+fi
+
+# 5. A newer build of the same application is a replacement, and uninstall puts the
+#    replaced launcher back.
+DIRECTORY_PAYLOAD_REPAIR_TWO="$DIRECTORY_TEMP/payload-repair-two"
+mkdir -p "$DIRECTORY_PAYLOAD_REPAIR_TWO/usr/share/icons/hicolor/48x48/apps"
+printf 'repair-png-two' > "$DIRECTORY_PAYLOAD_REPAIR_TWO/usr/share/icons/hicolor/48x48/apps/repair.png"
+printf 'repair-diricon-two' > "$DIRECTORY_PAYLOAD_REPAIR_TWO/.DirIcon"
+sed 's/X-AppImage-Version=1.0/X-AppImage-Version=1.1/' \
+    "$DIRECTORY_PAYLOAD_REPAIR/org.example.Repair.desktop" \
+    > "$DIRECTORY_PAYLOAD_REPAIR_TWO/org.example.Repair.desktop"
+build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_REPAIR_TWO" \
+    "$DIRECTORY_TEMP/Repair2.AppImage" gzip
+if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" plan "$DIRECTORY_TEMP/Repair2.AppImage" \
+    > "$DIRECTORY_TEMP/mode-conflict.txt" 2>&1; then
+    fail_test "a newer build was integrated without being asked how to treat the existing one"
+fi
+grep -q 'already represent this application' "$DIRECTORY_TEMP/mode-conflict.txt" \
+    || fail_test "the newer build was not reported as a conflict"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes --replace \
+    "$DIRECTORY_TEMP/Repair2.AppImage" > "$DIRECTORY_TEMP/mode-replace.txt" 2>&1
+grep -q '^this-run: replace an existing launcher$' "$DIRECTORY_TEMP/mode-replace.txt" \
+    || fail_test "replacing a launcher is not labelled as a replacement"
+grep -q 'Repair2.AppImage' "$FILE_REPAIR_LAUNCHER" \
+    || fail_test "the replacement launcher does not run the newer AppImage"
+ls "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/backup/" | grep -q 'org.example.Repair.desktop' \
+    || fail_test "the replaced launcher was not backed up"
+FILE_REPAIR_IDENTIFIER=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list \
+    | grep 'org.example.Repair.desktop' | awk '{print $1}')
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_REPAIR_IDENTIFIER" \
+    > /dev/null
+grep -q 'Repair.AppImage' "$FILE_REPAIR_LAUNCHER" \
+    || fail_test "uninstall did not restore the replaced launcher"
+
 pass_test "integration conflicts"

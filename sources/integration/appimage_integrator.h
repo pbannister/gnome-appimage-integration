@@ -59,6 +59,9 @@ struct integration_conflict_o {
     std::string origin;
     bool managed = false;
     bool upgrade = false;
+    // The launcher is ours and refers to this same AppImage, but at a path that is
+    // no longer where the AppImage is, so it needs repairing rather than replacing.
+    bool repair = false;
     bool exec_exists = false;
 };
 
@@ -94,6 +97,9 @@ struct integration_plan_o {
     std::string version_source;
     std::string detection_name;
     std::string compression_name;
+    // Which operation this plan performs, in the user's words: a new integration,
+    // an update in place, a repair of a moved AppImage, a replacement, or an add.
+    std::string mode;
     std::string update_information;
     std::uint64_t file_size = 0;
     std::uint64_t payload_size = 0;

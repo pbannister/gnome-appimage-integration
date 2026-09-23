@@ -47,6 +47,11 @@ default.
 - Add alongside and Replace existing must pass the field's value as `Name=` in the launcher, so several launchers for one application can carry their version or another hint.
 - The window's application id must equal the launcher's file name: the program name is `appimage-activator` and no `Gtk.Application` id is set, because GTK would otherwise send the application id as the Wayland app id and GNOME would show a generic dock icon.
 - `install --name NAME` must set `Name=` in the launcher while conflict detection keeps using the name from the embedded entry.
+- Every install must state which operation it performs: a new integration, an update in place, a repair of a moved AppImage, a replacement, or an add alongside.
+- The managed directory must be created when it is missing, and removing it must not make the tool mistake the AppImage for a different one: the identifier comes from the file's contents, so a moved AppImage is a repair.
+- `list` must mark a record whose AppImage is gone, and `audit` must report its missing `Exec` and `TryExec` targets.
+- `--replace` must work when the conflicting launcher sits at the target identifier, backing it up and restoring it on uninstall.
+- Output must not be duplicated by forked children: flush buffered output before forking.
 
 ## Behavior
 

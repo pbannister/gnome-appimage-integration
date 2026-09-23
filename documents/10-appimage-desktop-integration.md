@@ -51,13 +51,47 @@ AppImageLauncher implements exactly this prompt on first execution, offering "In
 An integrated AppImage must not stay in `Downloads`.
 The desktop entry stores an absolute path to it, so the path becomes a contract.
 
-- The AppImage project's own convention and AppImageLauncher's default is `$HOME/Applications`.
+There is no XDG directory for AppImages. The XDG Base Directory Specification defines
+`$XDG_DATA_HOME` for data, `$XDG_CONFIG_HOME` for configuration, `$XDG_CACHE_HOME`,
+`$XDG_STATE_HOME`, and `$XDG_RUNTIME_DIR`; it defines no directory for executables, and an
+AppImage is an executable. Two conventions compete:
+
+- `$HOME/Applications` is what AppImageLauncher uses and what the AppImage project's own tooling
+  documented, so it is the de-facto standard and the default here.
+- `$XDG_DATA_HOME/AppImages` (that is, `~/.local/share/AppImages`) is the defensible XDG-shaped
+  choice, because an AppImage is user data. Pass `--install-dir "$XDG_DATA_HOME/AppImages"` to
+  use it. Whichever is chosen, the directory may be anywhere the user can write.
+
 - `$HOME/.local/bin` is acceptable for users who want AppImages on `$PATH`.
 - A path with spaces is legal and common; every path in an `Exec` line must be quoted.
+- The managed directory is created if it does not exist, by the step that places the AppImage.
+- Removing the managed directory leaves every launcher pointing at a path that no longer exists.
+  `appimage-integrate list` marks those records `[MISSING]`, and `audit` reports the missing
+  `Exec` and `TryExec` targets. Re-integrating the AppImage from wherever it now is repairs the
+  launcher and recreates the directory; the AppImage keeps its identifier, because the
+  identifier is derived from the file's contents rather than its path.
 - Moving or renaming an integrated AppImage breaks its launcher until the entry is rewritten.
 - Deleting it leaves a dead launcher unless `TryExec` is present, which makes the launcher hide itself.
 
 Recommended: choose one managed directory, default `$HOME/Applications`, and let the tool move the file there.
+
+### The Four Things Integrate Can Do
+
+`appimage-integrate` says in one line which of them a run is, under `this-run:` in the plan and
+in the `mode` field of `explain --json`, and the graphical activator shows the same line in its
+details block:
+
+| Situation | `this-run:` | What happens |
+| --------- | ----------- | ------------ |
+| nothing represents the application yet | `new integration` | the launcher, icons, and record are written |
+| the same file is integrated again | `update the launcher in place` | the same launcher and record are rewritten; nothing is displaced |
+| the same AppImage is somewhere else now | `repair the launcher (the AppImage is not where it was)` | the AppImage returns to the managed directory and the launcher's `Exec` and `TryExec` are rewritten |
+| a different AppImage wants a launcher this tool owns | `replace an existing launcher` (with `--replace`) or `add alongside as <id>` (with `--add`) | the old launcher is backed up and restored by `uninstall`, or kept and a distinct launcher is added |
+
+Without `--replace` or `--add`, the fourth case stops with the list of launchers and the two
+choices. The distinction between the second and the third case is the AppImage's identifier: it
+is a hash of the embedded entry, the file size, and the payload offset, so the same AppImage
+keeps its identifier when it moves, while a different build does not.
 
 ## What Integration Writes
 

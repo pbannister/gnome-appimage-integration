@@ -13,6 +13,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <optional>
 #include <set>
@@ -186,6 +187,11 @@ bool run_command(const std::vector<std::string> &o_arguments, int &o_exit_code) 
     }
     o_raw.push_back(nullptr);
 
+    // The child inherits this process's buffered output, and the freopen() below
+    // flushes it to the real stdout before reopening, which would print everything
+    // written so far a second time. Flush first, so only the parent writes it.
+    std::cout.flush();
+    std::cerr.flush();
     const pid_t i_child = fork();
     if (0 > i_child) {
         return false;
@@ -529,22 +535,26 @@ std::vector<integration_conflict_o> detect_application_conflicts(
     const std::string &s_new_appimage_stem,
     const std::string &s_new_appimage_path,
     const std::string &s_new_desktop_id,
+    const std::string &s_new_identifier,
     const std::vector<installed_appimage_o> &o_installed) {
     std::vector<integration_conflict_o> o_conflicts;
     const desktop_entry_locator_c o_locator(o_environment);
     for (const gnome_appimage::desktop::desktop_entry_candidate_o &o_candidate :
          o_locator.list()) {
-        bool b_managed = false;
+        const installed_appimage_o *p_record = nullptr;
         for (const installed_appimage_o &o_entry : o_installed) {
             if (o_entry.desktop_entry_path == o_candidate.path) {
-                b_managed = true;
+                p_record = &o_entry;
                 break;
             }
         }
-        // Our own launcher at our own target id is an in-place upgrade only while it
-        // already points at this very file; it is recorded so the old manifest can be
-        // retired, but it is not a conflict. A different AppImage claiming the same
-        // identifier must be an explicit choice, never a silent takeover.
+        const bool b_managed = nullptr != p_record;
+        // Our own launcher at our own target id belongs to this AppImage while it
+        // either points at this very file or was written for this same AppImage; the
+        // identifier is derived from the content, so a moved AppImage keeps it. It is
+        // recorded so its record can be refreshed, but it is not a conflict. A
+        // different AppImage claiming the same identifier must be an explicit choice,
+        // never a silent takeover.
         desktop_entry_file_o o_entry;
         std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
         if (!desktop_entry_reader_c::parse_file(o_candidate.path, o_entry, o_diagnostics)) {
@@ -553,7 +563,11 @@ std::vector<integration_conflict_o> detect_application_conflicts(
         if (b_managed && o_candidate.id == s_new_desktop_id) {
             const std::string s_existing_appimage =
                 exec_program(o_entry.value("Desktop Entry", "Exec").value_or(std::string()));
-            if (same_file_path(s_existing_appimage, s_new_appimage_path)) {
+            const bool b_same_file = same_file_path(s_existing_appimage, s_new_appimage_path);
+            const bool b_same_appimage =
+                b_same_file
+                || (!s_new_identifier.empty() && p_record->identifier == s_new_identifier);
+            if (b_same_appimage) {
                 integration_conflict_o o_upgrade;
                 o_upgrade.desktop_id = o_candidate.id;
                 o_upgrade.path = o_candidate.path;
@@ -570,7 +584,17 @@ std::vector<integration_conflict_o> detect_application_conflicts(
                 }
                 o_upgrade.managed = true;
                 o_upgrade.upgrade = true;
-                o_upgrade.origin = "this tool (upgrade)";
+                if (b_same_file) {
+                    o_upgrade.origin = "this tool (upgrade)";
+                } else {
+                    // The AppImage was moved or copied: the launcher points somewhere
+                    // else, so it needs the entry rewritten rather than replaced.
+                    o_upgrade.repair = true;
+                    o_upgrade.origin =
+                        o_upgrade.exec_exists
+                            ? "this tool (this AppImage, now at a different path)"
+                            : "this tool (this AppImage, and its launcher is broken)";
+                }
                 o_conflicts.push_back(std::move(o_upgrade));
                 continue;
             }
@@ -979,7 +1003,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string()),
             o_plan.startup_wm_class,
             strip_extension(fs::path(o_plan.appimage_path).filename().string()),
-            o_plan.appimage_path, o_plan.desktop_id, o_installed);
+            o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed);
         bool b_has_real_conflict = false;
         for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
             if (!o_conflict.upgrade) {
@@ -1030,12 +1054,14 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                                    + std::to_string(o_plan.conflicts.size())
                                    + " existing launcher(s) as " + o_plan.desktop_id
                                    + " (record " + o_plan.identifier + ")");
+            o_plan.mode = "add alongside as " + o_plan.desktop_id;
         } else if (b_has_real_conflict
                    && integration_conflict_policy_e::replace == o_options.conflict_policy) {
             o_plan.replace_conflicts = true;
             o_plan.notes.push_back("replaces " + std::to_string(o_plan.conflicts.size())
                                    + " existing launcher(s); they are backed up and restored "
                                      "on uninstall");
+            o_plan.mode = "replace an existing launcher";
         } else if (b_has_real_conflict) {
             std::ostringstream o_error;
             int i_count = 0;
@@ -1054,9 +1080,28 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_error << "choose --replace to back them up and install this version in their "
                        "place, or --add to install alongside them";
             o_plan.error = o_error.str();
+            o_plan.mode = "blocked: another launcher already represents this application";
             return false;
         } else if (!o_plan.conflicts.empty()) {
-            o_plan.notes.push_back("upgrades this tool's existing launcher in place");
+            bool b_repair = false;
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                if (o_conflict.repair) {
+                    b_repair = true;
+                    break;
+                }
+            }
+            if (b_repair) {
+                o_plan.notes.push_back(
+                    "repairs this tool's existing launcher: it points at "
+                    + o_plan.conflicts.front().appimage_path
+                    + ", and this run rewrites it to the AppImage's managed path");
+                o_plan.mode = "repair the launcher (the AppImage is not where it was)";
+            } else {
+                o_plan.notes.push_back("upgrades this tool's existing launcher in place");
+                o_plan.mode = "update the launcher in place";
+            }
+        } else {
+            o_plan.mode = "new integration";
         }
 
         // Icons from the payload. Themed icons take preference over root icons.
@@ -1313,14 +1358,21 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
         }
         std::error_code o_error;
         const bool b_manifest_exists = fs::exists(o_plan.manifest_path, o_error);
-        bool b_target_is_upgrade = false;
+        // The write is allowed when the launcher at the target path is one this plan
+        // is already taking responsibility for: an in-place upgrade, or a launcher
+        // that --replace displaces.
+        bool b_target_is_ours = false;
         for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
-            if (o_conflict.upgrade && o_conflict.path == o_plan.desktop_entry_path) {
-                b_target_is_upgrade = true;
+            if (o_conflict.path != o_plan.desktop_entry_path) {
+                continue;
+            }
+            if (o_conflict.upgrade
+                || (o_plan.replace_conflicts && !o_conflict.upgrade)) {
+                b_target_is_ours = true;
                 break;
             }
         }
-        if (!b_manifest_exists && !b_target_is_upgrade
+        if (!b_manifest_exists && !b_target_is_ours
             && fs::exists(o_plan.desktop_entry_path, o_error)) {
             s_error = "a desktop entry already exists at " + o_plan.desktop_entry_path
                       + "; choose --replace to back it up, or uninstall it first";
@@ -1667,7 +1719,8 @@ std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_pla
         o_out << o_plan.error << "\n";
         return o_out.str();
     }
-    o_out << "desktop id:   " << o_plan.desktop_id << "\n"
+    o_out << "this run:     " << (o_plan.mode.empty() ? "(unknown)" : o_plan.mode) << "\n"
+          << "desktop id:   " << o_plan.desktop_id << "\n"
           << "launcher:     " << o_plan.desktop_entry_path << "\n"
           << "appimage:     " << o_plan.installed_path << "\n"
           << "exec:         " << o_plan.exec_command << "\n"

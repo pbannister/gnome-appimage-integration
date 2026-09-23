@@ -291,6 +291,12 @@ def describe_conflict(index, conflict):
     lines.append("  id:        %s" % (conflict.get("desktop_id") or "(unknown)"))
     lines.append("  name:      %s" % (conflict.get("name") or "(unknown)"))
     lines.append("  origin:    %s" % (conflict.get("origin") or "unknown"))
+    if conflict.get("repair"):
+        lines.append("  state:     the same AppImage, not where this launcher expects it")
+    elif conflict.get("upgrade"):
+        lines.append("  state:     the same AppImage, already integrated here")
+    else:
+        lines.append("  state:     a different AppImage for this application")
     if conflict.get("version"):
         lines.append("  version:   %s" % conflict["version"])
     if conflict.get("appimage"):
@@ -461,6 +467,9 @@ class Handler:
             ("File", self.path),
             ("Size", human_size(self.data.get("file_size", 0))),
         ]
+        # What Integrate would do with this file, in the tool's own words.
+        if self.data.get("mode"):
+            rows.append(("Integrate will", self.data["mode"]))
         if self.data.get("desktop_id"):
             rows.append(("Will install as", self.data["desktop_id"]))
         if self.is_missing():
@@ -537,7 +546,13 @@ class Handler:
                 lines.append("This AppImage is version %s." % self.data["version"])
                 lines.append("")
             if all(conflict.get("upgrade") for conflict in conflicts):
-                lines.append("Replace existing upgrades that launcher in place.")
+                if any(conflict.get("repair") for conflict in conflicts):
+                    lines.append(
+                        "Replace existing repairs that launcher: the AppImage is not where the "
+                        "launcher expects it, so its Exec and TryExec are rewritten."
+                    )
+                else:
+                    lines.append("Replace existing updates that launcher in place.")
                 lines.append(
                     "Add alongside keeps it and installs this version under a new identifier."
                 )
