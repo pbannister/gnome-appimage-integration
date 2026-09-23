@@ -11,7 +11,7 @@ default.
 - The project must provide a handler that accepts one AppImage path.
 - The handler must read the embedded application name for its prompt.
 - The handler must offer Run once, Integrate, Inspect, and Cancel.
-- The handler must use `zenity` when it is available and a graphical display exists.
+- The handler must fall back to `zenity` when the graphical activator is not available and a graphical display exists.
 - The handler must fall back to printing the equivalent commands when no display is available.
 - Integrate must install the AppImage, report what was written, and offer to run it.
 - Inspect must show the embedded desktop entry.
@@ -25,7 +25,9 @@ default.
 - Inspect must show a non-empty report containing the container facts and the embedded desktop entry.
 - Integrate must show the list of what was written.
 - Integrate must offer Replace existing, Add alongside, and Cancel when another launcher already represents the application.
-- The handler must prefer a GTK dialog when PyGObject and GTK4 are available, and fall back to zenity, then to printed instructions.
+- The handler must prefer the graphical activator, a C++ GTK4 program, and fall back to zenity, then to printed instructions.
+- The activator must be built only when the GTK4 development files are present, so the command-line tool still builds without them.
+- The activator must not need Python at run time.
 - The main window must show the application Name, Comment, and GenericName, the detected version, and a details block containing File, Size, and Will install as.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.

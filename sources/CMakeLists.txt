@@ -53,6 +53,9 @@ if(TARGET PkgConfig::ZSTD)
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZSTD=1)
 endif()
 
+add_library(json_value STATIC json/json_reader.cpp)
+target_include_directories(json_value PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
 add_library(integration STATIC
     integration/appimage_integrator.cpp)
 target_include_directories(integration PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -64,10 +67,20 @@ target_link_libraries(appimage-inspect PRIVATE appimage_reader desktop_entry ver
 add_executable(appimage-integrate tools/appimage_integrate.cpp)
 target_link_libraries(appimage-integrate PRIVATE integration appimage_reader desktop_entry version_info)
 
-# The graphical activator lives next to the tool so the tool can exec it.
-configure_file(tools/appimage_activator_ui.py
-    "${CMAKE_BINARY_DIR}/appimage_activator_ui.py" COPYONLY)
 file(COPY tools/icons DESTINATION "${CMAKE_BINARY_DIR}")
+
+# The graphical activator is a GTK4 program. It is built only where the GTK4
+# development files are present; the command-line tool works without it and falls
+# back to zenity, and then to printed instructions.
+if(PkgConfig_FOUND)
+    pkg_check_modules(GTK4 IMPORTED_TARGET gtk4)
+endif()
+if(TARGET PkgConfig::GTK4)
+    add_executable(appimage-activator tools/appimage_activator_ui.cpp)
+    target_link_libraries(appimage-activator PRIVATE PkgConfig::GTK4 json_value version_info)
+else()
+    message(STATUS "GTK4 development files not found: appimage-activator is not built")
+endif()
 
 add_executable(desktop-inspect tools/desktop_inspect.cpp)
 target_link_libraries(desktop-inspect PRIVATE desktop_entry version_info)
@@ -92,3 +105,6 @@ target_link_libraries(appimage-reader-test PRIVATE appimage_reader)
 
 add_executable(squashfs-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/squashfs_reader_test.cpp")
 target_link_libraries(squashfs-reader-test PRIVATE appimage_reader)
+
+add_executable(json-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/json_reader_test.cpp")
+target_link_libraries(json-reader-test PRIVATE json_value)

@@ -1,0 +1,1177 @@
+//
+//	appimage_activator_ui.cpp: the graphical AppImage activator.
+//
+//	Invoked as:  appimage-activator --tool <appimage-integrate> <AppImage>
+//
+//	The right-click "Open With" item for an AppImage is named AppImage Activator.
+//	This is a single-window GTK4 program, sized like a dialog: it shows what the
+//	AppImage is, a row of actions, and one large text area that Inspect and
+//	Integrate write into.  Every window remembers its size, and its position where
+//	the platform allows it.  All real work is delegated to the appimage-integrate
+//	command line, so this program only presents information and choices.
+//
+//	Two options exist only so the test can drive the window without a person:
+//	--activate runs an action as if its button had been clicked, and --set-name
+//	types into the Name field.  Neither is used by the desktop entry.
+//
+#include <gtk/gtk.h>
+
+#include <algorithm>
+#include <cerrno>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <optional>
+#include <poll.h>
+#include <sstream>
+#include <string>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <utility>
+#include <vector>
+
+#if defined(GDK_WINDOWING_X11)
+#include <gdk/x11/gdkx.h>
+#endif
+
+#include "json/json_reader.h"
+#include "version/version.h"
+
+namespace {
+
+namespace fs = std::filesystem;
+using gnome_appimage::json::value_c;
+
+constexpr int MINIMUM_WIDTH = 420;
+constexpr int MINIMUM_HEIGHT = 320;
+constexpr int DEFAULT_WIDTH = 660;
+constexpr int DEFAULT_HEIGHT = 720;
+constexpr int MAXIMUM_REMEMBERED_SIZE = 16384;
+// Autosave, so a size is never lost when the close path does not run.
+constexpr unsigned int AUTOSAVE_SECONDS = 2;
+
+std::string environment_value(const char *s_name) {
+    const char *s_value = std::getenv(s_name);
+    return nullptr == s_value ? std::string() : std::string(s_value);
+}
+
+std::string join_path(const std::string &s_directory, const std::string &s_name) {
+    if (s_directory.empty()) {
+        return s_name;
+    }
+    if ('/' == s_directory.back()) {
+        return s_directory + s_name;
+    }
+    return s_directory + "/" + s_name;
+}
+
+// Where the activator keeps its own state, beside the tool's records.
+std::string state_directory() {
+    std::string s_data_home = environment_value("XDG_DATA_HOME");
+    if (s_data_home.empty()) {
+        const std::string s_home = environment_value("HOME");
+        s_data_home = s_home.empty() ? std::string(".") : join_path(s_home, ".local/share");
+    }
+    const std::string s_directory = join_path(s_data_home, "gnome-appimage-integration");
+    std::error_code o_error;
+    fs::create_directories(s_directory, o_error);
+    return s_directory;
+}
+
+std::string read_text_file(const std::string &s_path) {
+    std::ifstream o_input(s_path);
+    if (!o_input) {
+        return {};
+    }
+    std::ostringstream o_buffer;
+    o_buffer << o_input.rdbuf();
+    return o_buffer.str();
+}
+
+bool write_text_file(const std::string &s_path, const std::string &s_text) {
+    std::ofstream o_output(s_path, std::ios::trunc);
+    if (!o_output) {
+        return false;
+    }
+    o_output << s_text;
+    return o_output.good();
+}
+
+bool command_exists(const std::string &s_command) {
+    if (s_command.empty()) {
+        return false;
+    }
+    if (std::string::npos != s_command.find('/')) {
+        return 0 == access(s_command.c_str(), X_OK);
+    }
+    const char *s_path = std::getenv("PATH");
+    if (nullptr == s_path) {
+        return false;
+    }
+    std::string s_remaining = s_path;
+    while (!s_remaining.empty()) {
+        const std::size_t i_separator = s_remaining.find(':');
+        const std::string s_directory = std::string::npos == i_separator
+                                            ? s_remaining
+                                            : s_remaining.substr(0, i_separator);
+        const std::string s_candidate =
+            join_path(s_directory.empty() ? "." : s_directory, s_command);
+        if (0 == access(s_candidate.c_str(), X_OK)) {
+            return true;
+        }
+        if (std::string::npos == i_separator) {
+            break;
+        }
+        s_remaining = s_remaining.substr(i_separator + 1);
+    }
+    return false;
+}
+
+std::string trim_spaces(const std::string &s_text) {
+    std::size_t i_begin = 0;
+    std::size_t i_end = s_text.size();
+    while (i_begin < i_end && ' ' == s_text[i_begin]) {
+        i_begin++;
+    }
+    while (i_begin < i_end && ' ' == s_text[i_end - 1]) {
+        i_end--;
+    }
+    return s_text.substr(i_begin, i_end - i_begin);
+}
+
+// The result of running the command-line tool.
+struct process_result_o {
+    int exit_code = -1;
+    std::string out;
+    std::string err;
+};
+
+// Run a program without a shell, capturing stdout and stderr separately.  Both
+// pipes are drained together, so a large report on one stream cannot deadlock the
+// other.
+process_result_o run_tool(const std::string &s_tool, const std::vector<std::string> &o_arguments) {
+    process_result_o o_result;
+    int i_out_pipe[2] = {-1, -1};
+    int i_err_pipe[2] = {-1, -1};
+    if (0 != pipe(i_out_pipe) || 0 != pipe(i_err_pipe)) {
+        o_result.err = std::strerror(errno);
+        return o_result;
+    }
+    const pid_t i_child = fork();
+    if (0 > i_child) {
+        o_result.err = std::strerror(errno);
+        close(i_out_pipe[0]);
+        close(i_out_pipe[1]);
+        close(i_err_pipe[0]);
+        close(i_err_pipe[1]);
+        return o_result;
+    }
+    if (0 == i_child) {
+        dup2(i_out_pipe[1], STDOUT_FILENO);
+        dup2(i_err_pipe[1], STDERR_FILENO);
+        close(i_out_pipe[0]);
+        close(i_out_pipe[1]);
+        close(i_err_pipe[0]);
+        close(i_err_pipe[1]);
+        std::vector<char *> o_raw;
+        o_raw.reserve(o_arguments.size() + 2);
+        o_raw.push_back(const_cast<char *>(s_tool.c_str()));
+        for (const std::string &s_argument : o_arguments) {
+            o_raw.push_back(const_cast<char *>(s_argument.c_str()));
+        }
+        o_raw.push_back(nullptr);
+        execvp(o_raw[0], o_raw.data());
+        _exit(127);
+    }
+    close(i_out_pipe[1]);
+    close(i_err_pipe[1]);
+    struct pollfd o_poll[2];
+    o_poll[0].fd = i_out_pipe[0];
+    o_poll[0].events = POLLIN;
+    o_poll[1].fd = i_err_pipe[0];
+    o_poll[1].events = POLLIN;
+    bool b_out_open = true;
+    bool b_err_open = true;
+    char s_buffer[4096];
+    while (b_out_open || b_err_open) {
+        o_poll[0].revents = 0;
+        o_poll[1].revents = 0;
+        if (0 > poll(o_poll, 2, -1)) {
+            if (EINTR == errno) {
+                continue;
+            }
+            break;
+        }
+        for (int i_index = 0; i_index < 2; i_index++) {
+            const bool b_is_out = 0 == i_index;
+            if ((b_is_out ? !b_out_open : !b_err_open) || 0 == o_poll[i_index].revents) {
+                continue;
+            }
+            if (0 != (o_poll[i_index].revents & (POLLIN | POLLHUP))) {
+                const ssize_t i_count = read(o_poll[i_index].fd, s_buffer, sizeof(s_buffer));
+                if (0 < i_count) {
+                    (b_is_out ? o_result.out : o_result.err)
+                        .append(s_buffer, static_cast<std::size_t>(i_count));
+                    continue;
+                }
+                close(o_poll[i_index].fd);
+                o_poll[i_index].fd = -1;
+                (b_is_out ? b_out_open : b_err_open) = false;
+            }
+        }
+    }
+    int i_status = 0;
+    while (0 > waitpid(i_child, &i_status, 0) && EINTR == errno) {
+    }
+    if (WIFEXITED(i_status)) {
+        o_result.exit_code = WEXITSTATUS(i_status);
+    } else if (WIFSIGNALED(i_status)) {
+        o_result.exit_code = 128 + WTERMSIG(i_status);
+    }
+    return o_result;
+}
+
+std::string combined_output(const process_result_o &o_result) {
+    const std::string s_out = trim_spaces(o_result.out);
+    const std::string s_err = trim_spaces(o_result.err);
+    std::string s_combined;
+    if (!s_out.empty()) {
+        s_combined = s_out;
+    }
+    if (!s_err.empty()) {
+        if (!s_combined.empty()) {
+            s_combined += "\n\n";
+        }
+        s_combined += "--- error output ---\n" + s_err;
+    }
+    return s_combined.empty() ? "(no output)" : s_combined;
+}
+
+std::string human_size(double d_byte_count) {
+    static const char *const s_units[] = {"B", "KiB", "MiB", "GiB"};
+    double d_value = 0 > d_byte_count ? 0 : d_byte_count;
+    for (int i_unit = 0; i_unit < 4; i_unit++) {
+        if (1024.0 > d_value || 3 == i_unit) {
+            char s_buffer[64];
+            std::snprintf(s_buffer, sizeof(s_buffer), "%.1f %s", d_value, s_units[i_unit]);
+            return s_buffer;
+        }
+        d_value /= 1024.0;
+    }
+    return "0.0 B";
+}
+
+// A label's markup may not contain raw &, <, or >.
+std::string escape_markup(const std::string &s_text) {
+    std::string s_result;
+    for (const char c_character : s_text) {
+        switch (c_character) {
+            case '&':
+                s_result += "&amp;";
+                break;
+            case '<':
+                s_result += "&lt;";
+                break;
+            case '>':
+                s_result += "&gt;";
+                break;
+            default:
+                s_result += c_character;
+                break;
+        }
+    }
+    return s_result;
+}
+
+std::string describe_conflict(int i_index, const value_c &o_conflict) {
+    std::ostringstream o_text;
+    o_text << "Existing launcher " << i_index << '\n';
+    const std::string s_id = o_conflict.string_or("desktop_id");
+    const std::string s_name = o_conflict.string_or("name");
+    const std::string s_origin = o_conflict.string_or("origin");
+    o_text << "  id:        " << (s_id.empty() ? "(unknown)" : s_id) << '\n';
+    o_text << "  name:      " << (s_name.empty() ? "(unknown)" : s_name) << '\n';
+    o_text << "  origin:    " << (s_origin.empty() ? "unknown" : s_origin) << '\n';
+    if (o_conflict.boolean_or("repair", false)) {
+        o_text << "  state:     the same AppImage, not where this launcher expects it\n";
+    } else if (o_conflict.boolean_or("upgrade", false)) {
+        o_text << "  state:     the same AppImage, already integrated here\n";
+    } else {
+        o_text << "  state:     a different AppImage for this application\n";
+    }
+    const std::string s_version = o_conflict.string_or("version");
+    if (!s_version.empty()) {
+        o_text << "  version:   " << s_version << '\n';
+    }
+    const std::string s_appimage = o_conflict.string_or("appimage");
+    if (!s_appimage.empty()) {
+        o_text << "  appimage:  " << s_appimage
+               << (o_conflict.boolean_or("exec_exists", false) ? "  [present]" : "  [MISSING]")
+               << '\n';
+    }
+    const std::string s_icon = o_conflict.string_or("icon");
+    if (!s_icon.empty()) {
+        o_text << "  icon:      " << s_icon << '\n';
+    }
+    const std::string s_wm_class = o_conflict.string_or("wm_class");
+    if (!s_wm_class.empty()) {
+        o_text << "  wm class:  " << s_wm_class << '\n';
+    }
+    const std::string s_path = o_conflict.string_or("path");
+    o_text << "  file:      " << (s_path.empty() ? "(unknown)" : s_path) << '\n';
+    return o_text.str();
+}
+
+// The union of the monitor work areas, or no value when the platform does not
+// report a usable area, in which case the caller must not clamp anything.
+std::optional<GdkRectangle> work_area() {
+    GdkDisplay *p_display = gdk_display_get_default();
+    if (nullptr == p_display) {
+        return std::nullopt;
+    }
+    GListModel *p_monitors = gdk_display_get_monitors(p_display);
+    const guint u_count = nullptr == p_monitors ? 0 : g_list_model_get_n_items(p_monitors);
+    if (0 == u_count) {
+        return std::nullopt;
+    }
+    GdkRectangle o_union{};
+    for (guint u_index = 0; u_index < u_count; u_index++) {
+        GdkMonitor *p_monitor =
+            static_cast<GdkMonitor *>(g_list_model_get_item(p_monitors, u_index));
+        if (nullptr == p_monitor) {
+            continue;
+        }
+        GdkRectangle o_area{};
+        gdk_monitor_get_geometry(p_monitor, &o_area);
+        if (0 == u_index) {
+            o_union = o_area;
+        } else {
+            const int i_left = std::min(o_union.x, o_area.x);
+            const int i_top = std::min(o_union.y, o_area.y);
+            const int i_right = std::max(o_union.x + o_union.width, o_area.x + o_area.width);
+            const int i_bottom = std::max(o_union.y + o_union.height, o_area.y + o_area.height);
+            o_union.x = i_left;
+            o_union.y = i_top;
+            o_union.width = i_right - i_left;
+            o_union.height = i_bottom - i_top;
+        }
+        g_object_unref(p_monitor);
+    }
+    return o_union;
+}
+
+// The X11 window id, or 0 outside X11.
+unsigned long x11_window_id(GtkWindow *p_window) {
+#if defined(GDK_WINDOWING_X11)
+    GdkSurface *p_surface = gtk_native_get_surface(GTK_NATIVE(p_window));
+    if (nullptr == p_surface || !GDK_IS_X11_SURFACE(p_surface)) {
+        return 0;
+    }
+    return gdk_x11_surface_get_xid(p_surface);
+#else
+    static_cast<void>(p_window);
+    return 0;
+#endif
+}
+
+std::optional<std::pair<int, int>> x11_position(GtkWindow *p_window) {
+    const unsigned long u_window_id = x11_window_id(p_window);
+    if (0 == u_window_id || !command_exists("xdotool")) {
+        return std::nullopt;
+    }
+    std::ostringstream o_command;
+    o_command << "xdotool getwindowgeometry --shell " << u_window_id << " 2>/dev/null";
+    FILE *p_pipe = popen(o_command.str().c_str(), "r");
+    if (nullptr == p_pipe) {
+        return std::nullopt;
+    }
+    std::map<std::string, std::string> o_values;
+    char s_line[512];
+    while (nullptr != std::fgets(s_line, sizeof(s_line), p_pipe)) {
+        std::string s_text(s_line);
+        while (!s_text.empty() && ('\n' == s_text.back() || '\r' == s_text.back())) {
+            s_text.pop_back();
+        }
+        const std::size_t i_equals = s_text.find('=');
+        if (std::string::npos == i_equals) {
+            continue;
+        }
+        o_values[trim_spaces(s_text.substr(0, i_equals))] =
+            trim_spaces(s_text.substr(i_equals + 1));
+    }
+    pclose(p_pipe);
+    const auto o_x = o_values.find("X");
+    const auto o_y = o_values.find("Y");
+    if (o_values.end() == o_x || o_values.end() == o_y) {
+        return std::nullopt;
+    }
+    return std::make_pair(std::atoi(o_x->second.c_str()), std::atoi(o_y->second.c_str()));
+}
+
+bool x11_move(GtkWindow *p_window, int i_x, int i_y) {
+    const unsigned long u_window_id = x11_window_id(p_window);
+    if (0 == u_window_id || !command_exists("xdotool")) {
+        return false;
+    }
+    std::ostringstream o_command;
+    o_command << "xdotool windowmove " << u_window_id << ' ' << i_x << ' ' << i_y << " 2>/dev/null";
+    return 0 == std::system(o_command.str().c_str());
+}
+
+// Centre the window where the platform allows it.  Wayland does not let a client
+// choose its position, so there the compositor places the window.
+bool center_window(GtkWindow *p_window) {
+    if (!command_exists("xdotool") || 0 == x11_window_id(p_window)) {
+        return false;
+    }
+    const std::optional<GdkRectangle> o_area = work_area();
+    if (!o_area.has_value()) {
+        return false;
+    }
+    const int i_width = 0 < gtk_widget_get_width(GTK_WIDGET(p_window))
+                            ? gtk_widget_get_width(GTK_WIDGET(p_window))
+                            : DEFAULT_WIDTH;
+    const int i_height = 0 < gtk_widget_get_height(GTK_WIDGET(p_window))
+                             ? gtk_widget_get_height(GTK_WIDGET(p_window))
+                             : DEFAULT_HEIGHT;
+    const int i_x = o_area->x + std::max(0, (o_area->width - i_width) / 2);
+    const int i_y = o_area->y + std::max(0, (o_area->height - i_height) / 2);
+    return x11_move(p_window, i_x, i_y);
+}
+
+// Remembers the window's size, and its position where the platform allows it.
+class geometry_c {
+public:
+    geometry_c() : s_path_(join_path(state_directory(), "ui.json")) {
+        std::string s_error;
+        o_data_ = value_c::parse(read_text_file(s_path_), s_error);
+        if (!s_error.empty() || !o_data_.is_object()) {
+            o_data_ = value_c::make_object();
+        }
+        // Migrate the first format, which stored one size at the top level.
+        const value_c *p_width = o_data_.member("width");
+        if (nullptr != p_width && nullptr == o_data_.member("main")) {
+            value_c o_entry = value_c::make_object();
+            const value_c *p_height = o_data_.member("height");
+            o_entry.set("width", value_c::make_number(p_width->as_number()));
+            o_entry.set("height",
+                        value_c::make_number(nullptr == p_height ? 0 : p_height->as_number()));
+            value_c o_migrated = value_c::make_object();
+            o_migrated.set("main", o_entry);
+            o_data_ = o_migrated;
+            store();
+        }
+    }
+
+    value_c entry(const std::string &s_key) const {
+        const value_c *p_entry = o_data_.member(s_key);
+        return nullptr != p_entry && p_entry->is_object() ? *p_entry : value_c::make_object();
+    }
+
+    void save(const std::string &s_key, GtkWindow *p_window) {
+        value_c o_entry = entry(s_key);
+        const int i_width = gtk_widget_get_width(GTK_WIDGET(p_window));
+        const int i_height = gtk_widget_get_height(GTK_WIDGET(p_window));
+        if (MINIMUM_WIDTH <= i_width && MINIMUM_HEIGHT <= i_height) {
+            o_entry.set("width", value_c::make_number(i_width));
+            o_entry.set("height", value_c::make_number(i_height));
+        }
+        const std::optional<std::pair<int, int>> o_position = x11_position(p_window);
+        if (o_position.has_value()) {
+            o_entry.set("x", value_c::make_number(o_position->first));
+            o_entry.set("y", value_c::make_number(o_position->second));
+        }
+        set_entry(s_key, o_entry);
+    }
+
+    void apply(const std::string &s_key, GtkWindow *p_window) {
+        value_c o_entry = entry(s_key);
+        int i_width = static_cast<int>(o_entry.number_or("width", 0));
+        int i_height = static_cast<int>(o_entry.number_or("height", 0));
+        if (0 >= i_width) {
+            i_width = DEFAULT_WIDTH;
+        }
+        if (0 >= i_height) {
+            i_height = DEFAULT_HEIGHT;
+        }
+        // The remembered size is honoured; only a corrupt value is bounded.
+        i_width = std::max(MINIMUM_WIDTH, std::min(i_width, MAXIMUM_REMEMBERED_SIZE));
+        i_height = std::max(MINIMUM_HEIGHT, std::min(i_height, MAXIMUM_REMEMBERED_SIZE));
+        gtk_window_set_default_size(p_window, i_width, i_height);
+
+        const std::optional<GdkRectangle> o_area = work_area();
+        if (o_area.has_value()) {
+            // Record what the platform reported, so the clamp is never a mystery.
+            value_c o_screen = value_c::make_object();
+            o_screen.set("x", value_c::make_number(o_area->x));
+            o_screen.set("y", value_c::make_number(o_area->y));
+            o_screen.set("width", value_c::make_number(o_area->width));
+            o_screen.set("height", value_c::make_number(o_area->height));
+            o_entry.set("screen", o_screen);
+            set_entry(s_key, o_entry);
+        }
+
+        const value_c *p_x = o_entry.member("x");
+        const value_c *p_y = o_entry.member("y");
+        if (o_area.has_value() && nullptr != p_x && p_x->is_number() && nullptr != p_y
+            && p_y->is_number()) {
+            // Keep the whole window on the screen.
+            move_request_o *p_request = new move_request_o();
+            p_request->p_window = p_window;
+            p_request->i_x = std::max(o_area->x, std::min(static_cast<int>(p_x->as_number()),
+                                                          o_area->x + o_area->width - i_width));
+            p_request->i_y = std::max(o_area->y, std::min(static_cast<int>(p_y->as_number()),
+                                                          o_area->y + o_area->height - i_height));
+            g_idle_add(&move_window_idle, p_request);
+        } else {
+            // No usable position: behave like a dialog and ask to be centred.
+            g_idle_add(&centre_window_idle, p_window);
+        }
+    }
+
+private:
+    struct move_request_o {
+        GtkWindow *p_window = nullptr;
+        int i_x = 0;
+        int i_y = 0;
+    };
+
+    static gboolean move_window_idle(gpointer p_data) {
+        move_request_o *p_request = static_cast<move_request_o *>(p_data);
+        x11_move(p_request->p_window, p_request->i_x, p_request->i_y);
+        delete p_request;
+        return G_SOURCE_REMOVE;
+    }
+
+    static gboolean centre_window_idle(gpointer p_data) {
+        center_window(GTK_WINDOW(p_data));
+        return G_SOURCE_REMOVE;
+    }
+
+    void set_entry(const std::string &s_key, value_c o_entry) {
+        const value_c *p_current = o_data_.member(s_key);
+        if (nullptr != p_current && p_current->to_text() == o_entry.to_text()) {
+            return;
+        }
+        o_data_.set(s_key, std::move(o_entry));
+        store();
+    }
+
+    void store() const {
+        write_text_file(s_path_, o_data_.to_text());
+    }
+
+    std::string s_path_;
+    value_c o_data_ = value_c::make_object();
+};
+
+enum class action_e {
+    run_once,
+    integrate,
+    inspect,
+    close,
+    back,
+    add_alongside,
+    replace_existing,
+    run_now,
+};
+
+std::optional<action_e> action_from_name(const std::string &s_name) {
+    if ("run-once" == s_name) {
+        return action_e::run_once;
+    }
+    if ("integrate" == s_name) {
+        return action_e::integrate;
+    }
+    if ("inspect" == s_name) {
+        return action_e::inspect;
+    }
+    if ("close" == s_name) {
+        return action_e::close;
+    }
+    if ("back" == s_name) {
+        return action_e::back;
+    }
+    if ("add-alongside" == s_name) {
+        return action_e::add_alongside;
+    }
+    if ("replace-existing" == s_name) {
+        return action_e::replace_existing;
+    }
+    if ("run-now" == s_name) {
+        return action_e::run_now;
+    }
+    return std::nullopt;
+}
+
+// The window: its widgets, the description it renders, and every action a button
+// can take.
+class activator_c {
+public:
+    activator_c(GtkApplication *p_application, std::string s_tool, std::string s_path)
+        : p_application_(p_application), s_tool_(std::move(s_tool)), s_path_(std::move(s_path)) {
+        load_description();
+        p_window_ = gtk_application_window_new(p_application_);
+        gtk_window_set_title(GTK_WINDOW(p_window_), "AppImage");
+        build_content();
+        watch_geometry();
+        show_initial_buttons();
+    }
+
+    void present() {
+        gtk_window_present(GTK_WINDOW(p_window_));
+    }
+
+    // Test hooks: act as if a button had been clicked, and type into Name.
+    void perform(action_e e_action) {
+        switch (e_action) {
+            case action_e::run_once:
+                on_run_once();
+                return;
+            case action_e::integrate:
+                on_integrate();
+                return;
+            case action_e::inspect:
+                on_inspect();
+                return;
+            case action_e::close:
+                on_close();
+                return;
+            case action_e::back:
+                on_back();
+                return;
+            case action_e::add_alongside:
+                run_install({"--add"});
+                return;
+            case action_e::replace_existing:
+                run_install({"--replace"});
+                return;
+            case action_e::run_now:
+                set_text(start_appimage());
+                return;
+        }
+    }
+
+    void set_name_text(const std::string &s_text) {
+        gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_text.c_str());
+    }
+
+private:
+    // -- data ---------------------------------------------------------------
+    void load_description() {
+        const process_result_o o_result = run_tool(s_tool_, {"explain", "--json", s_path_});
+        std::string s_error;
+        if (!trim_spaces(o_result.out).empty()) {
+            o_data_ = value_c::parse(o_result.out, s_error);
+        }
+        if (!s_error.empty() || !o_data_.is_object()) {
+            o_data_ = value_c::make_object();
+        }
+        if (o_data_.members().empty()) {
+            // Say something useful when the tool could not describe the file.
+            const std::string s_message =
+                trim_spaces(o_result.err).empty() ? "cannot read this AppImage"
+                                                  : trim_spaces(o_result.err);
+            o_data_.set("path", value_c::make_string(s_path_));
+            o_data_.set("name", value_c::make_string(fs::path(s_path_).filename().string()));
+            o_data_.set("error", value_c::make_string(s_message));
+            o_data_.set("conflicts", value_c::make_array());
+            o_data_.set("valid", value_c::make_boolean(false));
+        }
+    }
+
+    std::vector<value_c> conflicts() const {
+        return o_data_.array_or_empty("conflicts");
+    }
+
+    bool is_missing() const {
+        std::error_code o_error;
+        return !fs::exists(s_path_, o_error);
+    }
+
+    std::string display_name() const {
+        const std::string s_name = o_data_.string_or("name");
+        return s_name.empty() ? fs::path(s_path_).filename().string() : s_name;
+    }
+
+    // -- widgets ------------------------------------------------------------
+    static GtkWidget *make_label(const std::string &s_text, bool b_wrap) {
+        GtkWidget *p_label = gtk_label_new(nullptr);
+        gtk_label_set_text(GTK_LABEL(p_label), s_text.c_str());
+        gtk_label_set_xalign(GTK_LABEL(p_label), 0.0F);
+        gtk_label_set_wrap(GTK_LABEL(p_label), b_wrap ? TRUE : FALSE);
+        return p_label;
+    }
+
+    void build_content() {
+        GtkWidget *p_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+        gtk_widget_set_margin_top(p_box, 16);
+        gtk_widget_set_margin_bottom(p_box, 16);
+        gtk_widget_set_margin_start(p_box, 16);
+        gtk_widget_set_margin_end(p_box, 16);
+
+        GtkWidget *p_title = gtk_label_new(nullptr);
+        const std::string s_markup =
+            "<span size='x-large' weight='bold'>" + escape_markup(display_name()) + "</span>";
+        gtk_label_set_markup(GTK_LABEL(p_title), s_markup.c_str());
+        gtk_label_set_xalign(GTK_LABEL(p_title), 0.0F);
+        gtk_label_set_wrap(GTK_LABEL(p_title), TRUE);
+        gtk_box_append(GTK_BOX(p_box), p_title);
+
+        std::string s_subtitle;
+        const std::string s_version = o_data_.string_or("version");
+        if (!s_version.empty()) {
+            std::string s_source = o_data_.string_or("version_source");
+            if (s_source.empty()) {
+                s_source = "?";
+            }
+            s_subtitle = "Version " + s_version + "  (" + s_source + ")";
+        }
+        const std::string s_generic_name = o_data_.string_or("generic_name");
+        if (!s_generic_name.empty()) {
+            if (!s_subtitle.empty()) {
+                s_subtitle += "\n";
+            }
+            s_subtitle += s_generic_name;
+        }
+        if (!s_subtitle.empty()) {
+            gtk_box_append(GTK_BOX(p_box), make_label(s_subtitle, true));
+        }
+
+        const std::string s_comment = o_data_.string_or("comment");
+        if (!s_comment.empty()) {
+            gtk_box_append(GTK_BOX(p_box), make_label(s_comment, true));
+        }
+
+        gtk_box_append(GTK_BOX(p_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+        p_details_container_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_box_append(GTK_BOX(p_box), p_details_container_);
+        update_details();
+
+        if (!conflicts().empty()) {
+            GtkWidget *p_notice = gtk_label_new(nullptr);
+            gtk_label_set_markup(GTK_LABEL(p_notice),
+                                 "<b>This application is already installed.</b>\n"
+                                 "Integrate will show details, then offer to replace or add "
+                                 "alongside.");
+            gtk_label_set_xalign(GTK_LABEL(p_notice), 0.0F);
+            gtk_label_set_wrap(GTK_LABEL(p_notice), TRUE);
+            gtk_box_append(GTK_BOX(p_box), p_notice);
+        }
+
+        const std::string s_error = o_data_.string_or("error");
+        if (!s_error.empty()) {
+            gtk_box_append(GTK_BOX(p_box), make_label(s_error, true));
+        }
+
+        // The name the launcher will carry sits to the left of the buttons, and is
+        // only shown when a choice is offered, because it only matters when another
+        // launcher for the same application already exists.
+        p_name_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(p_name_box_), gtk_label_new("Name:"));
+        p_name_entry_ = gtk_entry_new();
+        gtk_editable_set_width_chars(GTK_EDITABLE(p_name_entry_), 28);
+        gtk_box_append(GTK_BOX(p_name_box_), p_name_entry_);
+        gtk_widget_set_visible(p_name_box_, FALSE);
+
+        p_button_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_halign(p_button_box_, GTK_ALIGN_END);
+
+        GtkWidget *p_spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_set_hexpand(p_spacer, TRUE);
+        GtkWidget *p_action_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(p_action_row), p_name_box_);
+        gtk_box_append(GTK_BOX(p_action_row), p_spacer);
+        gtk_box_append(GTK_BOX(p_action_row), p_button_box_);
+        gtk_box_append(GTK_BOX(p_box), p_action_row);
+
+        GtkWidget *p_scroller = gtk_scrolled_window_new();
+        gtk_widget_set_vexpand(p_scroller, TRUE);
+        gtk_widget_set_hexpand(p_scroller, TRUE);
+        gtk_widget_set_size_request(p_scroller, -1, MINIMUM_HEIGHT);
+        p_text_view_ = gtk_text_view_new();
+        gtk_text_view_set_editable(GTK_TEXT_VIEW(p_text_view_), FALSE);
+        gtk_text_view_set_monospace(GTK_TEXT_VIEW(p_text_view_), TRUE);
+        gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(p_text_view_), GTK_WRAP_WORD_CHAR);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(p_scroller), p_text_view_);
+        gtk_box_append(GTK_BOX(p_box), p_scroller);
+
+        gtk_window_set_child(GTK_WINDOW(p_window_), p_box);
+    }
+
+    void clear_container(GtkWidget *p_container) {
+        GtkWidget *p_child = gtk_widget_get_first_child(p_container);
+        while (nullptr != p_child) {
+            GtkWidget *p_following = gtk_widget_get_next_sibling(p_child);
+            gtk_box_remove(GTK_BOX(p_container), p_child);
+            p_child = p_following;
+        }
+    }
+
+    std::vector<std::pair<std::string, std::string>> detail_rows() const {
+        std::vector<std::pair<std::string, std::string>> o_rows;
+        o_rows.emplace_back("File", s_path_);
+        o_rows.emplace_back("Size", human_size(o_data_.number_or("file_size", 0)));
+        // What Integrate would do with this file, in the tool's own words.
+        const std::string s_mode = o_data_.string_or("mode");
+        if (!s_mode.empty()) {
+            o_rows.emplace_back("Integrate will", s_mode);
+        }
+        const std::string s_desktop_id = o_data_.string_or("desktop_id");
+        if (!s_desktop_id.empty()) {
+            o_rows.emplace_back("Will install as", s_desktop_id);
+        }
+        if (is_missing()) {
+            o_rows.emplace_back("Note", "this file is no longer at that path");
+        }
+        return o_rows;
+    }
+
+    void update_details() {
+        clear_container(p_details_container_);
+        GtkWidget *p_grid = gtk_grid_new();
+        gtk_grid_set_column_spacing(GTK_GRID(p_grid), 12);
+        gtk_grid_set_row_spacing(GTK_GRID(p_grid), 4);
+        int i_row = 0;
+        for (const std::pair<std::string, std::string> &o_row : detail_rows()) {
+            GtkWidget *p_key = make_label(o_row.first, false);
+            gtk_widget_add_css_class(p_key, "dim-label");
+            GtkWidget *p_value = make_label(o_row.second, true);
+            gtk_label_set_selectable(GTK_LABEL(p_value), TRUE);
+            gtk_grid_attach(GTK_GRID(p_grid), p_key, 0, i_row, 1, 1);
+            gtk_grid_attach(GTK_GRID(p_grid), p_value, 1, i_row, 1, 1);
+            i_row++;
+        }
+        gtk_box_append(GTK_BOX(p_details_container_), p_grid);
+    }
+
+    void set_buttons(const std::vector<std::pair<std::string, action_e>> &o_specs) {
+        clear_container(p_button_box_);
+        for (const std::pair<std::string, action_e> &o_spec : o_specs) {
+            GtkWidget *p_button = gtk_button_new_with_label(o_spec.first.c_str());
+            g_signal_connect(p_button, "clicked", G_CALLBACK(on_button_clicked), this);
+            g_object_set_data(G_OBJECT(p_button), "activator-action",
+                              GINT_TO_POINTER(static_cast<int>(o_spec.second)));
+            gtk_box_append(GTK_BOX(p_button_box_), p_button);
+        }
+    }
+
+    static void on_button_clicked(GtkButton *p_button, gpointer p_data) {
+        activator_c *p_activator = static_cast<activator_c *>(p_data);
+        const int i_action =
+            GPOINTER_TO_INT(g_object_get_data(G_OBJECT(p_button), "activator-action"));
+        p_activator->perform(static_cast<action_e>(i_action));
+    }
+
+    void show_initial_buttons() {
+        set_buttons({{"Run once", action_e::run_once},
+                     {"Integrate", action_e::integrate},
+                     {"Inspect", action_e::inspect},
+                     {"Close", action_e::close}});
+    }
+
+    void set_text(const std::string &s_text) {
+        GtkTextBuffer *p_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(p_text_view_));
+        gtk_text_buffer_set_text(p_buffer, s_text.c_str(), -1);
+    }
+
+    void show_name_field() {
+        gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), display_name().c_str());
+        gtk_widget_set_visible(p_name_box_, TRUE);
+    }
+
+    void hide_name_field() {
+        gtk_widget_set_visible(p_name_box_, FALSE);
+    }
+
+    std::string typed_name() const {
+        if (!gtk_widget_get_visible(p_name_box_)) {
+            return {};
+        }
+        return trim_spaces(gtk_editable_get_text(GTK_EDITABLE(p_name_entry_)));
+    }
+
+    // -- geometry -----------------------------------------------------------
+    void watch_geometry() {
+        o_geometry_.apply("main", GTK_WINDOW(p_window_));
+        for (const char *s_parameter :
+             {"notify::default-width", "notify::default-height", "notify::maximized"}) {
+            g_signal_connect(p_window_, s_parameter, G_CALLBACK(on_geometry_changed), this);
+        }
+        g_signal_connect(p_window_, "close-request", G_CALLBACK(on_close_request), this);
+        g_timeout_add_seconds(AUTOSAVE_SECONDS, &on_autosave, this);
+    }
+
+    static void on_geometry_changed(GObject *p_object, GParamSpec *p_spec, gpointer p_data) {
+        static_cast<void>(p_object);
+        static_cast<void>(p_spec);
+        activator_c *p_activator = static_cast<activator_c *>(p_data);
+        p_activator->o_geometry_.save("main", GTK_WINDOW(p_activator->p_window_));
+    }
+
+    static gboolean on_close_request(GtkWindow *p_window, gpointer p_data) {
+        activator_c *p_activator = static_cast<activator_c *>(p_data);
+        p_activator->o_geometry_.save("main", p_window);
+        return FALSE;
+    }
+
+    static gboolean on_autosave(gpointer p_data) {
+        activator_c *p_activator = static_cast<activator_c *>(p_data);
+        p_activator->o_geometry_.save("main", GTK_WINDOW(p_activator->p_window_));
+        return G_SOURCE_CONTINUE;
+    }
+
+    // -- actions ------------------------------------------------------------
+    void on_close() {
+        o_geometry_.save("main", GTK_WINDOW(p_window_));
+        gtk_window_close(GTK_WINDOW(p_window_));
+    }
+
+    std::string start_appimage() {
+        return combined_output(run_tool(s_tool_, {"run", "--detached", s_path_}));
+    }
+
+    std::string missing_message() const {
+        return "This AppImage is no longer at\n  " + s_path_
+               + "\n\nIt has probably been integrated already.\nLook for \"" + display_name()
+               + "\" in the application menu.";
+    }
+
+    void on_run_once() {
+        if (is_missing()) {
+            set_text(missing_message());
+            return;
+        }
+        set_text(start_appimage());
+    }
+
+    void on_inspect() {
+        set_text(combined_output(run_tool(s_tool_, {"explain", s_path_})));
+    }
+
+    void on_integrate() {
+        if (is_missing()) {
+            set_text(missing_message());
+            return;
+        }
+        const std::vector<value_c> o_conflicts = conflicts();
+        if (o_conflicts.empty()) {
+            run_install({});
+            return;
+        }
+        std::ostringstream o_text;
+        o_text << display_name() << " is already installed:\n\n";
+        bool b_all_upgrade = true;
+        bool b_any_repair = false;
+        for (std::size_t i_index = 0; i_index < o_conflicts.size(); i_index++) {
+            o_text << describe_conflict(static_cast<int>(i_index) + 1, o_conflicts[i_index])
+                   << '\n';
+            if (!o_conflicts[i_index].boolean_or("upgrade", false)) {
+                b_all_upgrade = false;
+            }
+            if (o_conflicts[i_index].boolean_or("repair", false)) {
+                b_any_repair = true;
+            }
+        }
+        const std::string s_version = o_data_.string_or("version");
+        if (!s_version.empty()) {
+            o_text << "This AppImage is version " << s_version << ".\n\n";
+        }
+        if (b_all_upgrade) {
+            if (b_any_repair) {
+                o_text << "Replace existing repairs that launcher: the AppImage is not where "
+                          "the launcher expects it, so its Exec and TryExec are rewritten.\n";
+            } else {
+                o_text << "Replace existing updates that launcher in place.\n";
+            }
+            o_text << "Add alongside keeps it and installs this version under a new identifier.\n";
+        } else {
+            o_text << "Replace existing backs those launchers up and installs this version in "
+                      "their place.\n";
+            o_text << "Add alongside keeps them and installs this version under a new "
+                      "identifier.\n";
+        }
+        set_text(o_text.str());
+        show_name_field();
+        set_buttons({{"Back", action_e::back},
+                     {"Add alongside", action_e::add_alongside},
+                     {"Replace existing", action_e::replace_existing}});
+    }
+
+    void on_back() {
+        hide_name_field();
+        set_text("");
+        show_initial_buttons();
+    }
+
+    void run_install(const std::vector<std::string> &o_policy) {
+        // The typed name decides Name= in the launcher, so two launchers for one
+        // application can be told apart in the menu.
+        std::vector<std::string> o_command = {"install", "--yes"};
+        o_command.insert(o_command.end(), o_policy.begin(), o_policy.end());
+        const std::string s_typed = typed_name();
+        if (!s_typed.empty()) {
+            o_command.push_back("--name");
+            o_command.push_back(s_typed);
+        }
+        o_command.push_back(s_path_);
+        hide_name_field();
+        const process_result_o o_result = run_tool(s_tool_, o_command);
+        const std::string s_report = combined_output(o_result);
+        if (0 == o_result.exit_code) {
+            // Integrate moves the AppImage; follow it so Run now and Inspect work.
+            const std::string s_installed = o_data_.string_or("installed");
+            load_description();
+            std::error_code o_error;
+            if (!s_installed.empty() && fs::exists(s_installed, o_error)) {
+                s_path_ = s_installed;
+                load_description();
+            }
+            update_details();
+            set_text(s_report + "\n\nFile is now:\n  " + s_path_);
+            set_buttons({{"Run now", action_e::run_now},
+                         {"Inspect", action_e::inspect},
+                         {"Close", action_e::close}});
+            return;
+        }
+        set_text("The integration did not complete.\n\n" + s_report);
+        show_initial_buttons();
+    }
+
+    GtkApplication *p_application_ = nullptr;
+    std::string s_tool_;
+    std::string s_path_;
+    value_c o_data_ = value_c::make_object();
+    geometry_c o_geometry_;
+    GtkWidget *p_window_ = nullptr;
+    GtkWidget *p_details_container_ = nullptr;
+    GtkWidget *p_name_box_ = nullptr;
+    GtkWidget *p_name_entry_ = nullptr;
+    GtkWidget *p_button_box_ = nullptr;
+    GtkWidget *p_text_view_ = nullptr;
+};
+
+// What the activate handler needs to build the window, and what the test hooks
+// need to drive it.
+struct context_o {
+    GtkApplication *p_application = nullptr;
+    std::string s_tool;
+    std::string s_path;
+    std::string s_set_name;
+    std::vector<action_e> o_actions;
+    activator_c *p_activator = nullptr;
+};
+
+void on_activate(GtkApplication *p_application, gpointer p_data) {
+    context_o *p_context = static_cast<context_o *>(p_data);
+    p_context->p_activator = new activator_c(p_application, p_context->s_tool, p_context->s_path);
+    p_context->p_activator->present();
+    // A driven run types the name after each action, because the action is what
+    // reveals the field: Integrate shows it prefilled, --set-name then replaces the
+    // prefill with the value a person would have typed, and the next action uses it.
+    for (const action_e e_action : p_context->o_actions) {
+        p_context->p_activator->perform(e_action);
+        if (action_e::close == e_action) {
+            return;
+        }
+        if (!p_context->s_set_name.empty()) {
+            p_context->p_activator->set_name_text(p_context->s_set_name);
+        }
+    }
+    if (!p_context->o_actions.empty()) {
+        // A driven run is a test: it must not wait for a person to close the window.
+        g_application_quit(G_APPLICATION(p_application));
+    }
+}
+
+void print_usage(std::ostream &o_out) {
+    o_out << "usage: appimage-activator [--set-name TEXT] [--activate ACTION[,ACTION...]]\n"
+          << "                           --tool <appimage-integrate> <AppImage>\n"
+          << "\n"
+          << "actions: run-once, integrate, inspect, close, back, add-alongside,\n"
+          << "         replace-existing, run-now\n";
+}
+
+}  // namespace
+
+int main(int i_argument_count, char **p_arguments) {
+    std::string s_tool;
+    std::string s_path;
+    std::string s_set_name;
+    std::string s_activate;
+    for (int i_index = 1; i_index < i_argument_count; i_index++) {
+        const std::string s_argument = p_arguments[i_index];
+        if ("--tool" == s_argument && i_argument_count > i_index + 1) {
+            s_tool = p_arguments[++i_index];
+            continue;
+        }
+        if ("--set-name" == s_argument && i_argument_count > i_index + 1) {
+            s_set_name = p_arguments[++i_index];
+            continue;
+        }
+        if ("--activate" == s_argument && i_argument_count > i_index + 1) {
+            s_activate = p_arguments[++i_index];
+            continue;
+        }
+        if ("--help" == s_argument || "-h" == s_argument) {
+            print_usage(std::cout);
+            return 0;
+        }
+        s_path = s_argument;
+    }
+    if (s_tool.empty() || s_path.empty()) {
+        print_usage(std::cerr);
+        return 2;
+    }
+
+    // The window's Wayland application id is this program name, because no
+    // Gtk.Application id is set: GTK uses the application id when there is one and
+    // g_get_prgname() otherwise (gtk 4.14, gdk/wayland/gdktoplevel-wayland.c:874).
+    // It must equal the desktop entry's file name, or GNOME cannot match the window
+    // to its launcher and the dock shows a generic icon.
+    g_set_prgname("appimage-activator");
+    g_set_application_name("AppImage Activator");
+
+    context_o o_context;
+    o_context.s_tool = s_tool;
+    o_context.s_path = s_path;
+    o_context.s_set_name = s_set_name;
+    std::size_t i_begin = 0;
+    while (i_begin <= s_activate.size() && !s_activate.empty()) {
+        const std::size_t i_comma = s_activate.find(',', i_begin);
+        const std::string s_name = s_activate.substr(
+            i_begin, std::string::npos == i_comma ? std::string::npos : i_comma - i_begin);
+        if (!s_name.empty()) {
+            const std::optional<action_e> e_action = action_from_name(s_name);
+            if (!e_action.has_value()) {
+                std::cerr << "error: unknown action: " << s_name << '\n';
+                print_usage(std::cerr);
+                return 2;
+            }
+            o_context.o_actions.push_back(*e_action);
+        }
+        if (std::string::npos == i_comma) {
+            break;
+        }
+        i_begin = i_comma + 1;
+    }
+
+    // NON_UNIQUE: a second launch opens its own window for its own AppImage,
+    // instead of activating the already-running instance with the first path.
+    // No application id: a dotted id here would become the window's Wayland app id
+    // and would no longer match appimage-activator.desktop.
+    GtkApplication *p_application = gtk_application_new(nullptr, G_APPLICATION_NON_UNIQUE);
+    o_context.p_application = p_application;
+    g_signal_connect(p_application, "activate", G_CALLBACK(on_activate), &o_context);
+    char *p_argv[] = {p_arguments[0], nullptr};
+    const int i_status = g_application_run(G_APPLICATION(p_application), 1, p_argv);
+    delete o_context.p_activator;
+    g_object_unref(p_application);
+    return i_status;
+}

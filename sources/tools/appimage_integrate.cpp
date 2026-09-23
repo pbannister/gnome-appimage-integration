@@ -115,45 +115,18 @@ bool command_exists(const std::string &s_command) {
 }
 
 // Run a command for its exit status only, with its output discarded.
-bool command_succeeds(const std::vector<std::string> &o_arguments) {
-    if (o_arguments.empty()) {
-        return false;
-    }
-    std::vector<char *> o_raw;
-    for (const std::string &s_argument : o_arguments) {
-        o_raw.push_back(const_cast<char *>(s_argument.c_str()));
-    }
-    o_raw.push_back(nullptr);
-    const pid_t i_child = fork();
-    if (0 > i_child) {
-        return false;
-    }
-    if (0 == i_child) {
-        if (nullptr == std::freopen("/dev/null", "w", stdout)) {
-            _exit(127);
-        }
-        if (nullptr == std::freopen("/dev/null", "w", stderr)) {
-            _exit(127);
-        }
-        execvp(o_raw[0], o_raw.data());
-        _exit(127);
-    }
-    int i_status = 0;
-    if (i_child != waitpid(i_child, &i_status, 0)) {
-        return false;
-    }
-    return WIFEXITED(i_status) && 0 == WEXITSTATUS(i_status);
-}
-
-// Locate the graphical activator next to the tool, or in the source tree. The
-// pre-rename script name is still accepted, so an older install keeps working.
-std::string handler_ui_script(const std::string &s_tool) {
+// Locate the graphical activator next to the tool, or in the build tree. The
+// pre-conversion names are still accepted, so an older install keeps working.
+std::string handler_ui_program(const std::string &s_tool) {
     const fs::path o_tool(s_tool);
+    const fs::path o_repository = o_tool.parent_path().parent_path().parent_path();
     const std::vector<fs::path> o_candidates = {
+        o_tool.parent_path() / "appimage-activator",
+        o_tool.parent_path().parent_path() / "appimage-activator",
+        o_repository / "dataflow.out/build/appimage-activator",
+        // The earlier Python dialog, if it is the only one installed.
         o_tool.parent_path() / "appimage_activator_ui.py",
         o_tool.parent_path() / "appimage_handler_ui.py",
-        o_tool.parent_path().parent_path().parent_path()
-            / "sources/tools/appimage_activator_ui.py",
     };
     for (const fs::path &o_candidate : o_candidates) {
         std::error_code o_error;
@@ -1081,22 +1054,21 @@ int command_handle(const std::string &s_path) {
     const std::string s_name = embedded_name(s_path);
     const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
 
-    // Prefer the GTK handler: it can remember its size and return from Inspect.
+    // Prefer the graphical activator: it can remember its size, keep a text area
+    // for Inspect, and offer the conflict choices.
     const appimage_integrator_c o_integrator;
     const std::string s_tool = tool_path(o_integrator);
-    const std::string s_ui = handler_ui_script(s_tool);
-    if (!s_ui.empty() && has_display() && command_exists("python3")
-        && command_succeeds({"python3", "-c",
-                             "import gi; gi.require_version('Gtk','4.0'); "
-                             "from gi.repository import Gtk"})) {
-        std::vector<std::string> o_command = {"python3", s_ui, "--tool", s_tool, s_path};
+    const std::string s_ui = handler_ui_program(s_tool);
+    if (!s_ui.empty() && has_display()) {
+        std::vector<std::string> o_command = {s_ui, "--tool", s_tool, s_path};
         std::vector<char *> o_raw;
         for (const std::string &s_argument : o_command) {
             o_raw.push_back(const_cast<char *>(s_argument.c_str()));
         }
         o_raw.push_back(nullptr);
-        execvp("python3", o_raw.data());
-        // Fall through to the zenity flow if execvp failed.
+        execvp(o_raw[0], o_raw.data());
+        // Fall through to the zenity flow if execvp failed, which happens when the
+        // file is a script without an interpreter.
     }
 
     if (!command_exists("zenity") || !has_display()) {

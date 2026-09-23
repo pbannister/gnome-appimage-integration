@@ -1,9 +1,9 @@
 #!/bin/sh
 #
-# Portable test: the graphical activator is present, valid, and wired up, and the
-# handler registration installs its own icon, names itself AppImage Activator for
-# the right-click menu, and migrates the pre-rename files away.
-# The GTK window itself cannot be exercised headlessly.
+# Portable test: the graphical activator is present and wired up, the handler
+# registration installs its own icon, names itself AppImage Activator for the
+# right-click menu, and migrates the pre-rename files away.  The window itself is
+# driven headlessly under Xvfb, because the program is the only interface it has.
 set -eu
 
 . "$(dirname -- "$0")/lib/test_helpers.sh"
@@ -13,29 +13,35 @@ build_program
 DIRECTORY_TEMP=$(mktemp -d)
 trap 'rm -rf "$DIRECTORY_TEMP"' EXIT
 
-FILE_UI="$DIRECTORY_BUILD/appimage_activator_ui.py"
-if [ ! -f "$FILE_UI" ]; then
-    fail_test "the graphical activator was not copied next to the tool"
-fi
-
-if ! python3 -m py_compile "$FILE_UI"; then
-    fail_test "the graphical activator does not compile"
+FILE_ACTIVATOR="$DIRECTORY_BUILD/appimage-activator"
+if [ ! -x "$FILE_ACTIVATOR" ]; then
+    echo "SKIP: appimage-activator was not built (libgtk-4-dev is missing)"
+    pass_test "graphical activator (not built)"
+    exit 0
 fi
 
 if [ ! -f "$DIRECTORY_BUILD/icons/appimage-activator.svg" ]; then
     fail_test "the activator icon was not copied to the build tree"
 fi
 
+# The window's application id is the program name, because no Gtk.Application id is
+# set: GTK uses the application id when there is one and the program name otherwise.
+FILE_SOURCE="$REPOSITORY_ROOT/sources/tools/appimage_activator_ui.cpp"
+grep -q 'g_set_prgname("appimage-activator")' "$FILE_SOURCE" \
+    || fail_test "the activator does not set its program name"
+grep -q 'g_set_application_name("AppImage Activator")' "$FILE_SOURCE" \
+    || fail_test "the activator window is not named AppImage Activator"
+if grep -q 'gtk_application_new("[^"]' "$FILE_SOURCE"; then
+    fail_test "a Gtk.Application id would become the window application id"
+fi
 # A second launch must open its own window for its own AppImage.
-grep -q 'NON_UNIQUE' "$FILE_UI" || fail_test "the activator is not multi-instance"
+grep -q 'G_APPLICATION_NON_UNIQUE' "$FILE_SOURCE" \
+    || fail_test "the activator is not multi-instance"
 # An existing integration must be reported, not silently replaced.
-grep -q 'is already installed:' "$FILE_UI" || fail_test "the activator does not report existing integrations"
-# The window must present itself under the activator's name.
-grep -q 'AppImage Activator' "$FILE_UI" || fail_test "the activator window is not named AppImage Activator"
-
-# The activator must look for the UI script next to the tool. The compiler merges
-# adjacent literals in the binary, so read the source rather than the executable.
-grep -q 'appimage_activator_ui.py' "$REPOSITORY_ROOT/sources/tools/appimage_integrate.cpp" \
+grep -q 'is already installed' "$FILE_SOURCE" \
+    || fail_test "the activator does not report existing integrations"
+# The tool must look for the program it launches.
+grep -q 'handler_ui_program' "$REPOSITORY_ROOT/sources/tools/appimage_integrate.cpp" \
     || fail_test "the tool does not reference the graphical activator"
 
 # With no display the handler must fall back to printed instructions, never hang.
@@ -48,7 +54,7 @@ grep -q 'appimage-integrate' "$DIRECTORY_TEMP/handle.txt" \
 # Registering the handler is exercised in an isolated XDG home.
 if ! command -v xdg-mime >/dev/null 2>&1; then
     echo "SKIP: xdg-mime is not available (tool-gated)"
-    pass_test "graphical activator (script only)"
+    pass_test "graphical activator (program only)"
     exit 0
 fi
 
@@ -109,17 +115,6 @@ grep -q '^Icon=appimage-activator$' "$FILE_ACTIVATOR_ENTRY" \
 grep -q '^StartupWMClass=appimage-activator$' "$FILE_ACTIVATOR_ENTRY" \
     || fail_test "the activator entry has no StartupWMClass, so the dock cannot match the window"
 
-# GNOME matches a Wayland window to a launcher by the window's application id, and
-# GTK uses the Gtk.Application id when one is set and the program name otherwise.
-# So the program name must equal the launcher's file name, and no Gtk.Application id
-# may be set, or the dock shows a generic icon.
-FILE_PROGRAM_NAME=$(sed -n 's/.*set_prgname("\([^"]*\)").*/\1/p' "$FILE_UI" | head -1)
-if [ "$FILE_PROGRAM_NAME.desktop" != "$(basename -- "$FILE_ACTIVATOR_ENTRY")" ]; then
-    fail_test "the window application id and the launcher id disagree"
-fi
-if grep -q 'application_id=' "$FILE_UI"; then
-    fail_test "a Gtk.Application id would become the window application id and break the match"
-fi
 if [ ! -f "$FILE_ACTIVATOR_ICON" ]; then
     fail_test "handler install did not install the activator icon"
 fi
@@ -153,6 +148,13 @@ grep -q 'previous_default=application/vnd.appimage	appimagelauncher.desktop' \
     "$DIRECTORY_DATA/gnome-appimage-integration/appimage-activator.manifest" \
     || fail_test "the rename lost the recorded previous default"
 
+# The program name must equal the launcher's file name, or GNOME cannot match the
+# window to it and the dock shows a generic icon.
+FILE_PROGRAM_NAME=$(sed -n 's/.*g_set_prgname("\([^"]*\)").*/\1/p' "$FILE_SOURCE" | head -1)
+if [ "$FILE_PROGRAM_NAME.desktop" != "$(basename -- "$FILE_ACTIVATOR_ENTRY")" ]; then
+    fail_test "the window application id and the launcher id disagree"
+fi
+
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" handler uninstall > "$DIRECTORY_TEMP/uninstall.txt" 2>&1
 if [ -f "$FILE_ACTIVATOR_ENTRY" ]; then
     fail_test "handler uninstall left the activator entry"
@@ -163,23 +165,18 @@ fi
 grep -q 'application-x-executable' "$DIRECTORY_DATA/mime/packages/appimage.xml" \
     || fail_test "handler uninstall did not restore the original MIME icon"
 
-if ! python3 -c "import gi; gi.require_version('Gtk','4.0'); from gi.repository import Gtk" 2>/dev/null; then
-    echo "SKIP: GTK4 Python bindings are not available (tool-gated)"
-    pass_test "graphical activator (script only)"
-    exit 0
-fi
-
-# The Name: field is driven through the real window under a virtual display. The
-# tool is a stub, so this checks the window's own behaviour, not integration.
+# The window is driven under a virtual display with a stub tool, so this checks the
+# program's own behaviour rather than an integration.
 if ! command -v xvfb-run >/dev/null 2>&1; then
     echo "SKIP: xvfb-run is not available (tool-gated)"
-    pass_test "graphical activator (script only)"
+    pass_test "graphical activator (program only)"
     exit 0
 fi
 
 FILE_STUB="$DIRECTORY_TEMP/appimage-integrate-stub"
 FILE_RECORD="$DIRECTORY_TEMP/stub-calls.txt"
-: > "$FILE_RECORD"
+FILE_FAKE_IMAGE="$DIRECTORY_TEMP/Probe.AppImage"
+: > "$FILE_FAKE_IMAGE"
 cat > "$FILE_STUB" <<'STUB'
 #!/bin/sh
 # Stand-in for appimage-integrate: record the call, and answer explain --json.
@@ -192,56 +189,71 @@ if [ "$1" = "explain" ]; then
  "valid":true,"file_size":1024,"installed":"",
  "conflicts":[{"desktop_id":"org.example.Probe.desktop",
                "path":"/tmp/org.example.Probe.desktop","name":"Probe App",
-               "origin":"this tool (upgrade)","upgrade":true,"exec_exists":true,
-               "version":"9.9.9","appimage":"/tmp/Probe.AppImage"}]}
+               "origin":"this tool (upgrade)","upgrade":true,"repair":false,
+               "exec_exists":true,"version":"9.9.9","appimage":"/tmp/Probe.AppImage"}]}
 JSON
 fi
 exit 0
 STUB
 chmod 755 "$FILE_STUB"
-FILE_FAKE_IMAGE="$DIRECTORY_TEMP/Probe.AppImage"
-: > "$FILE_FAKE_IMAGE"
 
-STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
-    xvfb-run -a python3 - "$FILE_UI" "$FILE_STUB" "$FILE_FAKE_IMAGE" <<'PYTHON'
-import importlib.util
-import sys
+# GDK_BACKEND is forced so the window can only appear on the virtual display: this
+# host runs a Wayland session, and GTK would otherwise prefer it.
+run_driven() {
+    STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
+        GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
+}
 
-module_path, tool_path, image_path = sys.argv[1:4]
-
-import gi
-
-gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, Gtk  # noqa: E402
-
-spec = importlib.util.spec_from_file_location("activator", module_path)
-activator = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(activator)
-
-application = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
-outcome = {}
-
-
-def on_activate(app):
-    handler = activator.Handler(app, tool_path, image_path)
-    assert not handler.name_box.get_visible(), "the Name field must start hidden"
-    handler.on_integrate(None)
-    assert handler.name_box.get_visible(), "Integrate must show the Name field"
-    assert handler.name_entry.get_text() == "Probe App", handler.name_entry.get_text()
-    handler.name_entry.set_text("Probe App 9.9.10")
-    handler.on_add_alongside(None)
-    assert not handler.name_box.get_visible(), "choosing must hide the Name field"
-    outcome["ok"] = True
-    app.quit()
-
-
-application.connect("activate", on_activate)
-application.run([])
-assert outcome.get("ok"), "the window never activated"
-print("name field ok")
-PYTHON
-
+# Integrate, then Add alongside with a typed name: the field is shown prefilled,
+# and the typed value reaches the tool as --name.
+if ! run_driven --set-name "Probe App 9.9.10" --activate integrate,add-alongside \
+    > "$DIRECTORY_TEMP/driven.txt" 2>&1; then
+    cat "$DIRECTORY_TEMP/driven.txt" >&2
+    fail_test "the activator did not run under the virtual display"
+fi
 grep -Fq 'install|--yes|--add|--name|Probe App 9.9.10|' "$FILE_RECORD" \
     || fail_test "the typed name was not passed to install"
+
+# Without a typed name the field must be prefilled from the AppImage.
+: > "$FILE_RECORD"
+run_driven --activate integrate,add-alongside > /dev/null 2>&1
+grep -Fq 'install|--yes|--add|--name|Probe App|' "$FILE_RECORD" \
+    || fail_test "the Name field was not prefilled from the AppImage"
+
+# The window's WM_CLASS must be the activator's own name, which is what GNOME
+# matches the launcher against.
+if command -v Xvfb >/dev/null 2>&1 && command -v xprop >/dev/null 2>&1 \
+    && command -v xwininfo >/dev/null 2>&1; then
+    Xvfb -displayfd 3 -screen 0 800x600x24 3> "$DIRECTORY_TEMP/display" > /dev/null 2>&1 &
+    XVFB_PROCESS=$!
+    sleep 2
+    DISPLAY_NUMBER=$(tr -d '\n' < "$DIRECTORY_TEMP/display")
+    if [ -n "$DISPLAY_NUMBER" ]; then
+        STUB_RECORD="$FILE_RECORD" DISPLAY=":$DISPLAY_NUMBER" GDK_BACKEND=x11 \
+            XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
+            "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$FILE_FAKE_IMAGE" > /dev/null 2>&1 &
+        ACTIVATOR_PROCESS=$!
+        sleep 3
+        FOUND_CLASS=0
+        for WINDOW_ID in $(DISPLAY=":$DISPLAY_NUMBER" xwininfo -root -children 2>/dev/null \
+            | grep -oE '^ +0x[0-9a-f]+' | tr -d ' '); do
+            WINDOW_CLASS=$(DISPLAY=":$DISPLAY_NUMBER" xprop -id "$WINDOW_ID" WM_CLASS 2>/dev/null \
+                || true)
+            case "$WINDOW_CLASS" in
+                *'"appimage-activator", "appimage-activator"'*)
+                    FOUND_CLASS=1
+                    break
+                    ;;
+            esac
+        done
+        kill "$ACTIVATOR_PROCESS" 2>/dev/null || true
+        if [ "$FOUND_CLASS" -ne 1 ]; then
+            kill "$XVFB_PROCESS" 2>/dev/null || true
+            fail_test "the window WM_CLASS is not appimage-activator, so the dock cannot match it"
+        fi
+    fi
+    kill "$XVFB_PROCESS" 2>/dev/null || true
+    wait "$XVFB_PROCESS" 2>/dev/null || true
+fi
 
 pass_test "graphical activator"

@@ -25,6 +25,7 @@
 
 ## Recently Completed
 
+* [x] convert the graphical activator from Python/PyGObject to C++ with GTK4, with a minimal JSON reader and no Python at run time.
 * [x] treat a moved AppImage as a repair rather than a different AppImage, repair it in place, and label every run as new, update, repair, replace, or add alongside.
 * [x] mark missing AppImages in `list`, and fix `--replace` when the conflicting launcher sits at the target identifier.
 * [x] stop forked cache-refresh children from printing the plan again from their inherited stdout buffer.

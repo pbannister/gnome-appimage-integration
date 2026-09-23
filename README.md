@@ -110,12 +110,13 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 - `sources/appimage/` contains the AppImage container reader and the SquashFS payload reader.
 - `sources/desktop/` contains the desktop entry reader, the desktop entry locator, the icon theme locator, and the MIME association reader.
 - `sources/integration/` contains the plan, install, uninstall, and audit engine.
-- `sources/tools/` contains the command-line front ends and `appimage_activator_ui.py`, the GTK activator dialog.
+- `sources/tools/` contains the command-line front ends and `appimage_activator_ui.cpp`, the GTK4 activator program.
+- `sources/json/` contains the minimal JSON value the activator reads `explain --json` and its geometry file with.
 - `sources/version/` contains the build-time version reporting.
 - `sources/CMakeLists.txt` defines the targets; the build tree is written to `dataflow.out/build/`.
 
-The graphical handler needs PyGObject with GTK4, which Ubuntu ships.
-When it is absent, the handler falls back to zenity, and then to printing the equivalent commands.
+The graphical activator is C++ with GTK4. The build needs the GTK4 development files (`libgtk-4-dev` or `gtk4-devel`); without them the activator is not built, and the handler falls back to zenity, and then to printing the equivalent commands.
+`appimage-activator --activate ACTION[,ACTION...]` and `--set-name TEXT` drive the window without a person, which is how `tests/95-activator-ui.sh` exercises it under Xvfb; the desktop entry never passes them.
 It is a single window: the application name, version, generic name, and comment, then File, Size, and Will install as, then the action buttons, then one large text area that Inspect and Integrate write into.
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
 `handler install` gives the handler its own AppImage Activator icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the right-click item share one icon.

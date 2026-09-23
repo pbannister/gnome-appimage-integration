@@ -24,13 +24,17 @@ for program_name in appimage-inspect desktop-inspect appimage-integrate; do
     echo "program-install: $DIRECTORY_BIN/$program_name"
 done
 
-# The graphical activator sits next to the tool so the tool can exec it.
-if [ -f "$DIRECTORY_BUILD/appimage_activator_ui.py" ]; then
-    cp "$DIRECTORY_BUILD/appimage_activator_ui.py" "$DIRECTORY_BIN/appimage_activator_ui.py"
-    chmod 755 "$DIRECTORY_BIN/appimage_activator_ui.py"
-    echo "program-install: $DIRECTORY_BIN/appimage_activator_ui.py"
+# The graphical activator sits next to the tool so the tool can exec it. It is a
+# GTK4 program, built only where the GTK4 development files are present.
+if [ -x "$DIRECTORY_BUILD/appimage-activator" ]; then
+    cp "$DIRECTORY_BUILD/appimage-activator" "$DIRECTORY_BIN/appimage-activator"
+    chmod 755 "$DIRECTORY_BIN/appimage-activator"
+    echo "program-install: $DIRECTORY_BIN/appimage-activator"
+else
+    echo "program-install: appimage-activator was not built; the handler will use zenity" >&2
 fi
-# The pre-rename script must not linger and shadow the renamed one.
+# The earlier Python dialogs must not linger and shadow the program.
+rm -f "$DIRECTORY_BIN/appimage_activator_ui.py"
 rm -f "$DIRECTORY_BIN/appimage_handler_ui.py"
 rm -f "$DIRECTORY_BIN/icons/appimage-handler.svg"
 
