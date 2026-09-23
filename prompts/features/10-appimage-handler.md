@@ -27,7 +27,9 @@ default.
 - Integrate must offer Replace existing, Add alongside, and Cancel when another launcher already represents the application.
 - The handler must prefer a GTK dialog when PyGObject and GTK4 are available, and fall back to zenity, then to printed instructions.
 - The main window must show the application Name, Comment, and GenericName, the detected version, the file size, and the payload type.
-- The main window must remember its size between runs, in the tool's state directory.
+- Every handler window must remember its size on resize and on close.
+- Every handler window must remember its position where the platform permits it, and a restored geometry must be clamped so the window is entirely on the screen.
+- Position cannot be restored under Wayland, which does not let a client choose its own placement; the handler must not fail when that is the case.
 - Inspect must open a separate window whose only button is Close, and closing it must return to the main window.
 - The Integrate dialog must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
 

@@ -10,6 +10,7 @@
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
 * [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu; suffixing the Name with a version is the obvious option.
 * [ ] decide whether the zenity fallback should persist a window size at all; zenity cannot report a dragged size, so only the GTK handler can remember one.
+* [ ] decide whether to require `xdotool` for position restore on X11 sessions, or to leave it optional as it is now. Wayland cannot restore position at all.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 

@@ -285,6 +285,25 @@ std::string strip_extension(const std::string &s_name) {
     return s_name.substr(0, i_dot);
 }
 
+// Never overwrite an earlier backup: add a numeric suffix when the name is taken.
+std::string unique_backup_path(const std::string &s_directory, const std::string &s_filename) {
+    std::string s_candidate = join_path(s_directory, s_filename);
+    std::error_code o_error;
+    if (!fs::exists(s_candidate, o_error)) {
+        return s_candidate;
+    }
+    const std::string s_stem = strip_extension(s_filename);
+    const std::string s_extension = fs::path(s_filename).extension().string();
+    for (int i_suffix = 2;; i_suffix++) {
+        s_candidate =
+            join_path(s_directory, s_stem + "-" + std::to_string(i_suffix) + s_extension);
+        o_error.clear();
+        if (!fs::exists(s_candidate, o_error)) {
+            return s_candidate;
+        }
+    }
+}
+
 // Reduce an application name to a comparison key: trim, drop a trailing " (N)",
 // and lower-case, so "FreeCAD" and "FreeCAD (1)" compare equal.
 std::string normalize_application_name(const std::string &s_name) {
@@ -876,6 +895,10 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                         }
                         const std::string s_extension =
                             fs::path(o_icon_entry.name).extension().string();
+                        if (".png" != s_extension && ".svg" != s_extension
+                            && ".svgz" != s_extension && ".xpm" != s_extension) {
+                            continue;
+                        }
                         const std::string s_slot = o_size_entry.name + "|" + s_extension;
                         if (0 != o_installed_slots.count(s_slot)) {
                             continue;
@@ -908,6 +931,16 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                         o_root_entry.name == ".DirIcon" || o_root_entry.name == s_icon_value
                         || 0 == o_root_entry.name.compare(0, s_icon_base.size(), s_icon_base);
                     if (!b_matches) {
+                        continue;
+                    }
+                    // Only real image files are icons; a root .desktop file also
+                    // starts with the application name and must not be copied.
+                    const std::string s_candidate_extension =
+                        fs::path(o_root_entry.name).extension().string();
+                    const bool b_is_icon_extension =
+                        ".png" == s_candidate_extension || ".svg" == s_candidate_extension
+                        || ".svgz" == s_candidate_extension || ".xpm" == s_candidate_extension;
+                    if (".DirIcon" != o_root_entry.name && !b_is_icon_extension) {
                         continue;
                     }
                     std::string s_data;
@@ -1106,7 +1139,7 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
                 }
                 if (b_remove_launcher) {
                     std::error_code o_move_error;
-                    const std::string s_backup = join_path(
+                    const std::string s_backup = unique_backup_path(
                         s_backup_directory, fs::path(o_conflict.path).filename().string());
                     fs::rename(o_conflict.path, s_backup, o_move_error);
                     if (o_move_error) {
@@ -1127,8 +1160,8 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
                         if (o_entry.desktop_entry_path != o_conflict.path) {
                             continue;
                         }
-                        const std::string s_manifest_backup =
-                            join_path(s_backup_directory, o_entry.identifier + ".manifest");
+                        const std::string s_manifest_backup = unique_backup_path(
+                            s_backup_directory, o_entry.identifier + ".manifest");
                         std::error_code o_manifest_error;
                         fs::rename(o_entry.manifest_path, s_manifest_backup, o_manifest_error);
                         if (!o_manifest_error) {
@@ -1143,23 +1176,33 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
 
         // Place the AppImage.
         if (o_plan.appimage_path != o_plan.installed_path) {
-            fs::create_directories(fs::path(o_plan.installed_path).parent_path(), o_error);
-            bool b_placed = false;
-            if (o_plan.move_appimage) {
-                fs::rename(o_plan.appimage_path, o_plan.installed_path, o_error);
-                b_placed = !o_error;
-            }
-            if (!b_placed) {
-                o_error.clear();
-                fs::copy_file(o_plan.appimage_path, o_plan.installed_path,
-                              fs::copy_options::overwrite_existing, o_error);
-                if (o_error) {
-                    s_error = "cannot place the AppImage at " + o_plan.installed_path + ": "
-                              + o_error.message();
-                    return false;
-                }
+            const bool b_source_exists = fs::exists(o_plan.appimage_path, o_error);
+            const bool b_target_exists = fs::exists(o_plan.installed_path, o_error);
+            if (!b_source_exists && b_target_exists) {
+                // A retry after a previous run already placed the file.
+            } else if (!b_source_exists) {
+                s_error = "the AppImage is no longer at " + o_plan.appimage_path
+                          + " and it is not at " + o_plan.installed_path + " either";
+                return false;
+            } else {
+                fs::create_directories(fs::path(o_plan.installed_path).parent_path(), o_error);
+                bool b_placed = false;
                 if (o_plan.move_appimage) {
-                    fs::remove(o_plan.appimage_path, o_error);
+                    fs::rename(o_plan.appimage_path, o_plan.installed_path, o_error);
+                    b_placed = !o_error;
+                }
+                if (!b_placed) {
+                    o_error.clear();
+                    fs::copy_file(o_plan.appimage_path, o_plan.installed_path,
+                                  fs::copy_options::overwrite_existing, o_error);
+                    if (o_error) {
+                        s_error = "cannot place the AppImage at " + o_plan.installed_path + ": "
+                                  + o_error.message();
+                        return false;
+                    }
+                    if (o_plan.move_appimage) {
+                        fs::remove(o_plan.appimage_path, o_error);
+                    }
                 }
             }
         }

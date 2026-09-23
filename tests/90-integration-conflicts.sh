@@ -86,6 +86,14 @@ ls "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/backup/" | grep 
     || fail_test "replace did not back up the conflicting launcher"
 
 FILE_IDENTIFIER=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | awk '{print $1}')
+FILE_MANIFEST="$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/$FILE_IDENTIFIER.manifest"
+if grep -E '^icon=' "$FILE_MANIFEST" | grep -q '\.desktop$'; then
+    fail_test "a .desktop file was installed as an icon"
+fi
+if [ ! -f "$FILE_MANIFEST" ]; then
+    fail_test "install did not write a manifest"
+fi
+
 echo "=== uninstall restores the replaced launcher ==="
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_IDENTIFIER" > /dev/null
 if [ ! -f "$DIRECTORY_APPLICATIONS/legacy.Probe.desktop" ]; then
@@ -103,6 +111,40 @@ if [ ! -f "$DIRECTORY_APPLICATIONS/legacy.Probe.desktop" ]; then
 fi
 if [ ! -f "$DIRECTORY_APPLICATIONS/org.example.Probe-2.desktop" ]; then
     fail_test "add did not create a distinct launcher"
+fi
+
+echo "=== an upgrade with --replace keeps exactly one launcher ==="
+# A second version of the same application, with different content and version.
+DIRECTORY_PAYLOAD_TWO="$DIRECTORY_TEMP/payload2"
+mkdir -p "$DIRECTORY_PAYLOAD_TWO/usr/share/icons/hicolor/48x48/apps"
+printf 'fake-png-two' > "$DIRECTORY_PAYLOAD_TWO/usr/share/icons/hicolor/48x48/apps/probe.png"
+printf 'fake-diricon-two' > "$DIRECTORY_PAYLOAD_TWO/.DirIcon"
+cat > "$DIRECTORY_PAYLOAD_TWO/org.example.Probe.desktop" <<'ENTRY'
+[Desktop Entry]
+Type=Application
+Name=Probe App
+GenericName=Probe Tool
+Comment=Probe comment
+X-AppImage-Version=9.9.10
+Exec=probe %U
+Icon=probe
+Categories=Utility;
+StartupWMClass=ProbeApp
+ENTRY
+build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_TWO" "$DIRECTORY_TEMP/work2.AppImage" gzip
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --replace --yes "$DIRECTORY_TEMP/work2.AppImage" > "$DIRECTORY_TEMP/upgrade.txt" 2>&1
+COUNT_LAUNCHERS=$(ls -1 "$DIRECTORY_APPLICATIONS"/org.example.Probe*.desktop 2>/dev/null | wc -l)
+if [ "$COUNT_LAUNCHERS" -ne 1 ]; then
+    fail_test "upgrade left $COUNT_LAUNCHERS launchers instead of one"
+fi
+grep -q 'work2.AppImage' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
+    || fail_test "upgrade did not point the launcher at the new AppImage"
+COUNT_ENTRIES=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -c . || true)
+if [ "$COUNT_ENTRIES" -ne 1 ]; then
+    fail_test "upgrade left $COUNT_ENTRIES manifests instead of one"
+fi
+if grep -E '^icon=' "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/"*.manifest | grep -q '\.desktop$'; then
+    fail_test "an upgrade installed a .desktop file as an icon"
 fi
 
 echo "=== explain shows the embedded entry ==="
