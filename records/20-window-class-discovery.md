@@ -95,3 +95,4 @@ matching manifest record. The owner is to confirm the dock icon.
 ## Commits
 
 - `b006b91` Read StartupWMClass from the running application
+- `2ceb4ed` Point the audit remedy at the windows command
