@@ -116,9 +116,14 @@ class Geometry:
         try:
             with open(self.path, encoding="utf-8") as handle:
                 loaded = json.load(handle)
-            return loaded if isinstance(loaded, dict) else {}
         except Exception:
             return {}
+        if not isinstance(loaded, dict):
+            return {}
+        # Migrate the first format, which stored one size at the top level.
+        if "width" in loaded and "main" not in loaded:
+            return {"main": {"width": loaded.get("width"), "height": loaded.get("height")}}
+        return loaded
 
     def _store(self):
         try:
