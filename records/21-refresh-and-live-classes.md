@@ -112,3 +112,4 @@ Cura and OpenShot.
 ## Commits
 
 - `2726fac` Add refresh, and trace a payload back to its AppImage by APPIMAGE
+- `a672039` Record: refresh and the live window classes
