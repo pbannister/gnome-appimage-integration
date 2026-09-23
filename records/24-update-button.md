@@ -87,4 +87,4 @@ than silently reverted.
 ## Commits
 
 - `d839ff5` Add an Update button, and make one update path for window and menu
-- `TBD2` Record: the Update button and the one update path
+- `b67c37c`, `3ce9b25` Record: the Update button and the one update path
