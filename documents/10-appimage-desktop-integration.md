@@ -262,10 +262,21 @@ AppImages have an update waiting. Two of the specification's transports are dead
 `appimagetool`'s `--guess` option has been embedded as if it were a transport; all three are named
 rather than treated as a network error.
 
-Reading is the whole of it for now: nothing downloads or installs an update. A zsync delta needs a
-zsync client, and the new file's authenticity needs the vendor's signature — which, on this host,
-the FreeCAD AppImages do not carry (their `.sha256_sig` is empty padding). Both are decisions for a
-later episode; the check is what tells the owner an update exists.
+`appimage-integrate update` replaces the file with what the transport offers, and only after
+verifying the download: the release's published `<asset>-SHA256.txt` is compared when the release
+publishes one, and the downloaded file's own `.sha256_sig` is always checked (a PGP signature
+there is the strongest evidence available). A mismatch refuses the update and leaves the working
+file alone; a download with nothing published to check against is reported as exactly that rather
+than as verified. The replacement goes through `<name>.part`, keeps the previous file with
+`--backup`, makes the new file executable, and re-renders that one launcher, so its record, icon,
+name and window class survive. `--force` takes the offered file when the transport names no
+version.
+
+Two things are deliberately still out of scope. A zsync *delta* needs a zsync client, which is not
+installed here, so an update downloads the whole file — the check prints the size so the cost is
+visible first. And authenticity rests on the vendor: the FreeCAD AppImages carry no PGP signature
+(their `.sha256_sig` is empty padding), so their only published digest comes from the same release
+over the same transport. Where a vendor does sign, the existing `gpg --verify` path is used.
 
 ### Naming a launcher the user can tell apart
 

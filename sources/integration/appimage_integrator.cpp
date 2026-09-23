@@ -332,27 +332,7 @@ std::string exec_field_code(const std::string &s_exec) {
 
 // Parse the leading executable token of an Exec line, honouring double quotes.
 std::string exec_program(const std::string &s_exec) {
-    std::string s_trimmed = trim_spaces(s_exec);
-    if (s_trimmed.empty()) {
-        return {};
-    }
-    if ('"' != s_trimmed[0]) {
-        const std::size_t i_space = s_trimmed.find(' ');
-        return std::string::npos == i_space ? s_trimmed : s_trimmed.substr(0, i_space);
-    }
-    std::string s_result;
-    for (std::size_t i_index = 1; i_index < s_trimmed.size(); i_index++) {
-        const char c_character = s_trimmed[i_index];
-        if ('\\' == c_character && i_index + 1 < s_trimmed.size()) {
-            s_result += s_trimmed[++i_index];
-            continue;
-        }
-        if ('"' == c_character) {
-            break;
-        }
-        s_result += c_character;
-    }
-    return s_result;
+    return gnome_appimage::desktop::desktop_exec_program(s_exec);
 }
 
 // Two spellings may name the same file, directly or through a symlink.
@@ -1000,17 +980,6 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_plan.startup_wm_class = s_remembered_wm_class;
         }
         if (o_plan.startup_wm_class.empty()) {
-            // Borrow the class from a launcher that already represents this application.
-            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
-                if (!o_conflict.wm_class.empty()) {
-                    o_plan.startup_wm_class = o_conflict.wm_class;
-                    o_plan.notes.push_back("adopted StartupWMClass=" + o_conflict.wm_class
-                                           + " from " + o_conflict.path);
-                    break;
-                }
-            }
-        }
-        if (o_plan.startup_wm_class.empty()) {
             // Repair path: a launcher this tool displaced may carry the class.
             const std::string s_backup_directory = join_path(s_state_directory_, "backup");
             std::error_code o_backup_error;
@@ -1051,24 +1020,42 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                 }
             }
         }
+        // Launchers that already represent this application.  The class takes part in
+        // that decision, so the detection is a lambda: adopting a class below can change
+        // which launchers match, and then it has to be asked again.
+        const std::vector<installed_appimage_o> o_installed = list_installed();
+        const auto o_detect_conflicts = [&]() {
+            return detect_application_conflicts(
+                o_environment_,
+                normalize_application_name(
+                    o_entry.value("Desktop Entry", "Name").value_or(std::string())),
+                o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string()),
+                o_plan.startup_wm_class,
+                strip_extension(fs::path(o_plan.appimage_path).filename().string()),
+                o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed,
+                o_options.refresh_own_launchers);
+        };
+        o_plan.conflicts = o_detect_conflicts();
+
+        if (o_plan.startup_wm_class.empty()) {
+            // Borrow the class from a launcher that already represents this application:
+            // it is the class the dock already matches on for this application.
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                if (!o_conflict.wm_class.empty()) {
+                    o_plan.startup_wm_class = o_conflict.wm_class;
+                    o_plan.notes.push_back("adopted StartupWMClass=" + o_conflict.wm_class
+                                           + " from " + o_conflict.path);
+                    o_plan.conflicts = o_detect_conflicts();
+                    break;
+                }
+            }
+        }
         if (o_plan.startup_wm_class.empty()) {
             o_plan.warnings.push_back(
                 "the embedded entry has no StartupWMClass and no earlier launcher supplied one; "
                 "the dock may show a generic icon until one is set (read the window app id with "
                 "'lg', then reinstall with --wm-class)");
         }
-
-        // Launchers that already represent this application.
-        const std::vector<installed_appimage_o> o_installed = list_installed();
-        o_plan.conflicts = detect_application_conflicts(
-            o_environment_,
-            normalize_application_name(
-                o_entry.value("Desktop Entry", "Name").value_or(std::string())),
-            o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string()),
-            o_plan.startup_wm_class,
-            strip_extension(fs::path(o_plan.appimage_path).filename().string()),
-            o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed,
-            o_options.refresh_own_launchers);
 
         // How this file's version compares with what is already installed.  The
         // newest installed version is the one that matters: it is what the owner

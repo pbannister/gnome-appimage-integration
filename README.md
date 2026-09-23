@@ -96,6 +96,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --wm-class-from-window <AppImage>` | read that class from the running application |
 | `appimage-integrate install --name NAME <AppImage>` | set `Name=` in the launcher, e.g. to carry a version |
 | `appimage-integrate install --install-dir DIR <AppImage>` | use another managed directory |
+| `appimage-integrate migrate <launcher>` | adopt a launcher another tool wrote for an AppImage |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
 | `appimage-integrate list` | list AppImages integrated by this tool, marking any whose file is gone |
 | `appimage-integrate refresh` | rewrite every recorded launcher from its embedded entry, keeping names, ids, icons and window classes |
@@ -104,6 +105,9 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate update --check <AppImage>` | ask the embedded update information whether a newer build exists |
 | `appimage-integrate update --check --all` | do that for every AppImage this tool integrated |
+| `appimage-integrate update <AppImage>` | replace the file with what the transport offers, after verifying the download |
+| `appimage-integrate update --all --yes` | do that for every recorded AppImage that has an update waiting |
+| `appimage-integrate update --force --backup <AppImage>` | take the offered file when no version can be compared, and keep the old one as `<name>.previous` |
 | `appimage-integrate audit [--check]` | report every integration inconsistency on this desktop, and with `--check` which AppImages have an update waiting |
 | `appimage-integrate install --ignore-signature <AppImage>` | integrate although `.sha256_sig` does not match the payload |
 
@@ -112,6 +116,8 @@ An AppImage whose `.sha256_sig` section holds a digest or a signature is checked
 `refresh` is for launchers written by an older version of this tool: it re-renders each one from the AppImage's embedded entry, so new keys appear in one command, and preserves what the embedded entry does not carry (the `Name=` you chose, the desktop id, the icon name, the window class, and the launcher's own record). `--wm-class CLASS` uses that class for every launcher it rewrites; `--wm-class-from-window` reads the class from each running application instead. A recorded AppImage that is no longer at its path is named and skipped, and makes the command exit non-zero.
 
 `update --check` reads the AppImage's `.upd_info` section and asks the transport it names what it has, then compares that with the installed version: `gh-releases-zsync` through the GitHub API (release, prerelease or a specific tag, with the asset matched by the specification's file-name pattern), and `zsync` by reading the `Filename:` header of the zsync file. It downloads nothing. A value that is absent, not a transport the specification defines (Cura's `guess` is an `appimagetool` option), or one this tool cannot follow (`pling-v1-zsync`, `bintray-zsync`) is reported as such, and makes the command exit non-zero. `appimage-inspect --update-url` resolves the same field offline, so the pipe-separated string can be read without a network.
+
+`update` without `--check` replaces the file the transport offers. It downloads to `<name>.part` beside the installed file, verifies the download, replaces the file only then, makes it executable, and re-renders that launcher so its record, icon, name and window class stay as they were. Verification compares the release's published `<asset>-SHA256.txt` when there is one and always checks the downloaded file's own `.sha256_sig`; a mismatch refuses the update and leaves the working file untouched. A download with nothing published to check against is reported as exactly that. `--force` takes the offered file when the check cannot show it is newer (a zsync file names no version), `--backup` keeps the replaced file as `<name>.previous`, and `--dry-run` prints the download URL and size without fetching anything.
 
 The launcher each integration writes carries three context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, **Check for updates**, which runs the check and shows the answer in a notification, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |

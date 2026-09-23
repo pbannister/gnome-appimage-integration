@@ -195,6 +195,32 @@ bool is_known_type(const std::string &s_type) {
 
 }  // namespace
 
+// The program an Exec line runs: the first token, with quoting and escapes resolved.
+std::string desktop_exec_program(const std::string &s_exec) {
+    const std::string s_trimmed = trim_spaces(s_exec);
+    if (s_trimmed.empty()) {
+        return {};
+    }
+    if ('"' != s_trimmed[0]) {
+        const std::size_t i_space = s_trimmed.find(' ');
+        return std::string::npos == i_space ? s_trimmed : s_trimmed.substr(0, i_space);
+    }
+    std::string s_result;
+    for (std::size_t i_index = 1; i_index < s_trimmed.size(); i_index++) {
+        const char c_character = s_trimmed[i_index];
+        if ('\\' == c_character && i_index + 1 < s_trimmed.size()) {
+            s_result += s_trimmed[++i_index];
+            continue;
+        }
+        if ('"' == c_character) {
+            break;
+        }
+        s_result += c_character;
+    }
+    return s_result;
+}
+
+
 const desktop_entry_key_o *desktop_entry_group_o::find_key(const std::string &s_name) const {
     for (const desktop_entry_key_o &o_key : keys) {
         if (o_key.name == s_name && o_key.locale.empty()) {

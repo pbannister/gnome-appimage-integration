@@ -2,10 +2,8 @@
 
 ## Pending
 
-* [ ] actually update an AppImage: download the new file (or a zsync delta) into the managed directory, verify it, replace the old one, and re-integrate in place. Two decisions come first: whether to shell out to a zsync client or re-download in full, and what counts as trusted, because the FreeCAD AppImages carry no PGP signature and their only published digest comes from the same release.
-* [ ] deal with the broken `balena-etcher-electron.desktop`: its AppImage is gone from `~/Applications`, so `refresh` skips it and `audit` reports the missing target. Either restore the file or uninstall the record.
-* [ ] fix the dead recovery path for `StartupWMClass`: `plan()` looks for a class to borrow from `o_plan.conflicts` before those conflicts are detected, so "adopted StartupWMClass=… from <launcher>" can never fire.
-* [ ] consider a `migrate` subcommand that installs this tool's launcher and removes a named older one.
+* [ ] use a zsync client for updates when one is installed, so an update transfers a delta instead of the whole file. `zsync`, `zsync2` and `appimageupdatetool` are all absent here, so `update` downloads in full today; the check already prints the size.
+* [ ] decide what to do about the version a file name states: `version_of_appimage` reads OrcaSlicer's `…V2.4.2_62a8fff…` as `2.4`, which is what an update check would compare against a release tag.
 
 ## Open Questions
 
@@ -14,6 +12,10 @@
 
 ## Recently Completed
 
+* [x] actually update an AppImage: `update` downloads to `<name>.part`, verifies the download against the release's published `-SHA256.txt` and the file's own `.sha256_sig`, refuses a mismatch or an unreadable file and leaves the working one alone, then replaces the file, makes it executable and re-renders that one launcher (record, icon, name and class kept). `--force` takes the offered file when the transport names no version, `--backup` keeps the old file as `<name>.previous`, and `--dry-run` prints the URL and size without fetching.
+* [x] `migrate` adopts a launcher another tool wrote: it takes the AppImage from the launcher's `Exec`, installs this tool's launcher for it, backs up the displaced one, and steals its window class. A dry run, an ID or a path, JSON, and a clear refusal when the AppImage is gone are all covered.
+* [x] fix the dead recovery path for `StartupWMClass`: the class is now borrowed from a conflicting launcher after those conflicts are detected, and the detection is repeated with the adopted class, so "adopted StartupWMClass=…" fires. `desktop_exec_program` also moved into the desktop reader, where the Exec parsing belongs.
+* [x] deal with the broken `balena-etcher-electron.desktop`: the AppImage was in `~/Downloads/Installers`, so it was re-integrated from there; the tool's repair path moved it back to `~/Applications`, re-rendered the launcher with the full action set, and the audit finding cleared.
 * [x] put the update information to work: `appimage-inspect --update-url` resolves the field offline into the URL and asset pattern it names; `update --check [--all]` asks the GitHub API (release, prerelease, or a specific tag) or reads a zsync file's `Filename:` header, and compares the answer with the installed version without downloading anything; `audit` reports a recorded AppImage whose update information is missing or unusable, and `audit --check` reports which have an update waiting; every launcher now carries a **Check for updates** context action. Fixing this also exposed an inverted sign in the version comparison, where the shorter of two otherwise equal versions sorted newer (1.0 > 1.0.1).
 * [x] add a `refresh` command that re-writes every recorded launcher from the embedded entry. It preserves what the embedded entry does not carry — the `Name=` a user chose, the desktop id, the icon name, and the window class — keeps each recorded launcher's own identifier so a second launcher for one AppImage keeps its own record, and names a launcher whose AppImage is gone instead of failing silently. All eight launchers here now carry the `AppImage Activator` context action.
 * [x] re-integrate the launchers that had no class. Cura was read from its running window with `install --wm-class-from-window` (`UltiMaker-Cura`); OpenShot and OpenShot-2 were read the same way with `refresh --wm-class-from-window` (`openshot`, the class half of the window's `openshot-qt`/`openshot` pair), after OpenShot turned out to crash on this session and had to be run under software rendering to be read at all. `windows` now reads the window tree as well, so a window no window manager has marked is still found.

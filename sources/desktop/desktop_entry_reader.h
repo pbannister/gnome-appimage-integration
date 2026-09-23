@@ -93,6 +93,10 @@ std::vector<desktop_entry_diagnostic_o> desktop_entry_validate(const desktop_ent
 // reported as "%%". Unknown codes are returned unchanged.
 std::vector<std::string> exec_field_codes(const std::string &s_exec);
 
+// The program an Exec line runs: the first token, with quoting and escapes resolved.
+// Returns an empty string when the line names no program.
+std::string desktop_exec_program(const std::string &s_exec);
+
 // Return only the deprecated Exec field codes found in the value.
 std::vector<std::string> exec_deprecated_field_codes(const std::string &s_exec);
 

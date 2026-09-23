@@ -429,4 +429,47 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FI
 grep -q 'Repair.AppImage' "$FILE_REPAIR_LAUNCHER" \
     || fail_test "uninstall did not restore the replaced launcher"
 
+echo "=== a class is adopted from a launcher that already represents the application ==="
+# The embedded entry has no class, and neither does this tool's record; the only value
+# available is the one the other launcher already uses, which is the class the dock
+# matches on today.  The adoption happens after the conflicts are known, so this also
+# proves the detection is repeated with the class in hand.
+DIRECTORY_PAYLOAD_ADOPT="$DIRECTORY_TEMP/payload-adopt"
+mkdir -p "$DIRECTORY_PAYLOAD_ADOPT/usr/share/icons/hicolor/48x48/apps"
+printf 'fake-png-adopt' > "$DIRECTORY_PAYLOAD_ADOPT/usr/share/icons/hicolor/48x48/apps/adopt.png"
+printf 'fake-diricon-adopt' > "$DIRECTORY_PAYLOAD_ADOPT/.DirIcon"
+cat > "$DIRECTORY_PAYLOAD_ADOPT/org.example.Adopt.desktop" <<'ENTRY'
+[Desktop Entry]
+Type=Application
+Name=Adopt App
+Exec=adopt %U
+Icon=adopt
+Categories=Utility;
+X-AppImage-Version=5.0.0
+ENTRY
+build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_ADOPT" "$DIRECTORY_TEMP/Adopt.AppImage" gzip
+printf '[Desktop Entry]\nType=Application\nName=Adopt App\nExec=%s %%U\nIcon=adopt\nStartupWMClass=AdoptClassFromOther\n' \
+    "$DIRECTORY_TEMP/Adopt.AppImage" > "$DIRECTORY_APPLICATIONS/legacy.Adopt.desktop"
+
+# The plan refuses the conflict, so the adoption is read from the explain report, which
+# carries the class the install would write.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json \
+    "$DIRECTORY_TEMP/Adopt.AppImage" > "$DIRECTORY_TEMP/adopt-explain.json" 2>/dev/null || true
+python3 - "$DIRECTORY_TEMP/adopt-explain.json" <<'PYTHON'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["startup_wm_class"] == "AdoptClassFromOther", data
+assert data["valid"] is False, "the foreign launcher should be reported as a conflict"
+print("adopted class ok")
+PYTHON
+
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes --replace \
+    "$DIRECTORY_TEMP/Adopt.AppImage" > "$DIRECTORY_TEMP/adopt-install.txt" 2>&1
+grep -q '^StartupWMClass=AdoptClassFromOther$' \
+    "$DIRECTORY_APPLICATIONS/org.example.Adopt.desktop" \
+    || fail_test "the adopted class did not reach the launcher"
+
+
 pass_test "integration conflicts"

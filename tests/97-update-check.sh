@@ -137,12 +137,15 @@ fi
 grep -q 'not a transport the AppImage specification defines' "$DIRECTORY_TEMP/guess-check.txt" \
     || fail_test "the check did not report the unusable value"
 
-echo "=== update needs --check ==="
-if "$DIRECTORY_BUILD/appimage-integrate" update "$DIRECTORY_TEMP/ProbeUpdate.AppImage" \
+echo "=== the write path refuses a value it cannot check ==="
+# Without --check, update is the command that replaces the file; it must still ask the
+# transport first, and refuse when the value is not one it can follow.
+if "$DIRECTORY_BUILD/appimage-integrate" update --yes "$DIRECTORY_TEMP/Guess.AppImage" \
         > "$DIRECTORY_TEMP/bare.txt" 2>&1; then
-    fail_test "a bare update succeeded, although nothing is downloaded yet"
+    fail_test "update acted on an update information value it cannot check"
 fi
-grep -q -- '--check' "$DIRECTORY_TEMP/bare.txt" || fail_test "the refusal does not say what to run"
+grep -q 'cannot check' "$DIRECTORY_TEMP/bare.txt" \
+    || fail_test "the refusal does not say why nothing was downloaded"
 
 echo "=== a local zsync server answers the check ==="
 DIRECTORY_WWW="$DIRECTORY_TEMP/www"

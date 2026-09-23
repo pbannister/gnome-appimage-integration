@@ -111,9 +111,12 @@ does not host the `.zsync`, so the transport needs Pling's own API. This project
 and says that it cannot be checked, rather than pretending it can.
 
 The value is a claim by the file about where its successors live. Reading it is free; following
-it means asking a third party for a download, so this project resolves the string into the URL it
-names (`appimage-inspect --update-url`), can ask that URL what it has
-(`appimage-integrate update --check`), and does not download or install anything yet. The zsync
+it means asking a third party for a download, so this project keeps the two apart: it resolves the
+string into the URL it names (`appimage-inspect --update-url`), asks that URL what it has
+(`appimage-integrate update --check`), and only replaces the file when asked to
+(`appimage-integrate update`). The replacement is verified first: the release's published
+`-SHA256.txt` when the release has one, and always the downloaded file's own `.sha256_sig`, whose
+PGP form is the strongest evidence available. A mismatch refuses the update. The zsync
 file named by the field is the AppImage's own name plus `.zsync`, so the AppImage asset is the
 same pattern without that suffix.
 

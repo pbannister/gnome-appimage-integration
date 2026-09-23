@@ -1,11 +1,14 @@
 // appimage-integrate: plan, install, uninstall, audit, and run AppImages,
 // and manage the *.AppImage double-click handler.
 #include "appimage/appimage_reader.h"
+#include "appimage/appimage_signature.h"
 #include "appimage/appimage_update_information.h"
 #include "appimage/squashfs_reader.h"
 #include "desktop/desktop_entry_locator.h"
 #include "desktop/desktop_entry_reader.h"
+#include "desktop/desktop_entry_locator.h"
 #include "integration/appimage_integrator.h"
+#include "crypto/sha256.h"
 #include "json/json_reader.h"
 #include "tools/desktop_entry_output.h"
 #include "version/version.h"
@@ -68,7 +71,9 @@ void print_usage(std::ostream &o_out) {
           << "  uninstall --identifier ID [--remove-appimage]\n"
           << "  list                      list AppImages integrated by this tool\n"
           << "  refresh                   rewrite every recorded launcher from its embedded entry\n"
-          << "  update --check            ask the update information whether a newer build exists\n"
+          << "  migrate <launcher>        adopt a launcher another tool wrote for an AppImage\n"
+          << "  update [--check]          ask the update information, and with --yes replace the\n"
+          << "                            file with what the transport offers\n"
           << "  windows                   list running AppImages and their window classes\n"
           << "  run <AppImage> [args...]  run once, without integrating\n"
           << "  audit [--check]           report desktop integration inconsistencies\n"
@@ -94,10 +99,13 @@ void print_usage(std::ostream &o_out) {
           << "  --detached                for run: start in a new session and report the pid\n"
           << "  --json                    machine-readable output where supported\n"
           << "  --yes                     do not ask before writing\n"
-          << "  --dry-run                 for refresh: show what would be rewritten\n"
-          << "  --check                   for update and audit: ask the transport\n"
+          << "  --dry-run                 for refresh and update: show the work, write nothing\n"
+          << "  --check                   for update and audit: ask the transport, change nothing\n"
           << "  --all                     for update: every AppImage this tool integrated\n"
           << "  --notify                  for update: show the result in a desktop notification\n"
+          << "  --backup                  for update: keep the replaced file as <name>.previous\n"
+          << "  --force                   for update: take the offered file although the check\n"
+          << "                            cannot show that it is newer\n"
           << "  --version                 print the build-time version\n";
 }
 
@@ -1008,6 +1016,80 @@ void print_quoted_list(const std::vector<std::string> &o_items) {
 // written before a change to the template gain the new keys in one command.  What the
 // embedded entry does not carry is preserved from the launcher it replaces: the Name=
 // a user chose, the desktop id, the icon name, and the window class.
+// Build the install plan that re-renders one recorded launcher.  Shared by `refresh`,
+// which does it for every record, and by `update`, which does it for the file it has
+// just replaced.  Returns false with a reason when the record cannot be re-rendered.
+bool build_refresh_plan(const appimage_integrator_c &o_integrator,
+                        const installed_appimage_o &o_entry, bool b_wm_class_from_window,
+                        const std::string &s_wm_class_override, integration_plan_o &o_plan,
+                        std::string &s_class_source, std::string &s_error) {
+    using gnome_appimage::desktop::desktop_entry_file_o;
+    using gnome_appimage::desktop::desktop_entry_reader_c;
+
+    std::error_code o_exists_error;
+    if (!fs::exists(o_entry.appimage_path, o_exists_error)) {
+        s_error = "the AppImage is not at " + o_entry.appimage_path;
+        return false;
+    }
+    // Read the launcher being replaced: its Name= may have been chosen by hand, and its
+    // class is what the dock currently matches on.
+    std::string s_name;
+    std::string s_launcher_class;
+    desktop_entry_file_o o_launcher;
+    std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
+    if (desktop_entry_reader_c::parse_file(o_entry.desktop_entry_path, o_launcher,
+                                           o_diagnostics)) {
+        s_name = o_launcher.value("Desktop Entry", "Name").value_or(std::string());
+        s_launcher_class =
+            o_launcher.value("Desktop Entry", "StartupWMClass").value_or(std::string());
+    }
+
+    // The class to write: an explicit --wm-class, then the running application when
+    // asked to read it, then what the launcher already has, then a class this tool
+    // recorded earlier.  Nothing is invented, so a launcher keeps its class unless one
+    // of the two explicit sources supplies a better one.
+    std::string s_class;
+    s_class_source.clear();
+    if (!s_wm_class_override.empty()) {
+        s_class = s_wm_class_override;
+        s_class_source = "--wm-class";
+    }
+    if (s_class.empty() && b_wm_class_from_window) {
+        std::string s_where;
+        std::string s_window_error;
+        s_class = window_class_for_appimage(o_entry.appimage_path, s_where, s_window_error);
+        if (!s_class.empty()) {
+            s_class_source = "the running application, " + s_where;
+        }
+    }
+    if (s_class.empty() && !s_launcher_class.empty()) {
+        s_class = s_launcher_class;
+        s_class_source = "the launcher being replaced";
+    }
+    if (s_class.empty() && o_entry.startup_wm_class_is_explicit
+        && !o_entry.startup_wm_class.empty()) {
+        s_class = o_entry.startup_wm_class;
+        s_class_source = "the record";
+    }
+
+    integration_options_o o_options;
+    o_options.tool_path = tool_path(o_integrator);
+    o_options.install_directory = fs::path(o_entry.appimage_path).parent_path().string();
+    o_options.desktop_file_name = o_entry.desktop_id;
+    o_options.icon_name_override = o_entry.icon_name;
+    o_options.name_override = s_name;
+    o_options.startup_wm_class_override = s_class;
+    o_options.move_appimage = false;
+    o_options.refresh_own_launchers = true;
+    o_options.identifier_override = o_entry.identifier;
+
+    if (!o_integrator.plan(o_entry.appimage_path, o_options, o_plan)) {
+        s_error = o_plan.error;
+        return false;
+    }
+    return true;
+}
+
 int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_class_from_window,
                     const std::string &s_wm_class_override) {
     using gnome_appimage::desktop::desktop_entry_file_o;
@@ -1029,67 +1111,12 @@ int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_cl
     std::vector<std::string> o_class_sources;
     std::vector<std::string> o_skipped;
     for (const installed_appimage_o &o_entry : o_installed) {
-        std::error_code o_exists_error;
-        if (!fs::exists(o_entry.appimage_path, o_exists_error)) {
-            o_skipped.push_back(o_entry.desktop_id + ": the AppImage is not at "
-                                + o_entry.appimage_path);
-            continue;
-        }
-        // Read the launcher being replaced: its Name= may have been chosen by hand,
-        // and its class is what the dock currently matches on.
-        std::string s_name;
-        std::string s_launcher_class;
-        desktop_entry_file_o o_launcher;
-        std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
-        if (desktop_entry_reader_c::parse_file(o_entry.desktop_entry_path, o_launcher,
-                                               o_diagnostics)) {
-            s_name = o_launcher.value("Desktop Entry", "Name").value_or(std::string());
-            s_launcher_class =
-                o_launcher.value("Desktop Entry", "StartupWMClass").value_or(std::string());
-        }
-
-        // The class to write: an explicit --wm-class, then the running application when
-        // asked to read it, then what the launcher already has, then a class this tool
-        // recorded earlier.  Nothing is invented, so a launcher keeps its class unless
-        // one of the two explicit sources supplies a better one.
-        std::string s_class;
-        std::string s_class_source;
-        if (!s_wm_class_override.empty()) {
-            s_class = s_wm_class_override;
-            s_class_source = "--wm-class";
-        }
-        if (s_class.empty() && b_wm_class_from_window) {
-            std::string s_where;
-            std::string s_error;
-            s_class = window_class_for_appimage(o_entry.appimage_path, s_where, s_error);
-            if (!s_class.empty()) {
-                s_class_source = "the running application, " + s_where;
-            }
-        }
-        if (s_class.empty() && !s_launcher_class.empty()) {
-            s_class = s_launcher_class;
-            s_class_source = "the launcher being replaced";
-        }
-        if (s_class.empty() && o_entry.startup_wm_class_is_explicit
-            && !o_entry.startup_wm_class.empty()) {
-            s_class = o_entry.startup_wm_class;
-            s_class_source = "the record";
-        }
-
-        integration_options_o o_options;
-        o_options.tool_path = tool_path(o_integrator);
-        o_options.install_directory = fs::path(o_entry.appimage_path).parent_path().string();
-        o_options.desktop_file_name = o_entry.desktop_id;
-        o_options.icon_name_override = o_entry.icon_name;
-        o_options.name_override = s_name;
-        o_options.startup_wm_class_override = s_class;
-        o_options.move_appimage = false;
-        o_options.refresh_own_launchers = true;
-        o_options.identifier_override = o_entry.identifier;
-
         integration_plan_o o_plan;
-        if (!o_integrator.plan(o_entry.appimage_path, o_options, o_plan)) {
-            o_skipped.push_back(o_entry.desktop_id + ": " + o_plan.error);
+        std::string s_class_source;
+        std::string s_error;
+        if (!build_refresh_plan(o_integrator, o_entry, b_wm_class_from_window,
+                                s_wm_class_override, o_plan, s_class_source, s_error)) {
+            o_skipped.push_back(o_entry.desktop_id + ": " + s_error);
             continue;
         }
         o_plans.push_back(std::move(o_plan));
@@ -1215,6 +1242,7 @@ int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_cl
 struct update_asset_o {
     std::string name;
     long long i_size = 0;
+    std::string url;
 };
 
 // One release of a GitHub repository.
@@ -1237,8 +1265,14 @@ struct update_check_o {
     std::string zsync_name;
     long long i_zsync_size = 0;
     bool b_update_available = false;
+    // Where the offered file would come from, and where its published digest sits when
+    // the release publishes one.
+    std::string download_url;
+    std::string digest_url;
     // Empty when the check was made; otherwise why it could not be.
     std::string problem;
+    // Set when this run replaced the file, for the report and the notification.
+    std::string applied;
 };
 
 // Run a command and capture its output, keeping the exit status: a network failure
@@ -1350,6 +1384,10 @@ bool release_from_object(const gnome_appimage::json::value_c &o_object,
         const gnome_appimage::json::value_c *p_size = o_asset.member("size");
         if (nullptr != p_size && p_size->is_number()) {
             o_found.i_size = static_cast<long long>(p_size->as_number());
+        }
+        const gnome_appimage::json::value_c *p_url = o_asset.member("browser_download_url");
+        if (nullptr != p_url && p_url->is_string()) {
+            o_found.url = p_url->as_string();
         }
         o_release.o_assets.push_back(std::move(o_found));
     }
@@ -1463,11 +1501,26 @@ void check_update(const std::string &s_appimage, const std::string &s_informatio
         }
         o_result.zsync_name = p_zsync->name;
         o_result.i_zsync_size = p_zsync->i_size;
-        if (!o_update.image_pattern.empty()) {
-            const update_asset_o *p_image = find_asset(o_release, o_update.image_pattern);
-            if (nullptr != p_image) {
-                o_result.asset_name = p_image->name;
-                o_result.i_asset_size = p_image->i_size;
+        if (o_update.image_pattern.empty()) {
+            o_result.problem = "the update information names no AppImage, only a zsync file";
+            return;
+        }
+        const update_asset_o *p_image = find_asset(o_release, o_update.image_pattern);
+        if (nullptr == p_image) {
+            o_result.problem = "release " + o_release.tag + " has no asset matching "
+                               + o_update.image_pattern;
+            return;
+        }
+        o_result.asset_name = p_image->name;
+        o_result.i_asset_size = p_image->i_size;
+        o_result.download_url = p_image->url;
+        // A release usually publishes the digest beside the file, named after it.
+        for (const update_asset_o &o_asset : o_release.o_assets) {
+            if (o_asset.name != p_image->name
+                && 0 == o_asset.name.find(p_image->name)
+                && std::string::npos != o_asset.name.find("SHA256")) {
+                o_result.digest_url = o_asset.url;
+                break;
             }
         }
     } else {
@@ -1496,6 +1549,7 @@ void check_update(const std::string &s_appimage, const std::string &s_informatio
         o_result.relation =
             o_result.asset_name == fs::path(s_appimage).filename().string() ? "same-file"
                                                                            : "other-file";
+        o_result.download_url = o_update.image_pattern;
         return;
     }
 
@@ -1517,6 +1571,9 @@ void check_update(const std::string &s_appimage, const std::string &s_informatio
 
 // The sentence a person reads for one check.
 std::string update_check_sentence(const update_check_o &o_check) {
+    if (!o_check.applied.empty()) {
+        return o_check.applied;
+    }
     if (!o_check.problem.empty()) {
         return "cannot check: " + o_check.problem;
     }
@@ -1620,13 +1677,279 @@ std::vector<update_check_o> run_update_checks(const appimage_integrator_c &o_int
     return o_checks;
 }
 
-int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_notify) {
+
+// Run a command with the terminal attached, for a download that takes minutes: curl's
+// progress has to be visible, so this does not capture the output.
+bool run_inherit(const std::vector<std::string> &o_arguments, int &i_status) {
+    const pid_t i_child = fork();
+    if (0 > i_child) {
+        return false;
+    }
+    if (0 == i_child) {
+        std::vector<char *> o_argv;
+        o_argv.reserve(o_arguments.size() + 1);
+        for (const std::string &s_argument : o_arguments) {
+            o_argv.push_back(const_cast<char *>(s_argument.c_str()));
+        }
+        o_argv.push_back(nullptr);
+        execvp(o_argv[0], o_argv.data());
+        _exit(127);
+    }
+    int i_wait_status = 0;
+    waitpid(i_child, &i_wait_status, 0);
+    i_status = WIFEXITED(i_wait_status) ? WEXITSTATUS(i_wait_status) : -1;
+    return true;
+}
+
+// The digest of a whole file, lowercase hexadecimal.
+bool sha256_of_file(const std::string &s_path, std::string &s_digest, std::string &s_error) {
+    std::ifstream o_input(s_path, std::ios::binary);
+    if (!o_input) {
+        s_error = "cannot read " + s_path;
+        return false;
+    }
+    gnome_appimage::crypto::sha256_c o_hash;
+    std::vector<char> o_buffer(1 << 16);
+    while (o_input) {
+        o_input.read(o_buffer.data(), static_cast<std::streamsize>(o_buffer.size()));
+        const std::streamsize i_count = o_input.gcount();
+        if (0 < i_count) {
+            o_hash.update(reinterpret_cast<const std::uint8_t *>(o_buffer.data()),
+                          static_cast<std::size_t>(i_count));
+        }
+    }
+    s_digest = o_hash.hex_digest();
+    return true;
+}
+
+// The first 64-character hexadecimal run in a text, which is what a published
+// `<file>-SHA256.txt` holds.
+std::string first_hex_digest(const std::string &s_text) {
+    std::string s_current;
+    for (const char c_character : s_text) {
+        if (0 != std::isxdigit(static_cast<unsigned char>(c_character))) {
+            s_current += static_cast<char>(std::tolower(static_cast<unsigned char>(c_character)));
+            if (64 == s_current.size()) {
+                return s_current;
+            }
+            continue;
+        }
+        s_current.clear();
+    }
+    return {};
+}
+
+// Download a URL to a file.  curl writes the file; the progress is left on the
+// terminal, because this can be hundreds of megabytes.
+bool download_file(const std::string &s_url, const std::string &s_path, std::string &s_error) {
+    if (!command_exists("curl")) {
+        s_error = "curl is not installed, so nothing can be downloaded";
+        return false;
+    }
+    int i_status = 0;
+    const bool b_ran = run_inherit({"curl", "-sS", "-L", "--connect-timeout", "20",
+                                    "--speed-limit", "1024", "--speed-time", "60",
+                                    "-H", "User-Agent: " + tool_user_agent(),
+                                    "-o", s_path, "--progress-bar", s_url},
+                                   i_status);
+    if (!b_ran) {
+        s_error = "cannot run curl";
+        return false;
+    }
+    if (0 != i_status) {
+        s_error = "the download failed (curl exit " + std::to_string(i_status) + ")";
+        return false;
+    }
+    std::error_code o_error;
+    if (!fs::is_regular_file(s_path, o_error) || 0 == fs::file_size(s_path, o_error)) {
+        s_error = "the download produced no file";
+        return false;
+    }
+    return true;
+}
+
+// Give a downloaded file the same executable bits its readability suggests, which is
+// what an AppImage needs and what the integrator does for a file it places.
+bool make_executable_file(const std::string &s_path, std::string &s_error) {
+    struct stat o_status = {};
+    if (0 != stat(s_path.c_str(), &o_status)) {
+        s_error = "cannot read the mode of " + s_path;
+        return false;
+    }
+    const mode_t u_mode = o_status.st_mode | ((o_status.st_mode & 0444) >> 2);
+    if (0 != chmod(s_path.c_str(), u_mode)) {
+        s_error = "cannot make " + s_path + " executable";
+        return false;
+    }
+    return true;
+}
+
+// What verifying a downloaded file found.
+struct update_verification_o {
+    std::string digest;
+    std::string digest_against;   // the published digest, when there was one
+    bool b_digest_published = false;
+    std::string signature;        // the signature label of the downloaded file
+    bool b_refused = false;
+    std::string problem;
+};
+
+// Check a downloaded file before it replaces a working one.  A published digest is
+// compared; the file's own `.sha256_sig` is verified when it holds one.  Either kind of
+// mismatch refuses the update, and a file with nothing to check is reported as
+// unverified rather than as verified.
+bool verify_download(const std::string &s_path, const std::string &s_digest_url,
+                     update_verification_o &o_result, std::string &s_error) {
+    using gnome_appimage::appimage::appimage_detection_e;
+    using gnome_appimage::appimage::appimage_info_o;
+    using gnome_appimage::appimage::appimage_reader_c;
+    using gnome_appimage::appimage::appimage_signature_e;
+    using gnome_appimage::appimage::appimage_signature_label;
+    using gnome_appimage::appimage::appimage_signature_result_e;
+    using gnome_appimage::appimage::verify_appimage_signature;
+
+    if (!sha256_of_file(s_path, o_result.digest, s_error)) {
+        return false;
+    }
+    if (!s_digest_url.empty()) {
+        std::string s_body;
+        std::string s_fetch_error;
+        if (http_get(s_digest_url, {}, false, s_body, s_fetch_error)) {
+            const std::string s_published = first_hex_digest(s_body);
+            if (s_published.empty()) {
+                o_result.problem = "the published digest file holds no digest";
+                o_result.b_refused = true;
+                return true;
+            }
+            o_result.b_digest_published = true;
+            o_result.digest_against = s_published;
+            if (s_published != o_result.digest) {
+                o_result.problem = "the downloaded file is not the published one: expected "
+                                   + s_published + " but it is " + o_result.digest;
+                o_result.b_refused = true;
+                return true;
+            }
+        } else {
+            // The release named a digest but it could not be fetched: that is not a
+            // mismatch, but it is not a verification either.
+            o_result.problem = "the published digest could not be fetched: " + s_fetch_error;
+        }
+    }
+
+    appimage_info_o o_info;
+    if (!appimage_reader_c::read(s_path, o_info)) {
+        o_result.problem = "the downloaded file cannot be read as an AppImage: " + o_info.error;
+        o_result.b_refused = true;
+        return true;
+    }
+    if (appimage_detection_e::type2 != o_info.detection) {
+        o_result.problem = "the downloaded file is not a type 2 AppImage";
+        o_result.b_refused = true;
+        return true;
+    }
+    o_result.signature = appimage_signature_label(o_info);
+    if (appimage_signature_e::hex_digest == o_info.signature
+        || appimage_signature_e::pgp_signature == o_info.signature) {
+        std::string s_signature_error;
+        static_cast<void>(verify_appimage_signature(s_path, o_info, s_signature_error));
+        o_result.signature = appimage_signature_label(o_info);
+        if (appimage_signature_result_e::mismatch == o_info.signature_result) {
+            o_result.problem = "the downloaded file's own signature does not match it: "
+                               + s_signature_error;
+            o_result.b_refused = true;
+            return true;
+        }
+    }
+    return true;
+}
+
+// Replace an installed AppImage with a verified download, then re-render the launcher
+// that runs it, so the record, icon, name and window class stay as they were.
+bool apply_update(const appimage_integrator_c &o_integrator,
+                  const installed_appimage_o *p_record, const update_check_o &o_check,
+                  bool b_backup, update_check_o &o_result, std::string &s_error) {
+    const std::string s_destination = o_check.appimage;
+    const std::string s_part = s_destination + ".part";
+    std::error_code o_error;
+    fs::remove(s_part, o_error);
+
+    if (!download_file(o_check.download_url, s_part, s_error)) {
+        fs::remove(s_part, o_error);
+        return false;
+    }
+    update_verification_o o_verification;
+    if (!verify_download(s_part, o_check.digest_url, o_verification, s_error)) {
+        fs::remove(s_part, o_error);
+        return false;
+    }
+    if (o_verification.b_refused) {
+        fs::remove(s_part, o_error);
+        s_error = o_verification.problem;
+        return false;
+    }
+
+    if (b_backup) {
+        const std::string s_previous = s_destination + ".previous";
+        fs::remove(s_previous, o_error);
+        fs::rename(s_destination, s_previous, o_error);
+        if (o_error) {
+            fs::remove(s_part, o_error);
+            s_error = "cannot keep the previous file: " + o_error.message();
+            return false;
+        }
+    }
+    fs::rename(s_part, s_destination, o_error);
+    if (o_error) {
+        s_error = "cannot put the download in place: " + o_error.message();
+        return false;
+    }
+    if (!make_executable_file(s_destination, s_error)) {
+        return false;
+    }
+
+    std::string s_note = "replaced with the offered file";
+    if (o_verification.b_digest_published) {
+        s_note += ", digest matches the published " + o_verification.digest;
+    } else if (!o_verification.signature.empty()
+               && "present (empty padding)" != o_verification.signature) {
+        s_note += ", signature " + o_verification.signature;
+    } else {
+        s_note += ", with no published digest or signature to check it against";
+    }
+    if (!o_verification.problem.empty()) {
+        s_note += "; " + o_verification.problem;
+    }
+
+    // Re-render this record's launcher against the new file, keeping its choices.
+    if (nullptr != p_record) {
+        integration_plan_o o_plan;
+        std::string s_class_source;
+        std::string s_plan_error;
+        if (!build_refresh_plan(o_integrator, *p_record, false, std::string(), o_plan,
+                                s_class_source, s_plan_error)) {
+            s_note += "; the launcher was not re-rendered: " + s_plan_error;
+        } else {
+            std::string s_install_error;
+            if (!o_integrator.install(o_plan, s_install_error)) {
+                s_note += "; the launcher was not re-rendered: " + s_install_error;
+            } else {
+                s_note += "; launcher re-rendered: " + o_plan.desktop_entry_path;
+            }
+        }
+    }
+    o_result.applied = s_note;
+    return true;
+}
+
+int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_notify,
+                   bool b_check, bool b_assume_yes, bool b_dry_run, bool b_backup,
+                   bool b_force) {
     using gnome_appimage::tools::json_escape;
 
     const appimage_integrator_c o_integrator;
     std::vector<std::string> o_paths;
     if (b_all) {
-        // Several records can describe launchers for one file; check the file once.
+        // Several records can describe launchers for one file; handle the file once.
         std::vector<std::string> o_seen;
         for (const installed_appimage_o &o_entry : o_integrator.list_installed()) {
             std::error_code o_error;
@@ -1650,68 +1973,394 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
         o_paths.push_back(s_path);
     }
 
-    const std::vector<update_check_o> o_checks = run_update_checks(o_integrator, o_paths);
+    std::vector<update_check_o> o_checks = run_update_checks(o_integrator, o_paths);
+
+    if (b_check) {
+        bool b_failed = false;
+        for (const update_check_o &o_check : o_checks) {
+            if (!o_check.problem.empty()) {
+                b_failed = true;
+            }
+        }
+        if (b_json) {
+            std::cout << "{\"checks\":[";
+            for (std::size_t i_index = 0; i_index < o_checks.size(); i_index++) {
+                const update_check_o &o_check = o_checks[i_index];
+                if (0 < i_index) {
+                    std::cout << ',';
+                }
+                std::cout << "{\"appimage\":\"" << json_escape(o_check.appimage)
+                          << "\",\"update_information\":\"" << json_escape(o_check.information)
+                          << "\",\"installed_version\":\""
+                          << json_escape(o_check.installed_version)
+                          << "\",\"installed_version_source\":"
+                          << (o_check.installed_source.empty()
+                                  ? std::string("null")
+                                  : "\"" + json_escape(o_check.installed_source) + "\"")
+                          << ",\"latest_version\":\"" << json_escape(o_check.latest_version)
+                          << "\",\"relation\":\"" << json_escape(o_check.relation)
+                          << "\",\"update_available\":"
+                          << (o_check.b_update_available ? "true" : "false")
+                          << ",\"appimage_asset\":\"" << json_escape(o_check.asset_name)
+                          << "\",\"appimage_asset_size\":" << o_check.i_asset_size
+                          << ",\"zsync_asset\":\"" << json_escape(o_check.zsync_name)
+                          << "\",\"zsync_asset_size\":" << o_check.i_zsync_size
+                          << ",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
+            }
+            std::cout << "]}\n";
+        } else {
+            for (const update_check_o &o_check : o_checks) {
+                print_update_check_text(o_check);
+            }
+            if (1 < o_checks.size()) {
+                std::size_t i_checked = 0;
+                std::size_t i_available = 0;
+                for (const update_check_o &o_check : o_checks) {
+                    if (o_check.problem.empty()) {
+                        i_checked++;
+                    }
+                    if (o_check.b_update_available) {
+                        i_available++;
+                    }
+                }
+                std::cout << "checked " << i_checked << " of " << o_checks.size()
+                          << ", could not check " << (o_checks.size() - i_checked)
+                          << ", updates available " << i_available << '\n';
+            }
+            if (0 < o_checks.size()) {
+                std::cout << "note: this command only checks; it does not download or install "
+                             "an update\n";
+            }
+        }
+        if (b_notify) {
+            notify_update_checks(o_checks);
+        }
+        return b_failed ? EXIT_ERROR : EXIT_OK;
+    }
+
+    // Applying: decide first, so nothing is downloaded before the choices are known.
+    const std::vector<installed_appimage_o> o_records = o_integrator.list_installed();
+    std::vector<std::size_t> o_todo;
     bool b_failed = false;
-    for (const update_check_o &o_check : o_checks) {
+    for (std::size_t i_index = 0; i_index < o_checks.size(); i_index++) {
+        const update_check_o &o_check = o_checks[i_index];
         if (!o_check.problem.empty()) {
             b_failed = true;
+            if (!b_json) {
+                std::cerr << "cannot update: " << update_check_sentence(o_check) << '\n';
+            }
+            continue;
+        }
+        if (o_check.b_update_available) {
+            o_todo.push_back(i_index);
+            continue;
+        }
+        if (b_force && !o_check.download_url.empty() && "same-file" != o_check.relation) {
+            o_todo.push_back(i_index);
+            continue;
+        }
+        if (!b_json) {
+            if ("same-file" == o_check.relation || "same" == o_check.relation) {
+                std::cout << "skipped: " << o_check.appimage << " is "
+                          << update_check_sentence(o_check) << '\n';
+            } else {
+                std::cout << "skipped: " << o_check.appimage << ": "
+                          << update_check_sentence(o_check)
+                          << "; pass --force to take what the transport offers\n";
+            }
+        }
+    }
+
+    if (o_todo.empty()) {
+        if (b_json) {
+            std::cout << "{\"updates\":[],\"written\":0}\n";
+        } else if (0 < o_checks.size()) {
+            std::cout << "nothing to update\n";
+        }
+        if (b_notify) {
+            notify_update_checks(o_checks);
+        }
+        return b_failed ? EXIT_ERROR : EXIT_OK;
+    }
+
+    if (!b_json) {
+        for (const std::size_t i_index : o_todo) {
+            const update_check_o &o_check = o_checks[i_index];
+            std::cout << "updating: " << o_check.appimage << '\n'
+                      << "  installed-version: " << o_check.installed_version << '\n'
+                      << "  offered: " << o_check.latest_version << '\n'
+                      << "  download: " << o_check.download_url << '\n';
+            if (0 < o_check.i_asset_size) {
+                std::cout << "  size: " << o_check.i_asset_size << " bytes\n";
+            }
+        }
+    }
+    if (b_dry_run) {
+        if (b_json) {
+            std::cout << "{\"updates\":[";
+            for (std::size_t i_index = 0; i_index < o_todo.size(); i_index++) {
+                if (0 < i_index) {
+                    std::cout << ',';
+                }
+                const update_check_o &o_check = o_checks[o_todo[i_index]];
+                std::cout << "{\"appimage\":\"" << json_escape(o_check.appimage)
+                          << "\",\"download\":\"" << json_escape(o_check.download_url)
+                          << "\",\"applied\":false}";
+            }
+            std::cout << "],\"written\":0,\"dry_run\":true}\n";
+        } else {
+            std::cout << "dry run: nothing was written\n";
+        }
+        return EXIT_OK;
+    }
+    if (!b_assume_yes) {
+        if (b_json || 0 == isatty(STDIN_FILENO)) {
+            std::cerr << "error: refusing to write without --yes on a non-interactive input\n";
+            return EXIT_ERROR;
+        }
+        std::cout << "Replace " << o_todo.size() << " AppImage(s)? [y/N] " << std::flush;
+        std::string s_answer;
+        std::getline(std::cin, s_answer);
+        if ("y" != s_answer && "Y" != s_answer) {
+            std::cout << "cancelled\n";
+            return EXIT_OK;
+        }
+    }
+
+    std::size_t i_written = 0;
+    for (const std::size_t i_index : o_todo) {
+        update_check_o &o_check = o_checks[i_index];
+        std::error_code o_match_error;
+        const std::string s_key =
+            fs::weakly_canonical(fs::path(o_check.appimage), o_match_error).string();
+        const installed_appimage_o *p_record = nullptr;
+        for (const installed_appimage_o &o_entry : o_records) {
+            std::error_code o_entry_error;
+            if (fs::weakly_canonical(fs::path(o_entry.appimage_path), o_entry_error).string()
+                == s_key) {
+                p_record = &o_entry;
+                break;
+            }
+        }
+        if (!b_json) {
+            std::cout << "downloading: " << o_check.download_url << '\n';
+        }
+        std::string s_error;
+        if (!apply_update(o_integrator, p_record, o_check, b_backup, o_check, s_error)) {
+            o_check.problem = s_error;
+            b_failed = true;
+            std::cerr << "error: " << o_check.appimage << ": " << s_error << '\n';
+            continue;
+        }
+        i_written++;
+        if (!b_json) {
+            std::cout << "updated: " << o_check.appimage << '\n'
+                      << "  " << o_check.applied << '\n';
         }
     }
 
     if (b_json) {
-        std::cout << "{\"checks\":[";
+        std::cout << "{\"updates\":[";
         for (std::size_t i_index = 0; i_index < o_checks.size(); i_index++) {
             const update_check_o &o_check = o_checks[i_index];
             if (0 < i_index) {
                 std::cout << ',';
             }
             std::cout << "{\"appimage\":\"" << json_escape(o_check.appimage)
-                      << "\",\"update_information\":\"" << json_escape(o_check.information)
                       << "\",\"installed_version\":\""
                       << json_escape(o_check.installed_version)
-                      << "\",\"installed_version_source\":"
-                      << (o_check.installed_source.empty()
-                              ? std::string("null")
-                              : "\"" + json_escape(o_check.installed_source) + "\"")
-                      << ",\"latest_version\":\"" << json_escape(o_check.latest_version)
-                      << "\",\"relation\":\"" << json_escape(o_check.relation)
+                      << "\",\"latest_version\":\"" << json_escape(o_check.latest_version)
                       << "\",\"update_available\":"
                       << (o_check.b_update_available ? "true" : "false")
-                      << ",\"appimage_asset\":\"" << json_escape(o_check.asset_name)
-                      << "\",\"appimage_asset_size\":" << o_check.i_asset_size
-                      << ",\"zsync_asset\":\"" << json_escape(o_check.zsync_name)
-                      << "\",\"zsync_asset_size\":" << o_check.i_zsync_size
-                      << ",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
+                      << ",\"applied\":" << (o_check.applied.empty() ? "false" : "true")
+                      << ",\"detail\":\"" << json_escape(o_check.applied)
+                      << "\",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
         }
-        std::cout << "]}\n";
+        std::cout << "],\"written\":" << i_written << "}\n";
     } else {
-        for (const update_check_o &o_check : o_checks) {
-            print_update_check_text(o_check);
-        }
-        if (1 < o_checks.size()) {
-            std::size_t i_checked = 0;
-            std::size_t i_available = 0;
-            for (const update_check_o &o_check : o_checks) {
-                if (o_check.problem.empty()) {
-                    i_checked++;
-                }
-                if (o_check.b_update_available) {
-                    i_available++;
-                }
-            }
-            std::cout << "checked " << i_checked << " of " << o_checks.size()
-                      << ", could not check " << (o_checks.size() - i_checked)
-                      << ", updates available " << i_available << '\n';
-        }
-        if (0 < o_checks.size()) {
-            std::cout << "note: this command only checks; it does not download or install an "
-                         "update\n";
-        }
+        std::cout << "updated " << i_written << " of " << o_todo.size() << '\n';
     }
     if (b_notify) {
         notify_update_checks(o_checks);
     }
     return b_failed ? EXIT_ERROR : EXIT_OK;
+}
+
+
+// -- migrate --------------------------------------------------------------------
+//
+// Adopt a launcher another tool wrote: read the AppImage it runs, install this tool's
+// launcher for that file, and let the displaced launcher be backed up so `uninstall`
+// restores it.  That is exactly `install --replace`, with the AppImage taken from the
+// old launcher instead of from the command line.
+
+// The program a launcher runs: its Exec, or its TryExec when Exec names nothing.
+std::string launcher_appimage(const gnome_appimage::desktop::desktop_entry_file_o &o_entry) {
+    const std::string s_exec =
+        gnome_appimage::desktop::desktop_exec_program(
+            o_entry.value("Desktop Entry", "Exec").value_or(std::string()));
+    if (!s_exec.empty()) {
+        return s_exec;
+    }
+    return o_entry.value("Desktop Entry", "TryExec").value_or(std::string());
+}
+
+int command_migrate(const std::string &s_target, bool b_assume_yes, bool b_dry_run,
+                    bool b_json) {
+    using gnome_appimage::desktop::desktop_entry_candidate_o;
+    using gnome_appimage::desktop::desktop_entry_file_o;
+    using gnome_appimage::desktop::desktop_entry_locator_c;
+    using gnome_appimage::desktop::desktop_entry_reader_c;
+    using gnome_appimage::tools::json_escape;
+
+    // The argument is either a launcher file or a desktop file ID.
+    std::string s_launcher = s_target;
+    std::error_code o_exists_error;
+    if (!fs::is_regular_file(s_target, o_exists_error)) {
+        const desktop_entry_locator_c o_locator;
+        const std::optional<desktop_entry_candidate_o> o_candidate = o_locator.locate(s_target);
+        if (!o_candidate.has_value()) {
+            std::cerr << "error: no launcher named " << s_target
+                      << " on the desktop file search path\n";
+            return EXIT_ERROR;
+        }
+        s_launcher = o_candidate->path;
+    }
+
+    desktop_entry_file_o o_entry;
+    std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
+    if (!desktop_entry_reader_c::parse_file(s_launcher, o_entry, o_diagnostics)) {
+        std::cerr << "error: cannot read the launcher " << s_launcher << '\n';
+        return EXIT_ERROR;
+    }
+    const std::string s_integrated_by =
+        o_entry.value("Desktop Entry", "X-Integrated-By").value_or(std::string());
+    const std::string s_name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
+    const std::string s_appimage = launcher_appimage(o_entry);
+
+    const bool b_ours = "gnome-appimage-integration" == s_integrated_by;
+    // One JSON object per run, whatever the outcome.
+    const auto o_print_json = [&](bool b_migrated, const std::string &s_problem,
+                                  const integration_plan_o *p_plan) {
+        std::cout << "{\"launcher\":\"" << json_escape(s_launcher) << "\",\"name\":\""
+                  << json_escape(s_name) << "\",\"appimage\":\"" << json_escape(s_appimage)
+                  << "\",\"written_by_this_tool\":" << (b_ours ? "true" : "false")
+                  << ",\"migrated\":" << (b_migrated ? "true" : "false")
+                  << ",\"problem\":\"" << json_escape(s_problem) << "\"";
+        if (nullptr != p_plan) {
+            std::cout << ",\"desktop_entry\":\""
+                      << json_escape(p_plan->desktop_entry_path) << "\",\"identifier\":\""
+                      << json_escape(p_plan->identifier) << "\",\"installed\":\""
+                      << json_escape(p_plan->installed_path) << "\"";
+        }
+        std::cout << "}\n";
+    };
+
+    if (!b_json) {
+        std::cout << "migrating: " << s_launcher << '\n'
+                  << "  name:    " << (s_name.empty() ? "(none)" : s_name) << '\n'
+                  << "  runs:    " << (s_appimage.empty() ? "(nothing)" : s_appimage) << '\n'
+                  << "  origin:  "
+                  << (s_integrated_by.empty() ? "another tool" : s_integrated_by) << '\n';
+    }
+
+    if (b_ours) {
+        if (b_json) {
+            o_print_json(false, "this tool already wrote that launcher", nullptr);
+        } else {
+            std::cout << "nothing to migrate: this tool already wrote that launcher; use "
+                         "`refresh` to re-render it, or `install --replace` to take it over "
+                         "from another AppImage\n";
+        }
+        return EXIT_OK;
+    }
+    if (s_appimage.empty()) {
+        if (b_json) {
+            o_print_json(false, "the launcher names no program to run", nullptr);
+        } else {
+            std::cerr << "error: " << s_launcher << " names no program to run\n";
+        }
+        return EXIT_ERROR;
+    }
+    if (!fs::exists(s_appimage, o_exists_error)) {
+        if (b_json) {
+            o_print_json(false, "the launcher runs " + s_appimage + ", which is not there",
+                         nullptr);
+        } else {
+            std::cerr << "error: " << s_launcher << " runs " << s_appimage
+                      << ", which is not there; restore it or remove the launcher\n";
+        }
+        return EXIT_ERROR;
+    }
+
+    // Replace, so the launcher being migrated is backed up and `uninstall` restores it.
+    const integration_options_o o_options = options_from(
+        std::string(), std::string(), std::string(), std::string(), std::string(), std::string(),
+        false, true, true, integration_conflict_policy_e::replace);
+    const appimage_integrator_c o_integrator;
+    integration_options_o o_effective = o_options;
+    o_effective.tool_path = tool_path(o_integrator);
+
+    integration_plan_o o_plan;
+    if (!o_integrator.plan(s_appimage, o_effective, o_plan)) {
+        if (b_json) {
+            o_print_json(false, o_plan.error, nullptr);
+        } else {
+            std::cerr << "error: " << o_plan.error << '\n';
+        }
+        return EXIT_ERROR;
+    }
+    if (b_json) {
+        print_plan_json(o_plan);
+    } else {
+        print_plan_text(o_plan);
+    }
+    if (b_dry_run) {
+        if (!b_json) {
+            std::cout << "dry run: nothing was written\n";
+        }
+        return EXIT_OK;
+    }
+    if (!b_assume_yes) {
+        if (b_json || 0 == isatty(STDIN_FILENO)) {
+            std::cerr << "error: refusing to write without --yes on a non-interactive input\n";
+            return EXIT_ERROR;
+        }
+        std::cout << "Migrate " << s_name << " to this tool and back up " << s_launcher
+                  << "? [y/N] " << std::flush;
+        std::string s_answer;
+        std::getline(std::cin, s_answer);
+        if ("y" != s_answer && "Y" != s_answer) {
+            std::cout << "cancelled\n";
+            return EXIT_OK;
+        }
+    }
+
+    std::string s_error;
+    if (!o_integrator.install(o_plan, s_error)) {
+        if (b_json) {
+            o_print_json(false, s_error, nullptr);
+        } else {
+            std::cerr << "error: " << s_error << '\n';
+        }
+        return EXIT_ERROR;
+    }
+    if (b_json) {
+        o_print_json(true, {}, &o_plan);
+        return EXIT_OK;
+    }
+    std::cout << "displaced: " << s_launcher << "  (backed up; uninstall restores it)\n"
+              << "installed: " << o_plan.desktop_entry_path << '\n'
+              << "appimage: " << o_plan.installed_path << '\n'
+              << "identifier: " << o_plan.identifier << '\n';
+    if (o_plan.appimage_path != o_plan.installed_path) {
+        // The displaced launcher is restored exactly as it was, so it will name the path
+        // the AppImage had before this run, not the managed one.
+        std::cout << "note: the AppImage moved from " << o_plan.appimage_path << " to "
+                  << o_plan.installed_path
+                  << "; the restored launcher will name the path it had before\n";
+    }
+    return EXIT_OK;
 }
 
 int command_audit(bool b_json, bool b_check) {
@@ -2434,6 +3083,8 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_check = false;
     bool b_all = false;
     bool b_notify = false;
+    bool b_backup = false;
+    bool b_force = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -2481,6 +3132,10 @@ int main(int i_argument_count, char **p_arguments) {
             b_all = true;
         } else if ("--notify" == s_argument) {
             b_notify = true;
+        } else if ("--backup" == s_argument) {
+            b_backup = true;
+        } else if ("--force" == s_argument) {
+            b_force = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -2580,16 +3235,19 @@ int main(int i_argument_count, char **p_arguments) {
         return command_list(b_json);
     }
     if ("update" == s_command) {
-        if (!b_check) {
-            std::cerr << "error: only checking is implemented; run: appimage-integrate update "
-                         "--check [--all] <AppImage>\n";
-            return EXIT_USAGE;
-        }
         if (!b_all && s_path.empty()) {
-            std::cerr << "error: update --check needs an AppImage path, or --all\n";
+            std::cerr << "error: update needs an AppImage path, or --all\n";
             return EXIT_USAGE;
         }
-        return command_update(s_path, b_all, b_json, b_notify);
+        return command_update(s_path, b_all, b_json, b_notify, b_check, b_assume_yes, b_dry_run,
+                              b_backup, b_force);
+    }
+    if ("migrate" == s_command) {
+        if (s_path.empty()) {
+            std::cerr << "error: migrate needs a launcher file or a desktop file ID\n";
+            return EXIT_USAGE;
+        }
+        return command_migrate(s_path, b_assume_yes, b_dry_run, b_json);
     }
     if ("refresh" == s_command) {
         return command_refresh(b_json, b_assume_yes, b_dry_run, b_wm_class_from_window, s_wm_class);
