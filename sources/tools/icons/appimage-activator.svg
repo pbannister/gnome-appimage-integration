@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Icon for the AppImage Handler.
+  Icon for the AppImage Activator.
   An original mark: a self-contained package (the AppImage payload) with a run
-  control, on a dark rounded tile.  Installed as hicolor/scalable/apps/appimage-handler.svg.
+  control, on a dark rounded tile.  Installed as hicolor/scalable/apps/appimage-activator.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <rect x="6" y="6" width="116" height="116" rx="26" fill="#263238"/>

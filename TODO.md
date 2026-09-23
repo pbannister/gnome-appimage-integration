@@ -25,17 +25,18 @@
 
 ## Recently Completed
 
+* [x] rename the right-click "Open With" item to AppImage Activator, because AppImage Handler is another project's name, and migrate the pre-rename entry, icon, and record.
 * [x] make the handler multi-instance, so opening a second AppImage opens a window for that file.
 * [x] show every existing launcher, upgrades included, instead of filtering them out.
 * [x] treat a different AppImage claiming an owned identifier as a conflict, never a silent takeover.
 * [x] keep the existing launcher, its record, and its icon when `--add` installs alongside.
 * [x] report in `audit` when a record disagrees with the AppImage its launcher actually runs.
-* [x] add a GTK4 handler dialog (`sources/tools/appimage_handler_ui.py`) that remembers its window size between runs.
+* [x] add a GTK4 activator dialog (`sources/tools/appimage_activator_ui.py`) that remembers its window size between runs.
 * [x] show Name, Comment, GenericName, and the detected version in the handler's first window.
 * [x] make Inspect open a separate window with only a Close button, returning to the AppImage window.
 * [x] make the Integrate dialog list each existing launcher's id, name, origin, version, target, icon, window class, and whether the target exists.
 * [x] extract the application version from `X-AppImage-Version`, then AppStream, then the file name, and report the source.
-* [x] add `explain --json` for the graphical handler, and `tests/95-handler-ui.sh` for the script and its dispatch.
+* [x] add `explain --json` for the graphical handler, and `tests/95-activator-ui.sh` for the script and its dispatch.
 * [x] give Run once a persistent notice naming the application and the child process id.
 * [x] make Inspect show a non-empty report: container facts, payload root, embedded entry, and the install preview.
 * [x] make Integrate show the list of files written.
@@ -55,7 +56,7 @@
 * [x] add `make install` and `scripts/program-install.sh` to place the tools in `$HOME/.local/bin`.
 * [x] add the sandbox tests `tests/integration_plan_test.cpp` and `tests/70-integration-sandbox.sh`.
 * [x] add the provenance test `tests/80-desktop-provenance.sh`.
-* [x] register `appimage-handler.desktop` as the real `*.AppImage` default, recording the previous defaults for restore.
+* [x] register `appimage-activator.desktop` as the real `*.AppImage` default, recording the previous defaults for restore.
 * [x] preserve the AppImage MIME definitions in `$XDG_DATA_HOME/mime/packages/appimage.xml` before removing AppImageLauncher.
 * [x] remove AppImageLauncher at the owner's request, and extend `audit` to report its leftover launchers and broken actions.
 * [x] create the project from `00-project-skeleton` and record the baseline commit.

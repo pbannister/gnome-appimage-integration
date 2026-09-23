@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Graphical AppImage handler.
+"""Graphical AppImage activator.
 
-Invoked as:  appimage_handler_ui.py --tool <appimage-integrate> <AppImage>
+Invoked as:  appimage_activator_ui.py --tool <appimage-integrate> <AppImage>
 
-A single-window application, sized like a dialog.  The window shows what the
-AppImage is, a row of actions, and one large text area that Inspect and Integrate
-write into.  Every window remembers its size, and its position where the platform
-allows it.
+The right-click "Open With" item for an AppImage is named AppImage Activator;
+"AppImage Handler" is another project's name.  This is a single-window
+application, sized like a dialog.  The window shows what the AppImage is, a row
+of actions, and one large text area that Inspect and Integrate write into.  Every
+window remembers its size, and its position where the platform allows it.
 
 All real work is delegated to the `appimage-integrate` CLI, so this file only
 presents information and choices.
@@ -590,20 +591,20 @@ def main(argv):
         index += 1
     if tool is None or path is None:
         print(
-            "usage: appimage_handler_ui.py --tool <appimage-integrate> <AppImage>",
+            "usage: appimage_activator_ui.py --tool <appimage-integrate> <AppImage>",
             file=sys.stderr,
         )
         return 2
 
-    # GNOME matches a running window to appimage-handler.desktop by this name,
-    # so the dock shows the handler icon instead of a generic one.
-    GLib.set_prgname("appimage-handler")
-    GLib.set_application_name("AppImage Handler")
+    # GNOME matches a running window to appimage-activator.desktop by this name,
+    # so the dock shows the activator icon instead of a generic one.
+    GLib.set_prgname("appimage-activator")
+    GLib.set_application_name("AppImage Activator")
 
     # NON_UNIQUE: a second launch opens its own window for its own AppImage,
     # instead of activating the already-running instance with the first path.
     application = Gtk.Application(
-        application_id="us.bannister.appimage-handler",
+        application_id="us.bannister.appimage-activator",
         flags=Gio.ApplicationFlags.NON_UNIQUE,
     )
     holder = {}

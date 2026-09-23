@@ -24,23 +24,28 @@ for program_name in appimage-inspect desktop-inspect appimage-integrate; do
     echo "program-install: $DIRECTORY_BIN/$program_name"
 done
 
-# The graphical handler sits next to the tool so the tool can exec it.
-if [ -f "$DIRECTORY_BUILD/appimage_handler_ui.py" ]; then
-    cp "$DIRECTORY_BUILD/appimage_handler_ui.py" "$DIRECTORY_BIN/appimage_handler_ui.py"
-    chmod 755 "$DIRECTORY_BIN/appimage_handler_ui.py"
-    echo "program-install: $DIRECTORY_BIN/appimage_handler_ui.py"
+# The graphical activator sits next to the tool so the tool can exec it.
+if [ -f "$DIRECTORY_BUILD/appimage_activator_ui.py" ]; then
+    cp "$DIRECTORY_BUILD/appimage_activator_ui.py" "$DIRECTORY_BIN/appimage_activator_ui.py"
+    chmod 755 "$DIRECTORY_BIN/appimage_activator_ui.py"
+    echo "program-install: $DIRECTORY_BIN/appimage_activator_ui.py"
 fi
+# The pre-rename script must not linger and shadow the renamed one.
+rm -f "$DIRECTORY_BIN/appimage_handler_ui.py"
+rm -f "$DIRECTORY_BIN/icons/appimage-handler.svg"
 
-# The handler icon, both next to the tool and in the icon theme.
+# The activator icon, both next to the tool and in the icon theme.
 DIRECTORY_ICON="$DIRECTORY_BUILD/icons"
-if [ -f "$DIRECTORY_ICON/appimage-handler.svg" ]; then
+if [ -f "$DIRECTORY_ICON/appimage-activator.svg" ]; then
     mkdir -p "$DIRECTORY_BIN/icons"
-    cp "$DIRECTORY_ICON/appimage-handler.svg" "$DIRECTORY_BIN/icons/appimage-handler.svg"
+    cp "$DIRECTORY_ICON/appimage-activator.svg" "$DIRECTORY_BIN/icons/appimage-activator.svg"
     DIRECTORY_THEME="$PREFIX/share/icons/hicolor/scalable/apps"
     mkdir -p "$DIRECTORY_THEME"
-    cp "$DIRECTORY_ICON/appimage-handler.svg" "$DIRECTORY_THEME/appimage-handler.svg"
-    chmod 644 "$DIRECTORY_THEME/appimage-handler.svg"
-    echo "program-install: $DIRECTORY_THEME/appimage-handler.svg"
+    cp "$DIRECTORY_ICON/appimage-activator.svg" "$DIRECTORY_THEME/appimage-activator.svg"
+    chmod 644 "$DIRECTORY_THEME/appimage-activator.svg"
+    # The pre-rename icon in the theme would keep answering for the old name.
+    rm -f "$DIRECTORY_THEME/appimage-handler.svg"
+    echo "program-install: $DIRECTORY_THEME/appimage-activator.svg"
     # A stale cache hides the icon from GTK, which trusts a cache that is not
     # older than the theme directory and then never rescans it.
     if command -v gtk4-update-icon-cache >/dev/null 2>&1; then

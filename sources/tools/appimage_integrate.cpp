@@ -38,8 +38,17 @@ using gnome_appimage::integration::integration_plan_o;
 constexpr int EXIT_OK = 0;
 constexpr int EXIT_ERROR = 1;
 constexpr int EXIT_USAGE = 2;
-constexpr const char *HANDLER_DESKTOP_ID = "appimage-handler.desktop";
-constexpr const char *HANDLER_MANIFEST = "appimage-handler.manifest";
+// The handler is the right-click "Open With" item, so its name is user-visible:
+// "AppImage Activator". "AppImage Handler" is another project's name.
+constexpr const char *HANDLER_NAME = "AppImage Activator";
+constexpr const char *HANDLER_DESKTOP_ID = "appimage-activator.desktop";
+constexpr const char *HANDLER_MANIFEST = "appimage-activator.manifest";
+constexpr const char *HANDLER_ICON_NAME = "appimage-activator";
+// Names this handler used before it was renamed; install migrates them away.
+constexpr const char *HANDLER_LEGACY_NAME = "AppImage Handler";
+constexpr const char *HANDLER_LEGACY_DESKTOP_ID = "appimage-handler.desktop";
+constexpr const char *HANDLER_LEGACY_MANIFEST = "appimage-handler.manifest";
+constexpr const char *HANDLER_LEGACY_ICON_NAME = "appimage-handler";
 
 void print_usage(std::ostream &o_out) {
     o_out << "usage: appimage-integrate <command> [options]\n"
@@ -135,18 +144,21 @@ bool command_succeeds(const std::vector<std::string> &o_arguments) {
     return WIFEXITED(i_status) && 0 == WEXITSTATUS(i_status);
 }
 
-// Locate the graphical handler next to the tool, or in the source tree.
+// Locate the graphical activator next to the tool, or in the source tree. The
+// pre-rename script name is still accepted, so an older install keeps working.
 std::string handler_ui_script(const std::string &s_tool) {
     const fs::path o_tool(s_tool);
-    const std::string s_installed = (o_tool.parent_path() / "appimage_handler_ui.py").string();
-    if (fs::exists(s_installed)) {
-        return s_installed;
-    }
-    const std::string s_source =
-        (o_tool.parent_path().parent_path().parent_path() / "sources/tools/appimage_handler_ui.py")
-            .string();
-    if (fs::exists(s_source)) {
-        return s_source;
+    const std::vector<fs::path> o_candidates = {
+        o_tool.parent_path() / "appimage_activator_ui.py",
+        o_tool.parent_path() / "appimage_handler_ui.py",
+        o_tool.parent_path().parent_path().parent_path()
+            / "sources/tools/appimage_activator_ui.py",
+    };
+    for (const fs::path &o_candidate : o_candidates) {
+        std::error_code o_error;
+        if (fs::exists(o_candidate, o_error)) {
+            return o_candidate.string();
+        }
     }
     return {};
 }
@@ -595,10 +607,10 @@ int command_run(const std::string &s_path,
 std::string handler_icon_source(const std::string &s_tool) {
     const fs::path o_tool(s_tool);
     const std::vector<fs::path> o_candidates = {
-        o_tool.parent_path() / "icons/appimage-handler.svg",
-        o_tool.parent_path() / "appimage-handler.svg",
+        o_tool.parent_path() / "icons/appimage-activator.svg",
+        o_tool.parent_path() / "appimage-activator.svg",
         o_tool.parent_path().parent_path().parent_path()
-            / "sources/tools/icons/appimage-handler.svg",
+            / "sources/tools/icons/appimage-activator.svg",
     };
     for (const fs::path &o_candidate : o_candidates) {
         std::error_code o_error;
@@ -632,6 +644,12 @@ std::string handler_desktop_path(const appimage_integrator_c &o_integrator) {
     return (fs::path(o_integrator.application_directories()[0]) / HANDLER_DESKTOP_ID).string();
 }
 
+// The pre-rename entry, if it is still on disk.
+std::string handler_legacy_desktop_path(const appimage_integrator_c &o_integrator) {
+    return (fs::path(o_integrator.application_directories()[0]) / HANDLER_LEGACY_DESKTOP_ID)
+        .string();
+}
+
 int command_handler_status(const appimage_integrator_c &o_integrator) {
     const std::vector<std::string> o_types = {"application/vnd.appimage",
                                               "application/x-appimage",
@@ -641,13 +659,21 @@ int command_handler_status(const appimage_integrator_c &o_integrator) {
             capture_command({"xdg-mime", "query", "default", s_type});
         std::cout << s_type << ": " << (s_default.empty() ? "(none)" : s_default);
         if (HANDLER_DESKTOP_ID == s_default) {
-            std::cout << "  [this tool]";
+            std::cout << "  [" << HANDLER_NAME << "]";
+        } else if (HANDLER_LEGACY_DESKTOP_ID == s_default) {
+            std::cout << "  [the old " << HANDLER_LEGACY_NAME
+                      << " entry; run: appimage-integrate handler install]";
         }
         std::cout << '\n';
     }
     const std::string s_desktop = handler_desktop_path(o_integrator);
-    std::cout << "handler desktop entry: " << s_desktop << " ("
+    std::cout << HANDLER_NAME << " entry: " << s_desktop << " ("
               << (fs::exists(s_desktop) ? "present" : "absent") << ")\n";
+    const std::string s_legacy = handler_legacy_desktop_path(o_integrator);
+    if (fs::exists(s_legacy)) {
+        std::cout << "leftover " << HANDLER_LEGACY_NAME << " entry: " << s_legacy
+                  << "  [run: appimage-integrate handler install]\n";
+    }
     return EXIT_OK;
 }
 
@@ -666,15 +692,15 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
                                               "application/x-iso9660-appimage"};
     const std::string s_tool = tool_path(o_integrator);
 
-    // The launcher must carry the handler icon.
+    // The launcher must carry the activator icon.
     std::ostringstream o_desktop;
     o_desktop << "[Desktop Entry]\n"
               << "Type=Application\n"
-              << "Name=AppImage Handler\n"
+              << "Name=" << HANDLER_NAME << '\n'
               << "Comment=Run or integrate an AppImage\n"
               << "Exec=" << s_tool << " handle %f\n"
-              << "Icon=appimage-handler\n"
-              << "StartupWMClass=appimage-handler\n"
+              << "Icon=" << HANDLER_ICON_NAME << '\n'
+              << "StartupWMClass=" << HANDLER_ICON_NAME << '\n'
               << "Terminal=false\n"
               << "NoDisplay=true\n"
               << "MimeType=application/vnd.appimage;application/x-appimage;"
@@ -691,7 +717,8 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         const fs::path o_theme_directory = o_data_home / "icons/hicolor/scalable/apps";
         fs::create_directories(o_theme_directory, o_error);
         std::error_code o_icon_error;
-        const std::string s_icon_target = (o_theme_directory / "appimage-handler.svg").string();
+        const std::string s_icon_target =
+            (o_theme_directory / (std::string(HANDLER_ICON_NAME) + ".svg")).string();
         fs::copy_file(s_icon_source, s_icon_target, fs::copy_options::overwrite_existing,
                       o_icon_error);
         if (!o_icon_error) {
@@ -701,15 +728,24 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     }
 
     // Point the AppImage MIME types at the same icon, backing up the definition.
+    // The rename means an existing definition may name either the original
+    // generic icon or this tool's pre-rename icon.
     std::string s_mime_package;
     std::string s_mime_backup;
     const fs::path o_mime_package = o_data_home / "mime/packages/appimage.xml";
     std::error_code o_mime_error;
     if (fs::exists(o_mime_package, o_mime_error)) {
         std::string s_content = read_text_file(o_mime_package.string());
-        const std::string s_old_icon = "application-x-executable";
-        const std::string s_new_icon = "appimage-handler";
-        if (std::string::npos != s_content.find(s_old_icon)) {
+        const std::vector<std::string> o_old_icons = {"application-x-executable",
+                                                      HANDLER_LEGACY_ICON_NAME};
+        bool b_rewrite = false;
+        for (const std::string &s_old_icon : o_old_icons) {
+            if (std::string::npos != s_content.find(s_old_icon)) {
+                b_rewrite = true;
+                break;
+            }
+        }
+        if (b_rewrite) {
             const fs::path o_backup_directory = o_state_directory / "backup";
             fs::create_directories(o_backup_directory, o_mime_error);
             s_mime_backup = (o_backup_directory / "appimage.xml").string();
@@ -717,10 +753,13 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
             if (!fs::exists(s_mime_backup, o_backup_error)) {
                 write_text_file(s_mime_backup, s_content);
             }
-            std::size_t i_position = 0;
-            while ((i_position = s_content.find(s_old_icon, i_position)) != std::string::npos) {
-                s_content.replace(i_position, s_old_icon.size(), s_new_icon);
-                i_position += s_new_icon.size();
+            for (const std::string &s_old_icon : o_old_icons) {
+                std::size_t i_position = 0;
+                while ((i_position = s_content.find(s_old_icon, i_position))
+                       != std::string::npos) {
+                    s_content.replace(i_position, s_old_icon.size(), HANDLER_ICON_NAME);
+                    i_position += std::string(HANDLER_ICON_NAME).size();
+                }
             }
             if (write_text_file(o_mime_package.string(), s_content)) {
                 s_mime_package = o_mime_package.string();
@@ -742,10 +781,14 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         o_manifest << "mime_package=" << s_mime_package << '\n';
         o_manifest << "mime_backup=" << s_mime_backup << '\n';
     }
-    // Preserve the real previous defaults when our own handler is re-installed.
+    // Preserve the real previous defaults when our own handler is re-installed,
+    // including across the rename, when they live in the pre-rename manifest.
     std::map<std::string, std::string> o_previous_by_type;
     {
         std::ifstream o_old_manifest((o_state_directory / HANDLER_MANIFEST).string());
+        if (!o_old_manifest) {
+            o_old_manifest.open((o_state_directory / HANDLER_LEGACY_MANIFEST).string());
+        }
         std::string s_old_line;
         while (std::getline(o_old_manifest, s_old_line)) {
             const std::size_t i_old_tab = s_old_line.find('\t');
@@ -759,7 +802,7 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     }
     for (const std::string &s_type : o_types) {
         std::string s_previous = capture_command({"xdg-mime", "query", "default", s_type});
-        if (HANDLER_DESKTOP_ID == s_previous) {
+        if (HANDLER_DESKTOP_ID == s_previous || HANDLER_LEGACY_DESKTOP_ID == s_previous) {
             const auto o_old = o_previous_by_type.find(s_type);
             if (o_previous_by_type.end() != o_old && !o_old->second.empty()) {
                 s_previous = o_old->second;
@@ -781,7 +824,31 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
             {"update-desktop-database", o_integrator.application_directories()[0]});
         static_cast<void>(s_update);
     }
-    std::cout << "handler installed: " << s_desktop << '\n';
+
+    // The rename leaves two things behind that would still answer for the AppImage
+    // MIME types: the pre-rename entry, its icon, and its own record.
+    std::vector<std::string> o_removed_legacy;
+    const std::string s_legacy_desktop = handler_legacy_desktop_path(o_integrator);
+    for (const std::string &s_path :
+         {s_legacy_desktop,
+          (o_data_home / "icons/hicolor/scalable/apps"
+           / (std::string(HANDLER_LEGACY_ICON_NAME) + ".svg"))
+              .string(),
+          (o_state_directory / HANDLER_LEGACY_MANIFEST).string()}) {
+        std::error_code o_remove_error;
+        if (fs::exists(s_path, o_remove_error) && fs::remove(s_path, o_remove_error)) {
+            o_removed_legacy.push_back(s_path);
+        }
+    }
+    if (!o_removed_legacy.empty()) {
+        refresh_icon_cache((o_data_home / "icons/hicolor").string());
+        std::cout << "removed the pre-rename " << HANDLER_LEGACY_NAME << " files:\n";
+        for (const std::string &s_path : o_removed_legacy) {
+            std::cout << "  " << s_path << '\n';
+        }
+    }
+
+    std::cout << HANDLER_NAME << " installed: " << s_desktop << '\n';
     if (!s_icon_installed.empty()) {
         std::cout << "handler icon: " << s_icon_installed << '\n';
     }
@@ -791,10 +858,18 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
 
 int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     const fs::path o_state_directory(o_integrator.state_directory());
-    const std::string s_manifest = (o_state_directory / HANDLER_MANIFEST).string();
+    // Fall back to the pre-rename record, so an install from before the rename can
+    // still be reversed while its entry is on disk.
+    std::string s_manifest = (o_state_directory / HANDLER_MANIFEST).string();
+    std::string s_legacy_manifest = (o_state_directory / HANDLER_LEGACY_MANIFEST).string();
     std::ifstream o_input(s_manifest);
     if (!o_input) {
-        std::cerr << "error: no handler manifest at " << s_manifest << '\n';
+        s_manifest = s_legacy_manifest;
+        o_input.open(s_manifest);
+    }
+    if (!o_input) {
+        std::cerr << "error: no handler manifest at "
+                  << (o_state_directory / HANDLER_MANIFEST).string() << '\n';
         return EXIT_ERROR;
     }
     std::string s_line;
@@ -832,12 +907,22 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     o_input.close();
 
     std::error_code o_error;
+    const std::string s_icon_directory =
+        (fs::path(o_integrator.state_directory()).parent_path() / "icons/hicolor").string();
+    // Remove the recorded icons, and both names this handler has used, because the
+    // record being reversed may predate the rename.
     for (const std::string &s_icon : o_icons) {
         fs::remove(s_icon, o_error);
         o_error.clear();
     }
-    refresh_icon_cache((fs::path(o_integrator.state_directory()).parent_path() / "icons/hicolor")
-                           .string());
+    for (const char *s_icon_name : {HANDLER_ICON_NAME, HANDLER_LEGACY_ICON_NAME}) {
+        fs::remove((fs::path(s_icon_directory) / "scalable/apps"
+                    / (std::string(s_icon_name) + ".svg"))
+                       .string(),
+                   o_error);
+        o_error.clear();
+    }
+    refresh_icon_cache(s_icon_directory);
     if (!s_mime_package.empty() && !s_mime_backup.empty()
         && fs::exists(s_mime_backup, o_error)) {
         std::error_code o_restore_error;
@@ -850,9 +935,13 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
             static_cast<void>(s_result);
         }
     }
-    fs::remove(handler_desktop_path(o_integrator), o_error);
-    fs::remove(s_manifest, o_error);
-    std::cout << "handler removed and previous defaults restored\n";
+    for (const std::string &s_path : {handler_desktop_path(o_integrator),
+                                      handler_legacy_desktop_path(o_integrator), s_manifest,
+                                      s_legacy_manifest}) {
+        fs::remove(s_path, o_error);
+        o_error.clear();
+    }
+    std::cout << HANDLER_NAME << " removed and previous defaults restored\n";
     return command_handler_status(o_integrator);
 }
 
@@ -907,7 +996,7 @@ void show_notice(const std::string &s_title, const std::string &s_body) {
     }
     if (command_exists("notify-send")) {
         const std::string s_result = capture_command(
-            {"notify-send", "-a", "AppImage Handler", "-u", "normal", "-t", "5000", s_title,
+            {"notify-send", "-a", HANDLER_NAME, "-u", "normal", "-t", "5000", s_title,
              s_body});
         static_cast<void>(s_result);
         return;

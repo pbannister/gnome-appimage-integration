@@ -34,15 +34,19 @@ default.
 - Inspect must write its details into that text area.
 - Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
 - The window must remember its size on resize and on close, and honour a remembered size even when it is larger than the reported work area; only the position is clamped on-screen.
-- The handler must set its program name to `appimage-handler`, and the entry must set `StartupWMClass=appimage-handler`, so the dock matches the running window to the entry and shows the handler icon.
+- The handler must set its program name to `appimage-activator`, and the entry must set `StartupWMClass=appimage-activator`, so the dock matches the running window to the entry and shows the activator icon.
 - When conflicts exist, the main window must add only "This application is already installed." and "Integrate will show details, then offer to replace or add alongside."
 - The window must be centred where the platform permits it, and must remember its position where the platform permits it; a restored geometry must be clamped so the window is entirely on the screen.
 - Position cannot be restored under Wayland, which does not let a client choose its own placement; the handler must not fail when that is the case.
-- The handler desktop entry must use the project's own AppImage Handler icon, installed into the user icon theme, and the AppImage MIME types must name that icon as their generic icon.
+- The handler desktop entry must use the project's own AppImage Activator icon, installed into the user icon theme, and the AppImage MIME types must name that icon as their generic icon.
+- The right-click "Open With" item must be named `AppImage Activator`, because `AppImage Handler` is another project's name.
+- The entry, its record, and its icon must be `appimage-activator.desktop`, `appimage-activator.manifest`, and `appimage-activator.svg`.
+- `handler install` must migrate the pre-rename `appimage-handler.desktop`, `appimage-handler.svg`, and `appimage-handler.manifest` away, and carry their recorded previous defaults into the new record.
+- `handler status` must report a pre-rename entry that is still on disk and name the command that removes it.
 
 ## Behavior
 
-- After `handler install`, `xdg-mime query default application/vnd.appimage` reports `appimage-handler.desktop`.
+- After `handler install`, `xdg-mime query default application/vnd.appimage` reports `appimage-activator.desktop`.
 - After `handler uninstall`, the previously recorded handler is restored.
 - With no display, `handle` prints the run, install, and inspect commands instead of failing.
 

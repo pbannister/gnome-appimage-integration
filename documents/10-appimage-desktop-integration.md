@@ -157,6 +157,13 @@ The mechanism that makes a double-click useful is a MIME handler:
 2. A handler is a `.desktop` file whose `MimeType=` lists those types and whose `Exec=` runs a tool with `%f`.
 3. The handler is made the default for the type in `$XDG_CONFIG_HOME/mimeapps.list`.
 
+The handler's `Name=` is what the right-click menu shows, so it is user-visible and must not
+clash with another project's name. This project calls it **AppImage Activator**:
+`appimage-activator.desktop`, icon `appimage-activator.svg`, and `StartupWMClass=appimage-activator`
+in step with the window's program name. It was called `appimage-handler` before the rename, and
+`handler install` moves those files out of the way and carries their recorded previous defaults
+into the new record.
+
 On this host the system MIME definitions are:
 
 | MIME type | Meaning | Detection |
@@ -215,7 +222,7 @@ The owner asked for AppImageLauncher to be uninstalled because its presence made
 
 - The package `appimagelauncher` 3.0.0-beta-2 was purged with `apt-get purge`.
 - It owned `/usr/share/mime/packages/appimage.xml`, the AppImage MIME definitions, so a copy was installed at `$XDG_DATA_HOME/mime/packages/appimage.xml` first and `update-mime-database` was run.
-- After the purge, `xdg-mime query filetype` on an AppImage still reports `application/vnd.appimage`, and the default handler for all three AppImage MIME types is `appimage-handler.desktop` from this project.
+- After the purge, `xdg-mime query filetype` on an AppImage still reports `application/vnd.appimage`, and the default handler for all three AppImage MIME types is this project's `appimage-activator.desktop` (called `appimage-handler.desktop` before the rename).
 - The launchers AppImageLauncher had written remain in `$XDG_DATA_HOME/applications/appimagekit_*.desktop`; their `Exec` still launches the AppImages, but their `Remove` and `Update` context actions point at `/opt/appimagelauncher.AppDir`, which no longer exists.
 - `appimage-integrate audit` reports each of those broken actions, so the remaining cleanup is visible rather than silent.
 - The AppImageLauncher-created MIME packages under `$XDG_DATA_HOME/mime/packages/appimagekit_*.xml` were kept, because they define application-specific types such as FreeCAD documents.

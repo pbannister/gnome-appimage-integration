@@ -96,7 +96,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
-| `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler |
+| `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |
 | `appimage-integrate handle <AppImage>` | the handler entry point: a GTK dialog, or the zenity fallback |
 | `desktop-inspect <file.desktop>` | print one desktop entry |
 | `desktop-inspect --explain ID` | show which file wins an identifier and what it masks |
@@ -108,7 +108,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 - `sources/appimage/` contains the AppImage container reader and the SquashFS payload reader.
 - `sources/desktop/` contains the desktop entry reader, the desktop entry locator, the icon theme locator, and the MIME association reader.
 - `sources/integration/` contains the plan, install, uninstall, and audit engine.
-- `sources/tools/` contains the command-line front ends and `appimage_handler_ui.py`, the GTK handler dialog.
+- `sources/tools/` contains the command-line front ends and `appimage_activator_ui.py`, the GTK activator dialog.
 - `sources/version/` contains the build-time version reporting.
 - `sources/CMakeLists.txt` defines the targets; the build tree is written to `dataflow.out/build/`.
 
@@ -116,8 +116,9 @@ The graphical handler needs PyGObject with GTK4, which Ubuntu ships.
 When it is absent, the handler falls back to zenity, and then to printing the equivalent commands.
 It is a single window: the application name, version, generic name, and comment, then File, Size, and Will install as, then the action buttons, then one large text area that Inspect and Integrate write into.
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
-`handler install` gives the handler its own AppImage Handler icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the handler share one icon.
-It sets its program name to `appimage-handler` and the entry sets `StartupWMClass=appimage-handler`, so the dock matches the running window to the entry instead of showing a generic icon.
+`handler install` gives the handler its own AppImage Activator icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the right-click item share one icon.
+It sets its program name to `appimage-activator` and the entry sets `StartupWMClass=appimage-activator`, so the dock matches the running window to the entry instead of showing a generic icon.
+The right-click "Open With" item is named `AppImage Activator`, because `AppImage Handler` is another project's name; `handler install` also removes the pre-rename `appimage-handler` entry, icon, and record, and carries their recorded previous defaults into the new record.
 It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json` and honours it on the next run; the remembered position is clamped so the window stays on the screen.
 
 ## Window Placement

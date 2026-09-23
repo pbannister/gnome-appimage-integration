@@ -9,3 +9,6 @@ site.out/*
 !dataflow.out/.gitkeep
 !logs/.gitkeep
 !site.out/.gitkeep
+
+__pycache__/
+*.pyc

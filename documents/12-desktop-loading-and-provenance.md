@@ -206,7 +206,7 @@ The two active entries disagree about both the icon and the window class, which 
 
 AppImageLauncher was removed at the owner's request; the AppImage MIME definitions it owned were first copied into `$XDG_DATA_HOME/mime/packages/`.
 
-The AppImage MIME default is now `appimage-handler.desktop`, and `desktop-inspect --mime` reports `$XDG_CONFIG_HOME/mimeapps.list` as its source.
+The AppImage MIME default is now `appimage-activator.desktop`, and `desktop-inspect --mime` reports `$XDG_CONFIG_HOME/mimeapps.list` as its source.
 
 The `appimagekit_*` launchers it wrote remain, and `appimage-integrate audit` reports their now-broken `/opt/appimagelauncher.AppDir/...` context actions with the remedy "re-integrate the AppImage".
 
