@@ -101,6 +101,14 @@ The content is an ASCII string; a known transport mechanism is required, otherwi
 
 The GitHub release tag accepts the special values `latest`, `latest-pre`, and `latest-all`.
 
+The section is fixed size, so the string is followed by NUL padding, and some builds put
+non-text bytes there: the specification says content that is not a known transport should be
+empty or ignored. This project trims the padding, reports what is left when it is printable text,
+and ignores anything else. Two consequences are visible on this host: the four FreeCAD AppImages
+carry a real `gh-releases-zsync|…` value that was previously invisible, and the two Cura AppImages
+carry the literal string `guess`, which is an `appimagetool` option rather than an update
+information value and is reported as it stands so the owner can see it.
+
 ### Signature
 
 Type 2 AppImages may store a signature in the ELF section `.sha256_sig`.

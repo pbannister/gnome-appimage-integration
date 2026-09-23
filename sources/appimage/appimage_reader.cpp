@@ -3,6 +3,7 @@
 #include "appimage/appimage_signature.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -65,6 +66,33 @@ bool read_at(file_reader_o &o_reader,
         return false;
     }
     return i_size == std::fread(p_buffer, 1, i_size, o_reader.p_file);
+}
+
+// The update information section holds an ASCII string in a known format, padded with
+// NULs, or nothing usable.  Return the string when it is one of the known transports,
+// and an empty string when the section should be ignored.
+std::string trim_update_information(const std::string &s_text) {
+    std::string s_result = s_text;
+    while (!s_result.empty() && '\0' == s_result.back()) {
+        s_result.pop_back();
+    }
+    std::size_t i_end = s_result.size();
+    while (0 < i_end
+           && 0 != std::isspace(static_cast<unsigned char>(s_result[i_end - 1]))) {
+        i_end--;
+    }
+    s_result = s_result.substr(0, i_end);
+    for (const char c_character : s_result) {
+        const unsigned char u_character = static_cast<unsigned char>(c_character);
+        if (0x20 > u_character || 0x7e < u_character) {
+            return {};  // not text, so not an update information string
+        }
+    }
+    // Printable text is reported as it stands, even when it names no transport this
+    // project knows (the Cura AppImages here carry the literal string "guess", which is
+    // an appimagetool option, not an update information value).  It is only ever
+    // reported, never acted on, and seeing nonsense is more useful than hiding it.
+    return s_result;
 }
 
 std::string read_string_table_entry(const std::vector<std::uint8_t> &o_table,
@@ -353,6 +381,13 @@ bool appimage_reader_c::read(const std::string &s_path, appimage_info_o &o_info)
                     i_read_size)) {
             o_info.update_information.assign(
                 reinterpret_cast<const char *>(o_update.data()), o_update.size());
+            // The section is fixed size, so it is padded with NULs, and some builds put
+            // binary there: the specification says content that is not a known transport
+            // should be empty or ignored, and binary is certainly not an update string.
+            o_info.update_information = trim_update_information(o_info.update_information);
+            if (o_info.update_information.empty()) {
+                o_info.update_information_section.present = false;
+            }
         } else {
             o_info.update_information_section.present = false;
         }

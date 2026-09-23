@@ -158,4 +158,32 @@ if [ ! -f "$DIRECTORY_XDG/home/.local/share/applications/org.example.Probe.deskt
     fail_test "the overridden integration wrote no launcher"
 fi
 
+echo "=== the update information section is reported, and padding or binary is not ==="
+# The section is fixed size, so a real value is followed by NUL padding.
+printf 'gh-releases-zsync|user|repo|latest|App-*.AppImage.zsync' > "$DIRECTORY_TEMP/upd.bin"
+dd if=/dev/zero bs=1 count=64 >> "$DIRECTORY_TEMP/upd.bin" 2>/dev/null
+objcopy --add-section ".upd_info=$DIRECTORY_TEMP/upd.bin" "$DIRECTORY_TEMP/elf-signed" \
+    "$DIRECTORY_TEMP/elf-upd" 2>/dev/null
+build_synthetic_appimage "$DIRECTORY_TEMP/elf-upd" "$DIRECTORY_PAYLOAD" \
+    "$DIRECTORY_TEMP/Upd.AppImage" gzip "$DIRECTORY_TEMP/payload.squashfs"
+FILE_UPDATE=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json \
+    "$DIRECTORY_TEMP/Upd.AppImage" 2>/dev/null \
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['update_information'])")
+if [ "$FILE_UPDATE" != "gh-releases-zsync|user|repo|latest|App-*.AppImage.zsync" ]; then
+    fail_test "a NUL-padded update information section reported: [$FILE_UPDATE]"
+fi
+
+# Sections holding binary are ignored, as the specification asks.
+printf '\001\002\003\004\005\006\007\010' > "$DIRECTORY_TEMP/binary-upd.bin"
+objcopy --add-section ".upd_info=$DIRECTORY_TEMP/binary-upd.bin" "$DIRECTORY_TEMP/elf-signed" \
+    "$DIRECTORY_TEMP/elf-bin-upd" 2>/dev/null
+build_synthetic_appimage "$DIRECTORY_TEMP/elf-bin-upd" "$DIRECTORY_PAYLOAD" \
+    "$DIRECTORY_TEMP/BinaryUpd.AppImage" gzip "$DIRECTORY_TEMP/payload.squashfs"
+FILE_UPDATE=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json \
+    "$DIRECTORY_TEMP/BinaryUpd.AppImage" 2>/dev/null \
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['update_information'])")
+if [ -n "$FILE_UPDATE" ]; then
+    fail_test "a binary update information section was reported as [$FILE_UPDATE]"
+fi
+
 pass_test "appimage signature"

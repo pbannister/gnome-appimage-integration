@@ -59,6 +59,18 @@ the section table end. Nothing caught it because no synthetic AppImage carried e
 the real AppImages here have no `.upd_info` and no signature. The new signature test caught it
 immediately: the section was visible to `readelf` and invisible to the reader.
 
+## What the Fix Revealed in `.upd_info`
+
+Reading section contents correctly also made `.upd_info` real. On this host that produces: four
+FreeCAD AppImages with a genuine `gh-releases-zsync|FreeCAD|FreeCAD|latest|…` value that was
+invisible until now, three whose section holds binary and is therefore ignored as the specification
+allows, and two Cura AppImages whose section holds the literal string `guess` — an `appimagetool`
+option, not an update information value — which is reported as it stands so the owner can see it.
+
+Without a guard the reader printed 1024 bytes of NULs and binary into `appimage-inspect` and
+`explain`, and `grep` began treating that output as binary. The section content is now trimmed of
+padding, kept when it is printable text, and ignored otherwise; the test covers all three cases.
+
 ## The Artefact
 
 `~/.local/share/icons/hicolor/0x0/` held one AppImageLauncher-era icon,
@@ -79,3 +91,4 @@ payload swapped after signing reports a mismatch, `install` refuses it and names
 
 - `62ff28a` TODO: the owner's edited list, with both requested items completed
 - `2340ac9` Check the `.sha256_sig` section, and read 64-bit section headers correctly
+- `bc0351f` Report the update information the section actually holds
