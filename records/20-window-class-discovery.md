@@ -91,3 +91,7 @@ matching manifest record. The owner is to confirm the dock icon.
 - The three launchers that still have no class (Cura, OpenShot, OpenShot-2) can be fixed with
   `install --wm-class-from-window` the next time each application runs; that is now a `TODO.md`
   pending item.
+
+## Commits
+
+- `b006b91` Read StartupWMClass from the running application
