@@ -150,6 +150,13 @@ struct integration_options_o {
     bool update_caches = true;
     // Integrate a file whose payload does not match its recorded digest.
     bool ignore_signature = false;
+    // Keep a recorded launcher's identity when rewriting it, so a second launcher for
+    // one AppImage keeps its own suffixed identifier and its own record.
+    std::string identifier_override;
+    // Rewriting a launcher that is already recorded: another launcher this tool wrote
+    // for the same AppImage file (a deliberate second copy for one application) is not
+    // a conflict, because the file is not claiming anything new.
+    bool refresh_own_launchers = false;
 };
 
 // One installed AppImage, read back from its manifest.
@@ -160,6 +167,10 @@ struct installed_appimage_o {
     std::string desktop_id;
     std::string icon_name;
     std::string manifest_path;
+    // What the record says about the window class, so a launcher can be rewritten
+    // without losing a class that was chosen earlier.
+    std::string startup_wm_class;
+    bool startup_wm_class_is_explicit = false;
 };
 
 // One audit finding about the real desktop.

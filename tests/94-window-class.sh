@@ -164,11 +164,18 @@ grep -q 'kept StartupWMClass=OrcaClass, which an earlier install set explicitly'
 
 echo "=== an X11 window's WM_CLASS is preferred ==="
 if ! command -v xvfb-run >/dev/null 2>&1 || ! command -v xlsclients >/dev/null 2>&1 \
-    || ! command -v xprop >/dev/null 2>&1; then
-    echo "SKIP: xvfb-run, xlsclients or xprop is not available"
+    || ! command -v xprop >/dev/null 2>&1 || ! command -v xwininfo >/dev/null 2>&1; then
+    echo "SKIP: xvfb-run, xlsclients, xprop or xwininfo is not available"
 elif [ ! -x "$DIRECTORY_BUILD/appimage-activator" ]; then
     echo "SKIP: appimage-activator was not built (libgtk-4-dev is missing)"
 else
+    # A PATH with xwininfo and xprop but no xlsclients: the window is still on the
+    # display, but only the window tree can see it.
+    DIRECTORY_TOOLS="$DIRECTORY_TEMP/tools"
+    mkdir -p "$DIRECTORY_TOOLS"
+    ln -sf "$(command -v xwininfo)" "$DIRECTORY_TOOLS/xwininfo"
+    ln -sf "$(command -v xprop)" "$DIRECTORY_TOOLS/xprop"
+
     # The activator is started with the same AppImage path as argv[0] as the mount
     # probe above, so that AppImage has both a process and a window.  The window's
     # class is the one the dock matches on, so it must win over the program name.
@@ -176,8 +183,10 @@ else
         PROBE_APPIMAGE="$FILE_APPIMAGE" \
         PROBE_ACTIVATOR="$DIRECTORY_BUILD/appimage-activator" \
         PROBE_TOOL="$DIRECTORY_BUILD/appimage-integrate" \
+        PROBE_TOOLS="$DIRECTORY_TOOLS" \
         PROBE_LOG="$DIRECTORY_TEMP/activator.log" \
         PROBE_WINDOWS="$DIRECTORY_TEMP/x11-windows.txt" \
+        PROBE_TREE="$DIRECTORY_TEMP/x11-tree.txt" \
         PROBE_PLAN="$DIRECTORY_TEMP/x11-plan.txt" \
         "$FILE_BASH" -c '
             export GDK_BACKEND=x11
@@ -186,6 +195,7 @@ else
             PID_ACTIVATOR=$!
             sleep 3
             "$PROBE_TOOL" windows > "$PROBE_WINDOWS" 2>&1 || true
+            PATH="$PROBE_TOOLS" "$PROBE_TOOL" windows > "$PROBE_TREE" 2>&1 || true
             "$PROBE_TOOL" plan --wm-class-from-window "$PROBE_APPIMAGE" \
                 > "$PROBE_PLAN" 2>&1 || true
             kill "$PID_ACTIVATOR" 2>/dev/null || true
@@ -195,6 +205,8 @@ else
         || fail_test "windows did not report the X11 window's class"
     grep -q -- '--wm-class appimage-activator' "$DIRECTORY_TEMP/x11-windows.txt" \
         || fail_test "the X11 class was not offered as --wm-class"
+    grep -q -- '--wm-class appimage-activator' "$DIRECTORY_TEMP/x11-tree.txt" \
+        || fail_test "windows did not find the window without xlsclients"
     grep -q 'read from the window' "$DIRECTORY_TEMP/x11-plan.txt" \
         || fail_test "the X11 class was not read from the window"
     grep -q 'startup-wm-class: appimage-activator' "$DIRECTORY_TEMP/x11-plan.txt" \

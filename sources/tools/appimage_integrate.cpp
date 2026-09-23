@@ -62,6 +62,7 @@ void print_usage(std::ostream &o_out) {
           << "  install <AppImage>        integrate the AppImage into the desktop\n"
           << "  uninstall --identifier ID [--remove-appimage]\n"
           << "  list                      list AppImages integrated by this tool\n"
+          << "  refresh                   rewrite every recorded launcher from its embedded entry\n"
           << "  windows                   list running AppImages and their window classes\n"
           << "  run <AppImage> [args...]  run once, without integrating\n"
           << "  audit                     report desktop integration inconsistencies\n"
@@ -74,7 +75,7 @@ void print_usage(std::ostream &o_out) {
           << "  --install-dir DIR         where the AppImage is placed (default ~/Applications)\n"
           << "  --desktop-file-name NAME  override the desktop file name (the ID)\n"
           << "  --exec-args ARGUMENTS     extra arguments inserted into Exec\n"
-          << "  --wm-class CLASS          set StartupWMClass explicitly\n"
+          << "  --wm-class CLASS          set StartupWMClass (refresh: for every launcher)\n"
           << "  --wm-class-from-window    read StartupWMClass from the running application\n"
           << "  --icon-name NAME          override the installed icon name\n"
           << "  --name NAME               set Name= in the launcher, e.g. with a version\n"
@@ -87,6 +88,7 @@ void print_usage(std::ostream &o_out) {
           << "  --detached                for run: start in a new session and report the pid\n"
           << "  --json                    machine-readable output where supported\n"
           << "  --yes                     do not ask before writing\n"
+          << "  --dry-run                 for refresh: show what would be rewritten\n"
           << "  --version                 print the build-time version\n";
 }
 
@@ -620,17 +622,60 @@ bool is_appimage_internal_path(const std::string &s_path) {
            || std::string::npos != s_path.find("/appimage_extracted_");
 }
 
-// The AppImage a process belongs to: its own command line first, then each parent,
-// because the runtime is the ancestor that carries the AppImage path.
+// One KEY=value entry from a process environment, which /proc stores NUL-separated.
+std::string process_environment_value(int i_pid, const std::string &s_key) {
+    const std::string s_environment =
+        read_proc_text("/proc/" + std::to_string(i_pid) + "/environ");
+    const std::string s_prefix = s_key + "=";
+    std::size_t i_start = 0;
+    while (i_start < s_environment.size()) {
+        const std::size_t i_end = s_environment.find('\0', i_start);
+        const std::string s_entry = s_environment.substr(
+            i_start, std::string::npos == i_end ? std::string::npos : i_end - i_start);
+        if (0 == s_entry.compare(0, s_prefix.size(), s_prefix)) {
+            return s_entry.substr(s_prefix.size());
+        }
+        if (std::string::npos == i_end) {
+            break;
+        }
+        i_start = i_end + 1;
+    }
+    return {};
+}
+
+bool looks_like_appimage_path(const std::string &s_text) {
+    return s_text.size() > APPIMAGE_SUFFIX_LENGTH
+           && 0 == s_text.compare(s_text.size() - APPIMAGE_SUFFIX_LENGTH,
+                                 APPIMAGE_SUFFIX_LENGTH, ".AppImage");
+}
+
+// The AppImage a process belongs to.  The AppImage runtime puts the file in the
+// APPIMAGE environment variable of everything it starts, and that survives the
+// runtime process exiting, which is what happens in practice: the payload is
+// reparented and no ancestor names the file any more.  The command line is checked
+// first because it also covers the runtime process itself and a program started
+// with an AppImage path as its argv[0]; the ancestry is the last resort.
 std::string appimage_of_process(int i_pid) {
-    int i_current = i_pid;
+    for (const std::string &s_argument : read_command_line(i_pid)) {
+        if (looks_like_appimage_path(s_argument)) {
+            return s_argument;
+        }
+    }
+    const std::string s_from_environment = process_environment_value(i_pid, "APPIMAGE");
+    if (!s_from_environment.empty()) {
+        return s_from_environment;
+    }
+    int i_current = process_parent(i_pid);
     for (int i_depth = 0; i_depth < 8 && 0 < i_current; i_depth++) {
         for (const std::string &s_argument : read_command_line(i_current)) {
-            if (s_argument.size() > APPIMAGE_SUFFIX_LENGTH
-                && 0 == s_argument.compare(s_argument.size() - APPIMAGE_SUFFIX_LENGTH,
-                                          APPIMAGE_SUFFIX_LENGTH, ".AppImage")) {
+            if (looks_like_appimage_path(s_argument)) {
                 return s_argument;
             }
+        }
+        const std::string s_parent_environment =
+            process_environment_value(i_current, "APPIMAGE");
+        if (!s_parent_environment.empty()) {
+            return s_parent_environment;
         }
         const int i_parent = process_parent(i_current);
         if (i_parent == i_current) {
@@ -641,69 +686,145 @@ std::string appimage_of_process(int i_pid) {
     return {};
 }
 
-// Every X11 or XWayland window, from xlsclients, with the pid xprop reports.
-void attach_x11_windows(std::vector<running_appimage_o> &o_running) {
-    if (!command_exists("xlsclients") || !command_exists("xprop") || !has_display()) {
+// A window found on the X display, whatever listed it.
+struct x11_window_o {
+    std::string id;
+    std::string title;
+    std::string instance;
+    std::string window_class;
+};
+
+// The pid xprop reports for a window, and the AppImage that process belongs to.
+void attach_window(std::vector<running_appimage_o> &o_running, const x11_window_o &o_window) {
+    const std::string s_pid_text = capture_command({"xprop", "-id", o_window.id, "_NET_WM_PID"});
+    const std::size_t i_digits = s_pid_text.find_last_not_of("0123456789");
+    const int i_pid = std::string::npos == i_digits || i_digits + 1 >= s_pid_text.size()
+                          ? 0
+                          : std::atoi(s_pid_text.substr(i_digits + 1).c_str());
+    const std::string s_appimage = 0 < i_pid ? appimage_of_process(i_pid) : std::string();
+    if (s_appimage.empty()) {
         return;
     }
+    running_appimage_o o_entry;
+    o_entry.appimage = s_appimage;
+    o_entry.i_pid = i_pid;
+    o_entry.executable = process_executable(i_pid);
+    o_entry.process = fs::path(o_entry.executable).filename().string();
+    o_entry.window_id = o_window.id;
+    o_entry.window_instance = o_window.instance;
+    o_entry.window_class = o_window.window_class;
+    o_entry.title = o_window.title;
+    o_running.push_back(std::move(o_entry));
+}
+
+// Windows from xlsclients, which is the friendly form: it prints the window, its
+// title, and the WM_CLASS the dock matches on.  It only lists windows a window
+// manager has marked with WM_STATE, so it finds nothing on a bare X server.
+std::size_t attach_xlsclients_windows(std::vector<running_appimage_o> &o_running,
+                                      std::size_t i_before) {
     const std::string s_listing = capture_command({"xlsclients", "-l"});
     std::istringstream o_lines(s_listing);
     std::string s_line;
-    std::string s_window_id;
-    std::string s_title;
-    std::string s_instance;
-    std::string s_class;
+    x11_window_o o_window;
     const auto finish_window = [&]() {
-        if (s_window_id.empty()) {
-            return;
+        if (!o_window.id.empty()) {
+            attach_window(o_running, o_window);
         }
-        const std::string s_pid_text = capture_command({"xprop", "-id", s_window_id, "_NET_WM_PID"});
-        const std::size_t i_digits = s_pid_text.find_last_not_of("0123456789");
-        const int i_pid = std::string::npos == i_digits || i_digits + 1 >= s_pid_text.size()
-                              ? 0
-                              : std::atoi(s_pid_text.substr(i_digits + 1).c_str());
-        const std::string s_appimage = 0 < i_pid ? appimage_of_process(i_pid) : std::string();
-        if (!s_appimage.empty()) {
-            running_appimage_o o_entry;
-            o_entry.appimage = s_appimage;
-            o_entry.i_pid = i_pid;
-            o_entry.executable = process_executable(i_pid);
-            o_entry.process = fs::path(o_entry.executable).filename().string();
-            o_entry.window_id = s_window_id;
-            o_entry.window_instance = s_instance;
-            o_entry.window_class = s_class;
-            o_entry.title = s_title;
-            o_running.push_back(std::move(o_entry));
-        }
-        s_window_id.clear();
-        s_title.clear();
-        s_instance.clear();
-        s_class.clear();
+        o_window = x11_window_o{};
     };
     while (std::getline(o_lines, s_line)) {
         const std::string s_trimmed = trim_spaces(s_line);
         if (0 == s_trimmed.rfind("Window ", 0)) {
             finish_window();
-            s_window_id = trim_spaces(s_trimmed.substr(7));
-            const std::size_t i_colon = s_window_id.find(':');
+            o_window.id = trim_spaces(s_trimmed.substr(7));
+            const std::size_t i_colon = o_window.id.find(':');
             if (std::string::npos != i_colon) {
-                s_window_id = s_window_id.substr(0, i_colon);
+                o_window.id = o_window.id.substr(0, i_colon);
             }
             continue;
         }
         if (0 == s_trimmed.rfind("Name:", 0)) {
-            s_title = trim_spaces(s_trimmed.substr(5));
+            o_window.title = trim_spaces(s_trimmed.substr(5));
             continue;
         }
         if (0 == s_trimmed.rfind("Instance/Class:", 0)) {
             const std::string s_pair = trim_spaces(s_trimmed.substr(15));
             const std::size_t i_slash = s_pair.find('/');
-            s_instance = std::string::npos == i_slash ? s_pair : s_pair.substr(0, i_slash);
-            s_class = std::string::npos == i_slash ? s_pair : s_pair.substr(i_slash + 1);
+            o_window.instance = std::string::npos == i_slash ? s_pair : s_pair.substr(0, i_slash);
+            o_window.window_class =
+                std::string::npos == i_slash ? s_pair : s_pair.substr(i_slash + 1);
             continue;
         }
     }
     finish_window();
+    return o_running.size() - i_before;
+}
+
+// Windows from xwininfo's tree, for an X server with no window manager: every mapped
+// window is listed with its title and its instance/class pair, WM_STATE or not.
+std::size_t attach_xwininfo_windows(std::vector<running_appimage_o> &o_running,
+                                    std::size_t i_before) {
+    const std::string s_listing = capture_command({"xwininfo", "-root", "-tree"});
+    std::istringstream o_lines(s_listing);
+    std::string s_line;
+    while (std::getline(o_lines, s_line)) {
+        // 0x20000e "title": ("instance" "class")  1096x823+0+0  +0+0
+        const std::string s_entry = trim_spaces(s_line);
+        const std::size_t i_space = s_entry.find(' ');
+        if (std::string::npos == i_space || 0 != s_entry.compare(0, 2, "0x")) {
+            continue;
+        }
+        const std::size_t i_marker = s_entry.find(": (");
+        if (std::string::npos == i_marker) {
+            continue;
+        }
+        const std::size_t i_instance_open = s_entry.find('"', i_marker);
+        const std::size_t i_instance_close = std::string::npos == i_instance_open
+                                                ? std::string::npos
+                                                : s_entry.find('"', i_instance_open + 1);
+        const std::size_t i_class_open = std::string::npos == i_instance_close
+                                             ? std::string::npos
+                                             : s_entry.find('"', i_instance_close + 1);
+        const std::size_t i_class_close = std::string::npos == i_class_open
+                                              ? std::string::npos
+                                              : s_entry.find('"', i_class_open + 1);
+        if (std::string::npos == i_class_close) {
+            continue;
+        }
+        x11_window_o o_window;
+        o_window.id = s_entry.substr(0, i_space);
+        const std::size_t i_title_open = s_entry.find('"');
+        const std::size_t i_title_close = s_entry.rfind('"', i_marker);
+        if (std::string::npos != i_title_open && i_title_close > i_title_open) {
+            o_window.title =
+                s_entry.substr(i_title_open + 1, i_title_close - i_title_open - 1);
+        }
+        o_window.instance =
+            s_entry.substr(i_instance_open + 1, i_instance_close - i_instance_open - 1);
+        o_window.window_class =
+            s_entry.substr(i_class_open + 1, i_class_close - i_class_open - 1);
+        if (o_window.window_class.empty()) {
+            continue;
+        }
+        attach_window(o_running, o_window);
+    }
+    return o_running.size() - i_before;
+}
+
+// Every X11 or XWayland window that belongs to a running AppImage.
+void attach_x11_windows(std::vector<running_appimage_o> &o_running) {
+    if (!command_exists("xprop") || !has_display()) {
+        return;
+    }
+    const std::size_t i_before = o_running.size();
+    if (command_exists("xlsclients") && 0 < attach_xlsclients_windows(o_running, i_before)) {
+        return;
+    }
+    // A bare X server, or a window no manager has marked: ask the tree directly.
+    // Windows found this way come from the same server, so nothing is duplicated.
+    if (command_exists("xwininfo")) {
+        attach_xwininfo_windows(o_running, i_before);
+    }
 }
 
 // The AppImages that are running now, from the processes that belong to them.
@@ -856,6 +977,216 @@ int command_windows(bool b_json) {
         std::cout << '\n';
     }
     return EXIT_OK;
+}
+
+// A JSON array of strings, for the lists a command reports alongside its results.
+void print_quoted_list(const std::vector<std::string> &o_items) {
+    for (std::size_t i_index = 0; i_index < o_items.size(); i_index++) {
+        if (0 < i_index) {
+            std::cout << ',';
+        }
+        std::cout << '"' << gnome_appimage::tools::json_escape(o_items[i_index]) << '"';
+    }
+}
+
+// Rewrite every recorded launcher from the AppImage's embedded entry, so launchers
+// written before a change to the template gain the new keys in one command.  What the
+// embedded entry does not carry is preserved from the launcher it replaces: the Name=
+// a user chose, the desktop id, the icon name, and the window class.
+int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_class_from_window,
+                    const std::string &s_wm_class_override) {
+    using gnome_appimage::desktop::desktop_entry_file_o;
+    using gnome_appimage::desktop::desktop_entry_reader_c;
+    using gnome_appimage::tools::json_escape;
+
+    const appimage_integrator_c o_integrator;
+    const std::vector<installed_appimage_o> o_installed = o_integrator.list_installed();
+    if (o_installed.empty()) {
+        if (b_json) {
+            std::cout << "{\"launchers\":[],\"skipped\":[],\"written\":0}\n";
+        } else {
+            std::cout << "nothing is recorded, so there is no launcher to refresh\n";
+        }
+        return EXIT_OK;
+    }
+
+    std::vector<integration_plan_o> o_plans;
+    std::vector<std::string> o_class_sources;
+    std::vector<std::string> o_skipped;
+    for (const installed_appimage_o &o_entry : o_installed) {
+        std::error_code o_exists_error;
+        if (!fs::exists(o_entry.appimage_path, o_exists_error)) {
+            o_skipped.push_back(o_entry.desktop_id + ": the AppImage is not at "
+                                + o_entry.appimage_path);
+            continue;
+        }
+        // Read the launcher being replaced: its Name= may have been chosen by hand,
+        // and its class is what the dock currently matches on.
+        std::string s_name;
+        std::string s_launcher_class;
+        desktop_entry_file_o o_launcher;
+        std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
+        if (desktop_entry_reader_c::parse_file(o_entry.desktop_entry_path, o_launcher,
+                                               o_diagnostics)) {
+            s_name = o_launcher.value("Desktop Entry", "Name").value_or(std::string());
+            s_launcher_class =
+                o_launcher.value("Desktop Entry", "StartupWMClass").value_or(std::string());
+        }
+
+        // The class to write: an explicit --wm-class, then the running application when
+        // asked to read it, then what the launcher already has, then a class this tool
+        // recorded earlier.  Nothing is invented, so a launcher keeps its class unless
+        // one of the two explicit sources supplies a better one.
+        std::string s_class;
+        std::string s_class_source;
+        if (!s_wm_class_override.empty()) {
+            s_class = s_wm_class_override;
+            s_class_source = "--wm-class";
+        }
+        if (s_class.empty() && b_wm_class_from_window) {
+            std::string s_where;
+            std::string s_error;
+            s_class = window_class_for_appimage(o_entry.appimage_path, s_where, s_error);
+            if (!s_class.empty()) {
+                s_class_source = "the running application, " + s_where;
+            }
+        }
+        if (s_class.empty() && !s_launcher_class.empty()) {
+            s_class = s_launcher_class;
+            s_class_source = "the launcher being replaced";
+        }
+        if (s_class.empty() && o_entry.startup_wm_class_is_explicit
+            && !o_entry.startup_wm_class.empty()) {
+            s_class = o_entry.startup_wm_class;
+            s_class_source = "the record";
+        }
+
+        integration_options_o o_options;
+        o_options.tool_path = tool_path(o_integrator);
+        o_options.install_directory = fs::path(o_entry.appimage_path).parent_path().string();
+        o_options.desktop_file_name = o_entry.desktop_id;
+        o_options.icon_name_override = o_entry.icon_name;
+        o_options.name_override = s_name;
+        o_options.startup_wm_class_override = s_class;
+        o_options.move_appimage = false;
+        o_options.refresh_own_launchers = true;
+        o_options.identifier_override = o_entry.identifier;
+
+        integration_plan_o o_plan;
+        if (!o_integrator.plan(o_entry.appimage_path, o_options, o_plan)) {
+            o_skipped.push_back(o_entry.desktop_id + ": " + o_plan.error);
+            continue;
+        }
+        o_plans.push_back(std::move(o_plan));
+        o_class_sources.push_back(s_class_source);
+    }
+
+    if (b_json) {
+        std::cout << "{\"launchers\":[";
+    } else {
+        std::cout << "launchers to rewrite: " << o_plans.size() << '\n';
+    }
+    for (std::size_t i_index = 0; i_index < o_plans.size(); i_index++) {
+        const integration_plan_o &o_plan = o_plans[i_index];
+        if (b_json) {
+            if (0 < i_index) {
+                std::cout << ',';
+            }
+            std::cout << "{\"identifier\":\"" << json_escape(o_plan.identifier)
+                      << "\",\"desktop_entry\":\"" << json_escape(o_plan.desktop_entry_path)
+                      << "\",\"name\":\"" << json_escape(o_plan.name)
+                      << "\",\"startup_wm_class\":\""
+                      << json_escape(o_plan.startup_wm_class)
+                      << "\",\"startup_wm_class_source\":"
+                      << (o_class_sources[i_index].empty()
+                              ? std::string("null")
+                              : "\"" + json_escape(o_class_sources[i_index]) + "\"")
+                      << ",\"mode\":\"" << json_escape(o_plan.mode) << "\"}";
+            continue;
+        }
+        std::cout << "  " << o_plan.desktop_entry_path << '\n'
+                  << "    " << o_plan.mode << '\n'
+                  << "    name: " << o_plan.name << '\n'
+                  << "    startup-wm-class: "
+                  << (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class);
+        if (!o_class_sources[i_index].empty()) {
+            std::cout << "   (from " << o_class_sources[i_index] << ')';
+        }
+        std::cout << '\n';
+    }
+    if (!b_json) {
+        for (const std::string &s_skipped : o_skipped) {
+            std::cout << "  skipped: " << s_skipped << '\n';
+        }
+    }
+    if (b_dry_run) {
+        if (b_json) {
+            std::cout << "],\"skipped\":[";
+            print_quoted_list(o_skipped);
+            std::cout << "],\"failed\":[],\"dry_run\":true,\"written\":0}\n";
+        } else {
+            std::cout << "dry run: nothing was written\n";
+        }
+        return EXIT_OK;
+    }
+    if (!b_assume_yes) {
+        if (b_json) {
+            std::cerr << "error: refusing to write without --yes on a non-interactive input\n";
+            return EXIT_ERROR;
+        }
+        if (0 == isatty(STDIN_FILENO)) {
+            std::cerr << "error: refusing to write without --yes on a non-interactive input\n";
+            return EXIT_ERROR;
+        }
+        std::cout << "Rewrite these launchers? [y/N] " << std::flush;
+        std::string s_answer;
+        std::getline(std::cin, s_answer);
+        if ("y" != s_answer && "Y" != s_answer) {
+            std::cout << "cancelled\n";
+            return EXIT_OK;
+        }
+    }
+
+    std::vector<std::string> o_failed;
+    int i_written = 0;
+    for (std::size_t i_index = 0; i_index < o_plans.size(); i_index++) {
+        const integration_plan_o &o_plan = o_plans[i_index];
+        std::string s_error;
+        if (!o_integrator.install(o_plan, s_error)) {
+            o_failed.push_back(o_plan.desktop_entry_path + ": " + s_error);
+            std::cerr << "error: " << o_plan.desktop_entry_path << ": " << s_error << '\n';
+            continue;
+        }
+        i_written++;
+        if (b_json) {
+            continue;
+        }
+        std::cout << "rewritten: " << o_plan.desktop_entry_path;
+        if (!o_plan.startup_wm_class.empty()) {
+            std::cout << "  StartupWMClass=" << o_plan.startup_wm_class;
+            if (!o_class_sources[i_index].empty()) {
+                std::cout << " (from " << o_class_sources[i_index] << ')';
+            }
+        }
+        std::cout << '\n';
+    }
+    if (b_json) {
+        std::cout << "],\"skipped\":[";
+        print_quoted_list(o_skipped);
+        std::cout << "],\"failed\":[";
+        print_quoted_list(o_failed);
+        std::cout << "],\"written\":" << i_written << "}\n";
+    } else {
+        std::cout << "rewritten launchers: " << i_written << " of " << o_plans.size();
+        if (!o_skipped.empty()) {
+            std::cout << ", skipped " << o_skipped.size();
+        }
+        if (!o_failed.empty()) {
+            std::cout << ", failed " << o_failed.size();
+        }
+        std::cout << '\n';
+    }
+    return o_skipped.empty() && o_failed.empty() ? EXIT_OK : EXIT_ERROR;
 }
 
 int command_audit(bool b_json) {
@@ -1540,6 +1871,7 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_remove_appimage = false;
     bool b_ignore_signature = false;
     bool b_wm_class_from_window = false;
+    bool b_dry_run = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -1579,6 +1911,8 @@ int main(int i_argument_count, char **p_arguments) {
             b_ignore_signature = true;
         } else if ("--wm-class-from-window" == s_argument) {
             b_wm_class_from_window = true;
+        } else if ("--dry-run" == s_argument) {
+            b_dry_run = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -1606,7 +1940,8 @@ int main(int i_argument_count, char **p_arguments) {
         }
     }
 
-    if (b_wm_class_from_window) {
+    // refresh resolves a class per recorded launcher, inside the command.
+    if (b_wm_class_from_window && "refresh" != s_command) {
         if (s_path.empty()) {
             std::cerr << "error: --wm-class-from-window needs an AppImage path\n";
             return EXIT_USAGE;
@@ -1675,6 +2010,9 @@ int main(int i_argument_count, char **p_arguments) {
     }
     if ("list" == s_command) {
         return command_list(b_json);
+    }
+    if ("refresh" == s_command) {
+        return command_refresh(b_json, b_assume_yes, b_dry_run, b_wm_class_from_window, s_wm_class);
     }
     if ("run" == s_command) {
         if (s_path.empty()) {

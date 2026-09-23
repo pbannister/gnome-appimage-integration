@@ -73,7 +73,7 @@ Reveal it:
 | `desktop-file-validate FILE` | invalid or contradictory fields |
 | `gio launch ID` / `gtk-launch ID` | what the desktop itself would run |
 | `xprop WM_CLASS` then click the window | the runtime window class to put in `StartupWMClass` |
-| `appimage-integrate windows` | the same class for a running AppImage, from its mount or its X11 client, without clicking |
+| `appimage-integrate windows` | the same class for a running AppImage, from its mount, its X11 client, or the window tree when no window manager has marked the window |
 | `lg` (Looking Glass), Windows tab | the `wmclass` of a native Wayland window, which GNOME does not expose to other programs |
 
 ## 3. Where Icons Come From

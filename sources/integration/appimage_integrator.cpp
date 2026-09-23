@@ -650,7 +650,8 @@ std::vector<integration_conflict_o> detect_application_conflicts(
     const std::string &s_new_appimage_path,
     const std::string &s_new_desktop_id,
     const std::string &s_new_identifier,
-    const std::vector<installed_appimage_o> &o_installed) {
+    const std::vector<installed_appimage_o> &o_installed,
+    bool b_refresh_own_launchers) {
     std::vector<integration_conflict_o> o_conflicts;
     const desktop_entry_locator_c o_locator(o_environment);
     for (const gnome_appimage::desktop::desktop_entry_candidate_o &o_candidate :
@@ -732,6 +733,12 @@ std::vector<integration_conflict_o> detect_application_conflicts(
         const bool b_file_match = !s_exec_stem.empty() && !s_new_appimage_stem.empty()
                                   && s_exec_stem == s_new_appimage_stem;
         if (!b_name_match && !b_appimage_name_match && !b_wm_match && !b_file_match) {
+            continue;
+        }
+        // While refreshing a record, another launcher this tool wrote for the very
+        // same AppImage is not a competing claim: it is a second launcher for one
+        // file, and both are about to be rewritten.
+        if (b_refresh_own_launchers && b_managed && same_file_path(s_exec, s_new_appimage_path)) {
             continue;
         }
 
@@ -981,7 +988,9 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         s_probe += std::to_string(o_info.file_size);
         s_probe += "|";
         s_probe += std::to_string(o_info.payload_offset);
-        o_plan.identifier = integration_identifier(s_probe);
+        o_plan.identifier = o_options.identifier_override.empty()
+                                ? integration_identifier(s_probe)
+                                : o_options.identifier_override;
 
         o_plan.name = o_entry.value("Desktop Entry", "Name").value_or(std::string());
         if (!o_options.name_override.empty()) {
@@ -1160,7 +1169,8 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_entry.value("Desktop Entry", "X-AppImage-Name").value_or(std::string()),
             o_plan.startup_wm_class,
             strip_extension(fs::path(o_plan.appimage_path).filename().string()),
-            o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed);
+            o_plan.appimage_path, o_plan.desktop_id, o_plan.identifier, o_installed,
+            o_options.refresh_own_launchers);
 
         // How this file's version compares with what is already installed.  The
         // newest installed version is the one that matters: it is what the owner
@@ -1830,6 +1840,9 @@ std::vector<installed_appimage_o> appimage_integrator_c::list_installed() const 
             o_installed.desktop_id = manifest_get(o_lines, "desktop_id");
             o_installed.icon_name = manifest_get(o_lines, "icon_name");
             o_installed.manifest_path = s_manifest;
+            o_installed.startup_wm_class = manifest_get(o_lines, "startup_wm_class");
+            o_installed.startup_wm_class_is_explicit =
+                "override" == manifest_get(o_lines, "startup_wm_class_source");
             o_results.push_back(std::move(o_installed));
         }
     } catch (const std::exception &) {

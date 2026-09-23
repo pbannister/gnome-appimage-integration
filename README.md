@@ -97,12 +97,16 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --install-dir DIR <AppImage>` | use another managed directory |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
 | `appimage-integrate list` | list AppImages integrated by this tool, marking any whose file is gone |
+| `appimage-integrate refresh` | rewrite every recorded launcher from its embedded entry, keeping names, ids, icons and window classes |
+| `appimage-integrate refresh --dry-run` | show what refresh would rewrite, and change nothing |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
 | `appimage-integrate install --ignore-signature <AppImage>` | integrate although `.sha256_sig` does not match the payload |
 
 An AppImage whose `.sha256_sig` section holds a digest or a signature is checked: the digest covers the file with that section zeroed. `explain`, `plan`, `appimage-inspect` and `install` report the result, a mismatch refuses the install unless `--ignore-signature` is given, and the activator shows it in Status.
+
+`refresh` is for launchers written by an older version of this tool: it re-renders each one from the AppImage's embedded entry, so new keys appear in one command, and preserves what the embedded entry does not carry (the `Name=` you chose, the desktop id, the icon name, the window class, and the launcher's own record). `--wm-class CLASS` uses that class for every launcher it rewrites; `--wm-class-from-window` reads the class from each running application instead. A recorded AppImage that is no longer at its path is named and skipped, and makes the command exit non-zero.
 
 The launcher each integration writes carries two context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |

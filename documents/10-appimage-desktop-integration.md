@@ -204,14 +204,20 @@ appimage-integrate windows                      # running AppImages and their wi
 appimage-integrate install --wm-class-from-window <AppImage>
 ```
 
-`windows` answers from two sources.  A process whose executable sits under `/.mount_` or
-`/appimage_extracted_` belongs to a mounted AppImage, and the program name is the id GTK
-falls back to when the application sets no `Gtk.Application` id; the same program name is
-printed as the suggested `--wm-class`.  X11 and XWayland clients are read from `xlsclients -l`
-plus `xprop -id <window> _NET_WM_PID`, and their `WM_CLASS` is preferred, because that is
-literally what the dock matches on.  A native Wayland window cannot be enumerated: GNOME
-answers `Introspect.GetWindows` with `GetWindows is not allowed`, so for those the `lg`
-route above remains the only source, and `windows` says so when it finds nothing.
+`windows` answers from three sources.  A process whose executable sits under `/.mount_` or
+`/appimage_extracted_` belongs to a mounted AppImage: the runtime puts the file in the
+process's `APPIMAGE` environment variable, which is what identifies it after the runtime
+process itself has exited, and the program name is the id GTK falls back to when the
+application sets no `Gtk.Application` id.  The same program name is printed as the suggested
+`--wm-class`.  X11 and XWayland clients are read from `xlsclients -l` plus
+`xprop -id <window> _NET_WM_PID`, and their `WM_CLASS` is preferred, because that is literally
+what the dock matches on -- and it is the *class* half of the pair that `StartupWMClass` must
+equal, as `code`/`Code` shows.  `xlsclients` only lists windows a window manager has marked
+with `WM_STATE`, so when it finds nothing the window tree is read instead
+(`xwininfo -root -tree`), which works on a bare X server too.  A native Wayland window cannot
+be enumerated at all: GNOME answers `Introspect.GetWindows` with `GetWindows is not allowed`,
+so for those the `lg` route above remains the only source, and `windows` says so when it finds
+nothing.
 
 `--wm-class-from-window` resolves the class for one AppImage from that list and refuses with
 the candidates named when the application is not running.  A class set with `--wm-class`, or
@@ -229,6 +235,19 @@ launcher's file name: a window whose application id is `us.example.Thing` does n
 `thing.desktop`, and the dock then shows a generic icon even though `StartupWMClass` is set.
 A handler that wants the file name `appimage-activator.desktop` therefore sets no
 `Gtk.Application` id and uses `appimage-activator` as its program name.
+
+### Keeping launchers current
+
+The launcher is rendered from a template, so a change to the template only reaches launchers
+that are written again.  `appimage-integrate refresh` does that for every record at once: it
+re-renders each launcher from the AppImage's embedded entry, so new keys such as the
+`AppImage Activator` context action appear, and keeps what the embedded entry does not carry —
+the `Name=` the launcher was given, the desktop id, the icon name, and the window class.  Each
+record keeps its own identifier, so a second launcher for one AppImage keeps its own record
+instead of the two collapsing into one.  `--dry-run` lists what would change, `--wm-class CLASS`
+gives every rewritten launcher that class, and `--wm-class-from-window` reads the class from
+each running application instead.  A record whose AppImage is gone is named and skipped, and
+the command exits non-zero so a script notices.
 
 ### Naming a launcher the user can tell apart
 
