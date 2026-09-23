@@ -33,6 +33,7 @@ default.
 - The Status log must reflect the current state, including the already-installed notice and the conflict choice, and must not be repeated above the buttons.
 - The Discovered log must list the facts the state was deduced from, with the command that produced them, and must gain the full report when Inspect runs.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
+- Each action must raise the page that answers it: Integrate the Status page, Inspect the Discovered page, and Run once or Run now the Actions page.
 - A conflict must be described from the owner's point of view: the mode says "another launcher already represents this application", not that the run is blocked.
 - An AppImage that is in its managed directory, whose launcher runs it, and which has a record must be reported as `properly integrated`; the details row and the Status tab must say so and must not offer to replace what is already correct.
 - The main window must not show Type, Payload, or Embedded entry.

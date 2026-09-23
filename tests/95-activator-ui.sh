@@ -245,6 +245,21 @@ grep -q 'Identifier' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Discovered tab does not report the identifier it computed"
 grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Actions tab does not log the install command"
+# Integrate leaves the resulting state on screen; the log waits in Actions.
+grep -q '^=== showing: Status ===$' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "Integrate did not leave the Status tab showing"
+# Inspect leaves its report on screen.
+run_driven --activate inspect > "$DIRECTORY_TEMP/inspected.txt" 2>&1
+grep -q '^=== showing: Discovered ===$' "$DIRECTORY_TEMP/inspected.txt" \
+    || fail_test "Inspect did not leave the Discovered tab showing"
+grep -Eq '^[0-9]{2}:[0-9]{2}:[0-9]{2}  appimage-integrate explain ' "$DIRECTORY_TEMP/inspected.txt" \
+    || fail_test "Inspect did not append its report to the Discovered tab"
+# Run once leaves the log of what it started.
+run_driven --activate run-once > "$DIRECTORY_TEMP/ran.txt" 2>&1
+grep -q '^=== showing: Actions ===$' "$DIRECTORY_TEMP/ran.txt" \
+    || fail_test "Run once did not leave the Actions tab showing"
+grep -Eq '^[0-9]{2}:[0-9]{2}:[0-9]{2}  appimage-integrate run --detached ' "$DIRECTORY_TEMP/ran.txt" \
+    || fail_test "Run once did not log the command in the Actions tab"
 
 # Without a typed name the field must be prefilled from the AppImage.
 : > "$FILE_RECORD"

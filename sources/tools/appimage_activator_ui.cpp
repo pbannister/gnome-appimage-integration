@@ -618,6 +618,9 @@ std::optional<action_e> action_from_name(const std::string &s_name) {
 // can take.
 class activator_c {
 public:
+    // The three logs, in notebook order.
+    enum class tab_e { status = 0, discovered = 1, actions = 2 };
+
     activator_c(GtkApplication *p_application, std::string s_tool, std::string s_path)
         : p_application_(p_application), s_tool_(std::move(s_tool)), s_path_(std::move(s_path)) {
         load_description();
@@ -672,9 +675,25 @@ public:
     // What the window holds, for a driven run: the test reads the logs rather than
     // the screen.
     void print_tabs(std::ostream &o_out) const {
+        // Which page is up says what the window decided to show after an action.
+        o_out << "=== showing: " << tab_name(static_cast<tab_e>(
+                                         gtk_notebook_get_current_page(GTK_NOTEBOOK(p_notebook_))))
+              << " ===\n";
         o_out << "=== Status ===\n" << tab_text(tab_e::status);
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
+    }
+
+    static const char *tab_name(tab_e e_tab) {
+        switch (e_tab) {
+            case tab_e::status:
+                return "Status";
+            case tab_e::discovered:
+                return "Discovered";
+            case tab_e::actions:
+                return "Actions";
+        }
+        return "unknown";
     }
 
 private:
@@ -897,8 +916,6 @@ private:
     }
 
     // -- the three logs -----------------------------------------------------
-    enum class tab_e { status = 0, discovered = 1, actions = 2 };
-
     GtkTextBuffer *buffer_for(tab_e e_tab) const {
         switch (e_tab) {
             case tab_e::status:
@@ -1320,6 +1337,8 @@ private:
         const process_result_o o_result = run_tool(s_tool_, o_arguments);
         const std::string s_report = combined_output(o_result);
         log_action(command_line("appimage-integrate", o_arguments), s_report);
+        // The log stays in Actions; what the owner needs next is the resulting state.
+        show_tab(tab_e::status);
         if (0 == o_result.exit_code) {
             // Integrate moves the AppImage; follow it so Run now and Inspect work.
             const std::string s_installed = o_data_.string_or("installed");
