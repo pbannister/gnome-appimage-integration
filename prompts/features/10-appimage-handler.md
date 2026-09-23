@@ -28,7 +28,12 @@ default.
 - The handler must prefer the graphical activator, a C++ GTK4 program, and fall back to zenity, then to printed instructions.
 - The activator must be built only when the GTK4 development files are present, so the command-line tool still builds without them.
 - The activator must not need Python at run time.
-- The main window must show the application Name, Comment, and GenericName, the detected version, and a details block containing File, Size, and Will install as.
+- The main window must show the application Name, Comment, and GenericName, the detected version, and a details block containing File, Size, Integrate will, and Will install as.
+- The window must carry three logs in a tabbed panel, each a large read-only text box: Status, Discovered, and Actions, with Status shown by default.
+- The Status log must reflect the current state, including the already-installed notice and the conflict choice, and must not be repeated above the buttons.
+- The Discovered log must list the facts the state was deduced from, with the command that produced them, and must gain the full report when Inspect runs.
+- The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
+- A conflict must be described from the owner's point of view: the mode says "another launcher already represents this application", not that the run is blocked.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
 - After Integrate succeeds, the window must follow the AppImage to its installed path, so File, Run now, and Inspect refer to the new location.

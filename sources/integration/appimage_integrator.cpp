@@ -888,6 +888,11 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_plan.detection_name = appimage_detection_name(o_info.detection);
         o_plan.file_size = o_info.file_size;
         o_plan.payload_size = o_info.payload_size;
+        o_plan.payload_offset = o_info.payload_offset;
+        if (o_info.signature_section.present) {
+            o_plan.signature =
+                o_info.signature_is_empty ? "present (empty padding)" : "present";
+        }
         if (o_info.has_squashfs) {
             o_plan.compression_name = squashfs_compression_name(o_info.squashfs.compression);
         }
@@ -1080,7 +1085,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_error << "choose --replace to back them up and install this version in their "
                        "place, or --add to install alongside them";
             o_plan.error = o_error.str();
-            o_plan.mode = "blocked: another launcher already represents this application";
+            o_plan.mode = "another launcher already represents this application";
             return false;
         } else if (!o_plan.conflicts.empty()) {
             bool b_repair = false;

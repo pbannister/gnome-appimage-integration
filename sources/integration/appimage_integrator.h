@@ -103,6 +103,9 @@ struct integration_plan_o {
     std::string update_information;
     std::uint64_t file_size = 0;
     std::uint64_t payload_size = 0;
+    std::uint64_t payload_offset = 0;
+    // "present", "present (empty padding)", or empty when there is no signature.
+    std::string signature;
     bool replace_conflicts = false;
     bool move_appimage = true;
 

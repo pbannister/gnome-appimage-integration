@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -621,6 +622,9 @@ public:
         build_content();
         watch_geometry();
         show_initial_buttons();
+        refresh_status();
+        refresh_discovered();
+        set_tab(tab_e::actions, "No action has changed the system yet.\n");
     }
 
     void present() {
@@ -652,13 +656,21 @@ public:
                 run_install({"--replace"});
                 return;
             case action_e::run_now:
-                set_text(start_appimage());
+                on_run_now();
                 return;
         }
     }
 
     void set_name_text(const std::string &s_text) {
         gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_text.c_str());
+    }
+
+    // What the window holds, for a driven run: the test reads the logs rather than
+    // the screen.
+    void print_tabs(std::ostream &o_out) const {
+        o_out << "=== Status ===\n" << tab_text(tab_e::status);
+        o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
+        o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
     }
 
 private:
@@ -754,17 +766,8 @@ private:
         gtk_box_append(GTK_BOX(p_box), p_details_container_);
         update_details();
 
-        if (!conflicts().empty()) {
-            GtkWidget *p_notice = gtk_label_new(nullptr);
-            gtk_label_set_markup(GTK_LABEL(p_notice),
-                                 "<b>This application is already installed.</b>\n"
-                                 "Integrate will show details, then offer to replace or add "
-                                 "alongside.");
-            gtk_label_set_xalign(GTK_LABEL(p_notice), 0.0F);
-            gtk_label_set_wrap(GTK_LABEL(p_notice), TRUE);
-            gtk_box_append(GTK_BOX(p_box), p_notice);
-        }
-
+        // The "already installed" block is not repeated here: it is part of the
+        // Status tab, which is where the current state lives.
         const std::string s_error = o_data_.string_or("error");
         if (!s_error.empty()) {
             gtk_box_append(GTK_BOX(p_box), make_label(s_error, true));
@@ -791,18 +794,36 @@ private:
         gtk_box_append(GTK_BOX(p_action_row), p_button_box_);
         gtk_box_append(GTK_BOX(p_box), p_action_row);
 
+        // Three tabs of plain text: what the current state is, what was discovered
+        // to deduce it, and what has been done to the system.  Status is the page
+        // shown when the window opens.
+        p_notebook_ = gtk_notebook_new();
+        gtk_widget_set_vexpand(p_notebook_, TRUE);
+        gtk_widget_set_hexpand(p_notebook_, TRUE);
+        gtk_widget_set_size_request(p_notebook_, -1, MINIMUM_HEIGHT);
+        add_text_page("Status", &p_status_view_, &p_status_buffer_);
+        add_text_page("Discovered", &p_discovered_view_, &p_discovered_buffer_);
+        add_text_page("Actions", &p_actions_view_, &p_actions_buffer_);
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), 0);
+        gtk_box_append(GTK_BOX(p_box), p_notebook_);
+
+        gtk_window_set_child(GTK_WINDOW(p_window_), p_box);
+    }
+
+    void add_text_page(const char *s_title, GtkWidget **p_view, GtkTextBuffer **p_buffer) {
         GtkWidget *p_scroller = gtk_scrolled_window_new();
         gtk_widget_set_vexpand(p_scroller, TRUE);
         gtk_widget_set_hexpand(p_scroller, TRUE);
-        gtk_widget_set_size_request(p_scroller, -1, MINIMUM_HEIGHT);
-        p_text_view_ = gtk_text_view_new();
-        gtk_text_view_set_editable(GTK_TEXT_VIEW(p_text_view_), FALSE);
-        gtk_text_view_set_monospace(GTK_TEXT_VIEW(p_text_view_), TRUE);
-        gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(p_text_view_), GTK_WRAP_WORD_CHAR);
-        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(p_scroller), p_text_view_);
-        gtk_box_append(GTK_BOX(p_box), p_scroller);
-
-        gtk_window_set_child(GTK_WINDOW(p_window_), p_box);
+        *p_view = gtk_text_view_new();
+        gtk_text_view_set_editable(GTK_TEXT_VIEW(*p_view), FALSE);
+        gtk_text_view_set_monospace(GTK_TEXT_VIEW(*p_view), TRUE);
+        gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(*p_view), GTK_WRAP_WORD_CHAR);
+        gtk_text_view_set_top_margin(GTK_TEXT_VIEW(*p_view), 6);
+        gtk_text_view_set_left_margin(GTK_TEXT_VIEW(*p_view), 6);
+        gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(p_scroller), *p_view);
+        *p_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(*p_view));
+        gtk_notebook_append_page(GTK_NOTEBOOK(p_notebook_), p_scroller,
+                                 gtk_label_new(s_title));
     }
 
     void clear_container(GtkWidget *p_container) {
@@ -876,9 +897,72 @@ private:
                      {"Close", action_e::close}});
     }
 
-    void set_text(const std::string &s_text) {
-        GtkTextBuffer *p_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(p_text_view_));
-        gtk_text_buffer_set_text(p_buffer, s_text.c_str(), -1);
+    // -- the three logs -----------------------------------------------------
+    enum class tab_e { status = 0, discovered = 1, actions = 2 };
+
+    GtkTextBuffer *buffer_for(tab_e e_tab) const {
+        switch (e_tab) {
+            case tab_e::status:
+                return p_status_buffer_;
+            case tab_e::discovered:
+                return p_discovered_buffer_;
+            case tab_e::actions:
+                return p_actions_buffer_;
+        }
+        return nullptr;
+    }
+
+    GtkWidget *view_for(tab_e e_tab) const {
+        switch (e_tab) {
+            case tab_e::status:
+                return p_status_view_;
+            case tab_e::discovered:
+                return p_discovered_view_;
+            case tab_e::actions:
+                return p_actions_view_;
+        }
+        return nullptr;
+    }
+
+    std::string tab_text(tab_e e_tab) const {
+        GtkTextBuffer *p_buffer = buffer_for(e_tab);
+        if (nullptr == p_buffer) {
+            return {};
+        }
+        GtkTextIter o_start;
+        GtkTextIter o_end;
+        gtk_text_buffer_get_bounds(p_buffer, &o_start, &o_end);
+        char *s_text = gtk_text_buffer_get_text(p_buffer, &o_start, &o_end, FALSE);
+        const std::string s_result = nullptr == s_text ? std::string() : std::string(s_text);
+        g_free(s_text);
+        return s_result;
+    }
+
+    void set_tab(tab_e e_tab, const std::string &s_text) {
+        GtkTextBuffer *p_buffer = buffer_for(e_tab);
+        if (nullptr != p_buffer) {
+            gtk_text_buffer_set_text(p_buffer, s_text.c_str(), -1);
+        }
+    }
+
+    void append_tab(tab_e e_tab, const std::string &s_text) {
+        GtkTextBuffer *p_buffer = buffer_for(e_tab);
+        GtkWidget *p_view = view_for(e_tab);
+        if (nullptr == p_buffer) {
+            return;
+        }
+        GtkTextIter o_end;
+        gtk_text_buffer_get_end_iter(p_buffer, &o_end);
+        gtk_text_buffer_insert(p_buffer, &o_end, s_text.c_str(), -1);
+        if (nullptr != p_view) {
+            // Keep the newest line in view.
+            gtk_text_buffer_get_end_iter(p_buffer, &o_end);
+            gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(p_view), &o_end, 0.0, FALSE, 0.0, 1.0);
+        }
+    }
+
+    void show_tab(tab_e e_tab) {
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), static_cast<int>(e_tab));
     }
 
     void show_name_field() {
@@ -927,6 +1011,207 @@ private:
         return G_SOURCE_CONTINUE;
     }
 
+    // -- the logs -----------------------------------------------------------
+    static std::string timestamp_now() {
+        const std::time_t i_now = std::time(nullptr);
+        std::tm o_local{};
+        localtime_r(&i_now, &o_local);
+        char s_buffer[32];
+        std::strftime(s_buffer, sizeof(s_buffer), "%H:%M:%S", &o_local);
+        return s_buffer;
+    }
+
+    // What the current state is, in the tool's own words where it has them.
+    std::string compose_status() const {
+        std::ostringstream o_text;
+        if (!s_status_note_.empty()) {
+            o_text << s_status_note_ << "\n\n";
+        }
+        const std::string s_mode = o_data_.string_or("mode");
+        const std::string s_desktop_id = o_data_.string_or("desktop_id");
+        o_text << "State:     " << (s_mode.empty() ? "unknown" : s_mode) << '\n';
+        o_text << "Launcher:  " << (s_desktop_id.empty() ? "(none yet)" : s_desktop_id) << '\n';
+        o_text << "File:      " << s_path_ << (is_missing() ? "  [MISSING]" : "") << '\n';
+
+        const std::vector<value_c> o_conflicts = conflicts();
+        if (!o_conflicts.empty()) {
+            o_text << "\nThis application is already installed.\n"
+                      "Integrate will show details, then offer to replace or add alongside.\n";
+            if (b_prompt_active_) {
+                o_text << '\n';
+                bool b_all_upgrade = true;
+                bool b_any_repair = false;
+                for (std::size_t i_index = 0; i_index < o_conflicts.size(); i_index++) {
+                    o_text << describe_conflict(static_cast<int>(i_index) + 1, o_conflicts[i_index])
+                           << '\n';
+                    if (!o_conflicts[i_index].boolean_or("upgrade", false)) {
+                        b_all_upgrade = false;
+                    }
+                    if (o_conflicts[i_index].boolean_or("repair", false)) {
+                        b_any_repair = true;
+                    }
+                }
+                const std::string s_version = o_data_.string_or("version");
+                if (!s_version.empty()) {
+                    o_text << "This AppImage is version " << s_version << ".\n\n";
+                }
+                if (b_all_upgrade) {
+                    if (b_any_repair) {
+                        o_text << "Replace existing repairs that launcher: the AppImage is not "
+                                  "where the launcher expects it, so its Exec and TryExec are "
+                                  "rewritten.\n";
+                    } else {
+                        o_text << "Replace existing updates that launcher in place.\n";
+                    }
+                    o_text << "Add alongside keeps it and installs this version under a new "
+                              "identifier.\n";
+                } else {
+                    o_text << "Replace existing backs those launchers up and installs this "
+                              "version in their place.\n";
+                    o_text << "Add alongside keeps them and installs this version under a new "
+                              "identifier.\n";
+                }
+            }
+        }
+        const std::string s_installed = o_data_.string_or("installed");
+        if (!s_installed.empty() && s_installed != s_path_) {
+            o_text << "\nThe managed copy lives at:\n  " << s_installed << '\n';
+        }
+        return o_text.str();
+    }
+
+    // What was discovered, and which command discovered it.
+    std::string compose_discovered() const {
+        std::ostringstream o_text;
+        o_text << "appimage-integrate explain --json " << s_path_ << "\n\n";
+        const auto add_fact = [&o_text](const std::string &s_label, const std::string &s_value) {
+            o_text << "  " << s_label;
+            for (std::size_t i_index = s_label.size(); i_index < 18; i_index++) {
+                o_text << ' ';
+            }
+            o_text << s_value << '\n';
+        };
+        const auto number_text = [](const value_c &o_value) {
+            std::ostringstream o_number;
+            o_number << static_cast<long long>(o_value.as_number());
+            return o_number.str();
+        };
+        add_fact("AppImage", s_path_);
+        add_fact("Detection", o_data_.string_or("detection", "(unknown)"));
+        const value_c *p_size = o_data_.member("file_size");
+        if (nullptr != p_size && p_size->is_number()) {
+            add_fact("Size", human_size(p_size->as_number()) + "  (" + number_text(*p_size)
+                                 + " bytes)");
+        }
+        const value_c *p_payload = o_data_.member("payload_size");
+        const value_c *p_offset = o_data_.member("payload_offset");
+        if (nullptr != p_payload && p_payload->is_number()) {
+            std::string s_payload = number_text(*p_payload) + " bytes";
+            if (nullptr != p_offset && p_offset->is_number()) {
+                s_payload = "offset " + number_text(*p_offset) + " bytes, size " + s_payload;
+            }
+            add_fact("Payload", s_payload);
+        }
+        const std::string s_compression = o_data_.string_or("compression");
+        if (!s_compression.empty()) {
+            add_fact("Compression", s_compression);
+        }
+        const std::string s_version = o_data_.string_or("version");
+        if (!s_version.empty()) {
+            add_fact("Version", s_version + "  (from " + o_data_.string_or("version_source", "?")
+                                     + ")");
+        }
+        const std::string s_signature = o_data_.string_or("signature");
+        add_fact("Signature", s_signature.empty() ? "(absent)" : s_signature);
+        const std::string s_update = o_data_.string_or("update_information");
+        if (!s_update.empty()) {
+            add_fact("Update info", s_update);
+        }
+        add_fact("Identifier", o_data_.string_or("identifier", "(unknown)"));
+        add_fact("Embedded entry", o_data_.string_or("embedded_desktop", "(unknown)"));
+        add_fact("Desktop id", o_data_.string_or("desktop_id", "(unknown)"));
+        add_fact("Installed path", o_data_.string_or("installed", "(unknown)"));
+        add_fact("Icon", o_data_.string_or("icon_name", "(none)"));
+        add_fact("Exec", o_data_.string_or("exec", "(none)"));
+        add_fact("Window class", o_data_.string_or("startup_wm_class", "(none)"));
+        const std::string s_mode = o_data_.string_or("mode");
+        if (!s_mode.empty()) {
+            add_fact("This run", s_mode);
+        }
+        const std::string s_error = o_data_.string_or("error");
+        if (!s_error.empty()) {
+            add_fact("Error", s_error);
+        }
+
+        const std::string s_entry = o_data_.string_or("desktop_entry");
+        if (!s_entry.empty()) {
+            o_text << "\nEmbedded desktop entry:\n";
+            std::istringstream o_lines(s_entry);
+            std::string s_line;
+            while (std::getline(o_lines, s_line)) {
+                o_text << "  " << s_line << '\n';
+            }
+        }
+
+        const std::vector<value_c> o_conflicts = conflicts();
+        o_text << "\nExisting launchers for this application:\n";
+        if (o_conflicts.empty()) {
+            o_text << "  (none found)\n";
+        }
+        for (std::size_t i_index = 0; i_index < o_conflicts.size(); i_index++) {
+            std::istringstream o_lines(
+                describe_conflict(static_cast<int>(i_index) + 1, o_conflicts[i_index]));
+            std::string s_line;
+            while (std::getline(o_lines, s_line)) {
+                o_text << "  " << s_line << '\n';
+            }
+        }
+        return o_text.str();
+    }
+
+    void refresh_status() {
+        set_tab(tab_e::status, compose_status());
+    }
+
+    void refresh_discovered() {
+        set_tab(tab_e::discovered, compose_discovered());
+    }
+
+    // Every entry in the Actions tab is a command that changed the system.
+    void log_action(const std::string &s_command, const std::string &s_output) {
+        if (b_actions_empty_) {
+            set_tab(tab_e::actions, "");
+            b_actions_empty_ = false;
+        }
+        std::ostringstream o_entry;
+        o_entry << timestamp_now() << "  " << s_command << '\n';
+        const std::string s_trimmed = trim_spaces(s_output);
+        if (!s_trimmed.empty()) {
+            std::istringstream o_lines(s_trimmed);
+            std::string s_line;
+            while (std::getline(o_lines, s_line)) {
+                o_entry << "  " << s_line << '\n';
+            }
+        }
+        o_entry << '\n';
+        append_tab(tab_e::actions, o_entry.str());
+        show_tab(tab_e::actions);
+    }
+
+    static std::string command_line(const std::string &s_tool,
+                                    const std::vector<std::string> &o_arguments) {
+        std::string s_result = s_tool;
+        for (const std::string &s_argument : o_arguments) {
+            s_result += ' ';
+            if (std::string::npos != s_argument.find(' ')) {
+                s_result += '"' + s_argument + '"';
+            } else {
+                s_result += s_argument;
+            }
+        }
+        return s_result;
+    }
+
     // -- actions ------------------------------------------------------------
     void on_close() {
         o_geometry_.save("main", GTK_WINDOW(p_window_));
@@ -939,65 +1224,58 @@ private:
 
     std::string missing_message() const {
         return "This AppImage is no longer at\n  " + s_path_
-               + "\n\nIt has probably been integrated already.\nLook for \"" + display_name()
+               + "\nIt has probably been integrated already.\nLook for \"" + display_name()
                + "\" in the application menu.";
+    }
+
+    void show_missing_status() {
+        s_status_note_ = missing_message();
+        refresh_status();
+        show_tab(tab_e::status);
+    }
+
+    void run_the_appimage() {
+        const std::vector<std::string> o_arguments = {"run", "--detached", s_path_};
+        const std::string s_report = combined_output(run_tool(s_tool_, o_arguments));
+        log_action(command_line("appimage-integrate", o_arguments), s_report);
     }
 
     void on_run_once() {
         if (is_missing()) {
-            set_text(missing_message());
+            show_missing_status();
             return;
         }
-        set_text(start_appimage());
+        run_the_appimage();
+    }
+
+    void on_run_now() {
+        run_the_appimage();
     }
 
     void on_inspect() {
-        set_text(combined_output(run_tool(s_tool_, {"explain", s_path_})));
+        const std::vector<std::string> o_arguments = {"explain", s_path_};
+        const std::string s_report = combined_output(run_tool(s_tool_, o_arguments));
+        append_tab(tab_e::discovered,
+                   "\n" + timestamp_now() + "  " + command_line("appimage-integrate", o_arguments)
+                       + "\n\n" + s_report + "\n");
+        show_tab(tab_e::discovered);
     }
 
     void on_integrate() {
         if (is_missing()) {
-            set_text(missing_message());
+            show_missing_status();
             return;
         }
-        const std::vector<value_c> o_conflicts = conflicts();
-        if (o_conflicts.empty()) {
+        if (conflicts().empty()) {
             run_install({});
             return;
         }
-        std::ostringstream o_text;
-        o_text << display_name() << " is already installed:\n\n";
-        bool b_all_upgrade = true;
-        bool b_any_repair = false;
-        for (std::size_t i_index = 0; i_index < o_conflicts.size(); i_index++) {
-            o_text << describe_conflict(static_cast<int>(i_index) + 1, o_conflicts[i_index])
-                   << '\n';
-            if (!o_conflicts[i_index].boolean_or("upgrade", false)) {
-                b_all_upgrade = false;
-            }
-            if (o_conflicts[i_index].boolean_or("repair", false)) {
-                b_any_repair = true;
-            }
-        }
-        const std::string s_version = o_data_.string_or("version");
-        if (!s_version.empty()) {
-            o_text << "This AppImage is version " << s_version << ".\n\n";
-        }
-        if (b_all_upgrade) {
-            if (b_any_repair) {
-                o_text << "Replace existing repairs that launcher: the AppImage is not where "
-                          "the launcher expects it, so its Exec and TryExec are rewritten.\n";
-            } else {
-                o_text << "Replace existing updates that launcher in place.\n";
-            }
-            o_text << "Add alongside keeps it and installs this version under a new identifier.\n";
-        } else {
-            o_text << "Replace existing backs those launchers up and installs this version in "
-                      "their place.\n";
-            o_text << "Add alongside keeps them and installs this version under a new "
-                      "identifier.\n";
-        }
-        set_text(o_text.str());
+        // The choice, and what each choice does, is status: it is what the window is
+        // waiting for.
+        b_prompt_active_ = true;
+        s_status_note_.clear();
+        refresh_status();
+        show_tab(tab_e::status);
         show_name_field();
         set_buttons({{"Back", action_e::back},
                      {"Add alongside", action_e::add_alongside},
@@ -1005,25 +1283,28 @@ private:
     }
 
     void on_back() {
+        b_prompt_active_ = false;
         hide_name_field();
-        set_text("");
+        refresh_status();
         show_initial_buttons();
+        show_tab(tab_e::status);
     }
 
     void run_install(const std::vector<std::string> &o_policy) {
         // The typed name decides Name= in the launcher, so two launchers for one
         // application can be told apart in the menu.
-        std::vector<std::string> o_command = {"install", "--yes"};
-        o_command.insert(o_command.end(), o_policy.begin(), o_policy.end());
+        std::vector<std::string> o_arguments = {"install", "--yes"};
+        o_arguments.insert(o_arguments.end(), o_policy.begin(), o_policy.end());
         const std::string s_typed = typed_name();
         if (!s_typed.empty()) {
-            o_command.push_back("--name");
-            o_command.push_back(s_typed);
+            o_arguments.push_back("--name");
+            o_arguments.push_back(s_typed);
         }
-        o_command.push_back(s_path_);
+        o_arguments.push_back(s_path_);
         hide_name_field();
-        const process_result_o o_result = run_tool(s_tool_, o_command);
+        const process_result_o o_result = run_tool(s_tool_, o_arguments);
         const std::string s_report = combined_output(o_result);
+        log_action(command_line("appimage-integrate", o_arguments), s_report);
         if (0 == o_result.exit_code) {
             // Integrate moves the AppImage; follow it so Run now and Inspect work.
             const std::string s_installed = o_data_.string_or("installed");
@@ -1033,14 +1314,18 @@ private:
                 s_path_ = s_installed;
                 load_description();
             }
+            b_prompt_active_ = false;
+            s_status_note_.clear();
+            refresh_status();
+            refresh_discovered();
             update_details();
-            set_text(s_report + "\n\nFile is now:\n  " + s_path_);
             set_buttons({{"Run now", action_e::run_now},
                          {"Inspect", action_e::inspect},
                          {"Close", action_e::close}});
             return;
         }
-        set_text("The integration did not complete.\n\n" + s_report);
+        s_status_note_ = "The integration did not complete.";
+        refresh_status();
         show_initial_buttons();
     }
 
@@ -1054,7 +1339,18 @@ private:
     GtkWidget *p_name_box_ = nullptr;
     GtkWidget *p_name_entry_ = nullptr;
     GtkWidget *p_button_box_ = nullptr;
-    GtkWidget *p_text_view_ = nullptr;
+    GtkWidget *p_notebook_ = nullptr;
+    GtkWidget *p_status_view_ = nullptr;
+    GtkWidget *p_discovered_view_ = nullptr;
+    GtkWidget *p_actions_view_ = nullptr;
+    GtkTextBuffer *p_status_buffer_ = nullptr;
+    GtkTextBuffer *p_discovered_buffer_ = nullptr;
+    GtkTextBuffer *p_actions_buffer_ = nullptr;
+    // Whether the conflict choice is on screen, and whether anything has been done
+    // yet; both decide what the Status and Actions tabs say.
+    bool b_prompt_active_ = false;
+    bool b_actions_empty_ = true;
+    std::string s_status_note_;
 };
 
 // What the activate handler needs to build the window, and what the test hooks
@@ -1085,7 +1381,9 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
         }
     }
     if (!p_context->o_actions.empty()) {
-        // A driven run is a test: it must not wait for a person to close the window.
+        // A driven run is a test: report what the window holds, then quit rather than
+        // wait for a person to close it.
+        p_context->p_activator->print_tabs(std::cout);
         g_application_quit(G_APPLICATION(p_application));
     }
 }

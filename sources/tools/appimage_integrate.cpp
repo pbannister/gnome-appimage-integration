@@ -374,6 +374,8 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"detection\":\"" << json_escape(o_plan.detection_name) << "\""
               << ",\"file_size\":" << o_plan.file_size
               << ",\"payload_size\":" << o_plan.payload_size
+              << ",\"payload_offset\":" << o_plan.payload_offset
+              << ",\"signature\":\"" << json_escape(o_plan.signature) << "\""
               << ",\"compression\":\"" << json_escape(o_plan.compression_name) << "\""
               << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
               << ",\"identifier\":\"" << json_escape(o_plan.identifier) << "\""

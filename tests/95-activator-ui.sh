@@ -43,6 +43,13 @@ grep -q 'is already installed' "$FILE_SOURCE" \
 # The tool must look for the program it launches.
 grep -q 'handler_ui_program' "$REPOSITORY_ROOT/sources/tools/appimage_integrate.cpp" \
     || fail_test "the tool does not reference the graphical activator"
+# The window shows three logs, and Status is the page it opens on.
+for TAB_NAME in Status Discovered Actions; do
+    grep -q "add_text_page(\"$TAB_NAME\"" "$FILE_SOURCE" \
+        || fail_test "the window has no $TAB_NAME tab"
+done
+grep -q 'gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), 0)' "$FILE_SOURCE" \
+    || fail_test "the Status tab is not the page shown first"
 
 # With no display the handler must fall back to printed instructions, never hang.
 env -u DISPLAY -u WAYLAND_DISPLAY \
@@ -213,6 +220,19 @@ if ! run_driven --set-name "Probe App 9.9.10" --activate integrate,add-alongside
 fi
 grep -Fq 'install|--yes|--add|--name|Probe App 9.9.10|' "$FILE_RECORD" \
     || fail_test "the typed name was not passed to install"
+
+# The three logs must say what happened: the current status, the evidence it was
+# deduced from, and the command that changed the system.
+grep -q '^=== Status ===$' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the driven run printed no Status tab"
+grep -q 'This application is already installed.' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Status tab does not carry the already-installed notice"
+grep -q 'Existing launchers for this application:' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Discovered tab does not list the launchers it found"
+grep -q 'Identifier' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Discovered tab does not report the identifier it computed"
+grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the Actions tab does not log the install command"
 
 # Without a typed name the field must be prefilled from the AppImage.
 : > "$FILE_RECORD"

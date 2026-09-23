@@ -2,17 +2,12 @@
 
 ## Open Questions
 
-* [ ] decide whether to migrate the five AppImageLauncher-created `appimagekit_*` launchers to this tool.
-      — Migration removes their now-broken `Remove`/`Update` actions, but replaces launchers the owner already uses.
 * [ ] decide how to set `StartupWMClass` automatically. `xprop WM_CLASS` works on X11; a Wayland application id needs the compositor.
 * [ ] decide whether `run` should retry with `APPIMAGE_EXTRACT_AND_RUN=1` after a FUSE failure at runtime, not only when FUSE is absent.
 * [ ] decide whether integration should verify the `.sha256_sig` signature when the section is non-empty.
 * [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
 * [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu. The identifier, record, and icon are all suffixed already, so only the visible `Name` is still identical; suffixing the Name with a version is the obvious option.
-* [ ] decide whether to offer a repair for two records that claim one launcher, which is the state the FreeCAD installs were left in, or whether `audit` reporting it is enough.
 * [ ] decide whether to remove the AppImageLauncher-era `~/.local/share/icons/hicolor/0x0` icon directory, which `audit` now reports and nothing else reads.
-* [ ] decide whether the zenity fallback should persist a window size at all; zenity cannot report a dragged size, so only the GTK handler can remember one.
-* [NO] decide whether the handler should set `org.gnome.mutter center-new-windows true` on install; it is a session-wide setting, so it is left to the owner.
 * [ ] consider offering a one-command way to run the handler under XWayland with `xdotool` for owners who want saved window positions.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
@@ -25,6 +20,7 @@
 
 ## Recently Completed
 
+* [x] split the activator's text area into Status, Discovered, and Actions tabs, and drop "blocked:" from the conflict mode.
 * [x] convert the graphical activator from Python/PyGObject to C++ with GTK4, with a minimal JSON reader and no Python at run time.
 * [x] treat a moved AppImage as a repair rather than a different AppImage, repair it in place, and label every run as new, update, repair, replace, or add alongside.
 * [x] mark missing AppImages in `list`, and fix `--replace` when the conflicting launcher sits at the target identifier.

@@ -217,6 +217,18 @@ grep -q 'different AppImage for the same identifier' "$DIRECTORY_TEMP/takeover.t
     || fail_test "the same-identifier takeover was not named"
 grep -q -- '--add' "$DIRECTORY_TEMP/takeover.txt" \
     || fail_test "the same-identifier takeover offered no choice"
+# The mode names the situation from the owner's point of view, without calling it
+# blocked: nothing is wrong, a choice is simply required.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json "$DIRECTORY_TEMP/work3.AppImage" \
+    > "$DIRECTORY_TEMP/takeover.json" 2>/dev/null || true
+python3 - "$DIRECTORY_TEMP/takeover.json" <<'PYTHON'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+assert data["mode"] == "another launcher already represents this application", data["mode"]
+print("mode wording ok")
+PYTHON
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --add --yes "$DIRECTORY_TEMP/work3.AppImage" > /dev/null 2>&1
 if [ ! -f "$DIRECTORY_APPLICATIONS/org.example.Probe-3.desktop" ]; then
     fail_test "add alongside a same-identifier AppImage made no distinct launcher"
