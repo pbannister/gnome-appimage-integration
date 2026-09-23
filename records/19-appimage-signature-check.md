@@ -91,4 +91,4 @@ payload swapped after signing reports a mismatch, `install` refuses it and names
 
 - `62ff28a` TODO: the owner's edited list, with both requested items completed
 - `2340ac9` Check the `.sha256_sig` section, and read 64-bit section headers correctly
-- `bc0351f` Report the update information the section actually holds
+- `48834e4` Report the update information the section actually holds
