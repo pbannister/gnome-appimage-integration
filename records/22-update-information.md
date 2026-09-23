@@ -115,3 +115,7 @@ group and the audit findings. No outside network is used by any test.
 
 - Actually updating is still a `TODO.md` item, with the two decisions above recorded there.
 - `pling-v1-zsync` is recognised but cannot be checked; no AppImage on this host uses it.
+
+## Commits
+
+- `0487dca` Resolve and check the AppImage update information
