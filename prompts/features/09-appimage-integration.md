@@ -34,6 +34,8 @@ make every step printable, plannable, and reversible.
 - The integrator must retire the manifest of a launcher it upgrades in place, so `list` stays accurate.
 - The integrator must expose a human-readable description of the AppImage and of a plan.
 - The integrator must recover a missing `StartupWMClass` from a previous manifest for the same AppImage, from a conflicting launcher, or from a launcher this tool displaced, and must persist the chosen class in the manifest.
+- A class set with `--wm-class`, or by an earlier install that used it, must be recorded as an explicit override in the manifest and must outrank the embedded entry on later installs.
+- The tool must be able to read the class from the running application: `windows` must list the running AppImages with the class each one reports (the program inside the mount, or an X11 client's `WM_CLASS`), and `--wm-class-from-window` must apply it or refuse with the candidates named.
 - Re-running install for the same AppImage must be harmless: it must overwrite its own launcher, icons, and manifest and must never create a duplicate, so it can repair a faulty install.
 - The integrator must extract the application version from `X-AppImage-Version`, then AppStream metadata, then the file name, and report which source it used.
 

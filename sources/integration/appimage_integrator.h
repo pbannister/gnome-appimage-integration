@@ -87,6 +87,10 @@ struct integration_plan_o {
     std::string icon_name;
     std::string embedded_desktop_path;
     std::string startup_wm_class;
+    // True when the class came from --wm-class, or from a --wm-class of an earlier
+    // install.  An explicit choice outlives the embedded entry, which may name a
+    // class the dock does not match.
+    bool startup_wm_class_is_explicit = false;
     std::string exec_command;
     std::string extra_exec_arguments;
     std::string field_code;

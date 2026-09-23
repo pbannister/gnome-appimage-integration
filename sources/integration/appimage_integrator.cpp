@@ -1066,15 +1066,31 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         }
         o_plan.exec_command += " " + o_plan.field_code;
 
-        o_plan.startup_wm_class = !o_options.startup_wm_class_override.empty()
-                                      ? o_options.startup_wm_class_override
-                                      : o_entry.value("Desktop Entry", "StartupWMClass")
-                                            .value_or(std::string());
+        // A class set by an earlier install of this same AppImage is remembered; one
+        // that was set with --wm-class outranks the embedded entry, because the
+        // embedded value may be a class the dock does not match (the OrcaSlicer case:
+        // it says "OrcaSlicer" where the running window's id is "orca-slicer").
+        const std::vector<std::pair<std::string, std::string>> o_installed_lines =
+            read_manifest(join_path(s_state_directory_, o_plan.identifier + ".manifest"));
+        const std::string s_remembered_wm_class =
+            manifest_get(o_installed_lines, "startup_wm_class");
+        const bool b_remembered_explicit =
+            "override" == manifest_get(o_installed_lines, "startup_wm_class_source");
+
+        if (!o_options.startup_wm_class_override.empty()) {
+            o_plan.startup_wm_class = o_options.startup_wm_class_override;
+            o_plan.startup_wm_class_is_explicit = true;
+        } else if (b_remembered_explicit && !s_remembered_wm_class.empty()) {
+            o_plan.startup_wm_class = s_remembered_wm_class;
+            o_plan.startup_wm_class_is_explicit = true;
+            o_plan.notes.push_back("kept StartupWMClass=" + s_remembered_wm_class
+                                   + ", which an earlier install set explicitly");
+        } else {
+            o_plan.startup_wm_class =
+                o_entry.value("Desktop Entry", "StartupWMClass").value_or(std::string());
+        }
         if (o_plan.startup_wm_class.empty()) {
-            // A class set by an earlier install of this same AppImage is remembered.
-            const std::vector<std::pair<std::string, std::string>> o_installed_lines =
-                read_manifest(join_path(s_state_directory_, o_plan.identifier + ".manifest"));
-            o_plan.startup_wm_class = manifest_get(o_installed_lines, "startup_wm_class");
+            o_plan.startup_wm_class = s_remembered_wm_class;
         }
         if (o_plan.startup_wm_class.empty()) {
             // Borrow the class from a launcher that already represents this application.
@@ -1697,7 +1713,9 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
                    << "desktop_entry=" << o_plan.desktop_entry_path << '\n'
                    << "icon_name=" << o_plan.icon_name << '\n';
         if (!o_plan.startup_wm_class.empty()) {
-            o_manifest << "startup_wm_class=" << o_plan.startup_wm_class << '\n';
+            o_manifest << "startup_wm_class=" << o_plan.startup_wm_class << '\n'
+                       << "startup_wm_class_source="
+                       << (o_plan.startup_wm_class_is_explicit ? "override" : "embedded") << '\n';
         }
         for (const std::string &s_path : o_written_icons) {
             o_manifest << "icon=" << s_path << '\n';

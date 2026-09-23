@@ -91,6 +91,8 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --replace <AppImage>` | replace an existing launcher, backing it up |
 | `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
 | `appimage-integrate install --wm-class CLASS <AppImage>` | set the window class the dock matches on |
+| `appimage-integrate windows` | list running AppImages and the window class each one reports |
+| `appimage-integrate install --wm-class-from-window <AppImage>` | read that class from the running application |
 | `appimage-integrate install --name NAME <AppImage>` | set `Name=` in the launcher, e.g. to carry a version |
 | `appimage-integrate install --install-dir DIR <AppImage>` | use another managed directory |
 | `appimage-integrate uninstall --identifier ID` | reverse one integration, restoring any replaced launcher |
@@ -146,7 +148,7 @@ The practical choices are:
 Position is saved and restored only through the XWayland path; on a Wayland session the handler still remembers and restores the size.
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
 Every icon write refreshes the icon theme cache with `gtk4-update-icon-cache`, because GTK trusts a cache that is not older than the theme directory and then never rescans it — a stale cache hides every newly installed icon.
-Re-running `install` for the same AppImage is harmless: it overwrites its own launcher, icons, and manifest, so it also repairs a faulty install. A missing `StartupWMClass` is recovered from a previous manifest, from a conflicting launcher, or from one this tool displaced, and the chosen class is remembered. Use `--wm-class` when the embedded entry does not name the class the dock matches on.
+Re-running `install` for the same AppImage is harmless: it overwrites its own launcher, icons, and manifest, so it also repairs a faulty install. A missing `StartupWMClass` is recovered from a previous manifest, from a conflicting launcher, or from one this tool displaced, and the chosen class is remembered. Use `--wm-class` when the embedded entry does not name the class the dock matches on; a class chosen that way is recorded as an explicit override and survives later re-integrations that the embedded entry would otherwise win back. `windows` and `--wm-class-from-window` read the class from the running application instead: from the program inside the AppImage's mount, or from an X11 window's `WM_CLASS`. GNOME does not let another program list windows, so a native Wayland window has to be read in Looking Glass; `windows` says so when it finds nothing.
 
 A *different* AppImage that wants an identifier this tool already owns is never a silent takeover: `explain` and `plan` name it, and `install` refuses until `--replace` (the displaced launcher is backed up and restored by `uninstall`) or `--add` (the existing launcher, its record, and its icon are kept, and this AppImage is installed alongside as `<id>-2.desktop` with the record `<identifier>-2`) is chosen. `audit` reports any launcher whose record disagrees with the AppImage it actually runs.
 

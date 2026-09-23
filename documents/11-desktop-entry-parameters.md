@@ -77,7 +77,7 @@ Notes:
 
 - `Exec` is the key that integration must rewrite, because the embedded value usually names a program inside the payload rather than the AppImage itself.
 - `TryExec` is the key that makes a stale launcher disappear instead of appearing broken.
-- `StartupWMClass` is what makes the dock show the right icon for a running AppImage; without it the window is anonymous.
+- `StartupWMClass` is what makes the dock show the right icon for a running AppImage; without it the window is anonymous. The embedded value is the AppImage author's guess, so it can disagree with the class the application actually reports: read the real one with `appimage-integrate windows` and set it with `--wm-class`, which then outranks the embedded entry.
 - `Path` inside an AppImage is usually wrong, because the working directory should be the mount point or the AppImage's own directory.
 
 ## Exec Field Codes

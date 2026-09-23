@@ -2,17 +2,18 @@
 
 ## Open Questions
 
-* [ ] decide how to set `StartupWMClass` automatically. `xprop WM_CLASS` works on X11; a Wayland application id needs the compositor. Three launchers here warn because of it (Cura, OpenShot, OpenShot-2), and OpenShot's embedded entry has no class to copy.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 
 ## Pending
 
+* [ ] re-integrate the launchers that still have no class (Cura, OpenShot, OpenShot-2) once their application has been started, with `install --wm-class-from-window`, so the dock stops showing a generic icon for them.
 * [ ] add a `refresh` command that re-writes every recorded launcher from the embedded entry, so launchers written before a template change gain the new keys in one command. The `AppImage Activator` context-menu action is the live example: every launcher here still carries only `Actions=Remove-AppImage;`.
 * [ ] consider a `migrate` subcommand that installs this tool's launcher and removes a named older one.
-* [ ] add a `--startup-wm-class-from-window` helper that reads `xprop` for the next window that appears.
 
 ## Recently Completed
+
+* [x] read `StartupWMClass` from the running application: `appimage-integrate windows` lists each running AppImage with the class it reports (the program inside the mount for any AppImage, an X11 client's `WM_CLASS` when there is a window), `--wm-class-from-window` applies one, a class set with `--wm-class` is recorded as an explicit override that outranks the embedded entry on later installs, and OrcaSlicer was re-integrated with `orca-slicer`.
 
 * [x] verify the `.sha256_sig` section: a hex digest against the SHA-256 of the file with the section zeroed, a PGP signature with `gpg --verify`, a mismatch refused by `install` unless `--ignore-signature` is given, and the result reported by `explain`, `plan`, `appimage-inspect`, `install`, and the activator's Status log.
 * [x] remove the last AppImageLauncher artefact, the unreferenced icon in `~/.local/share/icons/hicolor/0x0`, which also cleared the `audit` warning.

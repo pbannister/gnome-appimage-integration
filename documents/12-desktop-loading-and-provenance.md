@@ -73,6 +73,8 @@ Reveal it:
 | `desktop-file-validate FILE` | invalid or contradictory fields |
 | `gio launch ID` / `gtk-launch ID` | what the desktop itself would run |
 | `xprop WM_CLASS` then click the window | the runtime window class to put in `StartupWMClass` |
+| `appimage-integrate windows` | the same class for a running AppImage, from its mount or its X11 client, without clicking |
+| `lg` (Looking Glass), Windows tab | the `wmclass` of a native Wayland window, which GNOME does not expose to other programs |
 
 ## 3. Where Icons Come From
 
@@ -171,7 +173,7 @@ Reveal it:
 | the label in the menu | `Name` and `Name[locale]` | `desktop-inspect --locale L FILE` |
 | the command that runs | `Exec` | `desktop-inspect FILE` |
 | whether the launcher is valid | `TryExec` target existence | `desktop-inspect --explain ID` |
-| the dock icon match | `StartupWMClass` vs the runtime window class | `xprop WM_CLASS` |
+| the dock icon match | `StartupWMClass` vs the runtime window class | `appimage-integrate windows`, or `xprop WM_CLASS` |
 | the icon rendered | `Icon` resolved through the icon theme | `desktop-inspect --icon NAME` |
 | the app offered for a file | `MimeType` plus `mimeapps.list` | `desktop-inspect --mime TYPE` |
 | what an AppImage contains | the payload filesystem | `appimage-inspect FILE` |

@@ -8,6 +8,7 @@
 #include "tools/desktop_entry_output.h"
 #include "version/version.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -49,6 +50,8 @@ constexpr const char *HANDLER_LEGACY_NAME = "AppImage Handler";
 constexpr const char *HANDLER_LEGACY_DESKTOP_ID = "appimage-handler.desktop";
 constexpr const char *HANDLER_LEGACY_MANIFEST = "appimage-handler.manifest";
 constexpr const char *HANDLER_LEGACY_ICON_NAME = "appimage-handler";
+// The length of ".AppImage", used to recognise an AppImage path in a command line.
+constexpr std::size_t APPIMAGE_SUFFIX_LENGTH = 9;
 
 void print_usage(std::ostream &o_out) {
     o_out << "usage: appimage-integrate <command> [options]\n"
@@ -59,6 +62,7 @@ void print_usage(std::ostream &o_out) {
           << "  install <AppImage>        integrate the AppImage into the desktop\n"
           << "  uninstall --identifier ID [--remove-appimage]\n"
           << "  list                      list AppImages integrated by this tool\n"
+          << "  windows                   list running AppImages and their window classes\n"
           << "  run <AppImage> [args...]  run once, without integrating\n"
           << "  audit                     report desktop integration inconsistencies\n"
           << "  handler status            show the current *.AppImage handler\n"
@@ -71,6 +75,7 @@ void print_usage(std::ostream &o_out) {
           << "  --desktop-file-name NAME  override the desktop file name (the ID)\n"
           << "  --exec-args ARGUMENTS     extra arguments inserted into Exec\n"
           << "  --wm-class CLASS          set StartupWMClass explicitly\n"
+          << "  --wm-class-from-window    read StartupWMClass from the running application\n"
           << "  --icon-name NAME          override the installed icon name\n"
           << "  --name NAME               set Name= in the launcher, e.g. with a version\n"
           << "  --ignore-signature        integrate although .sha256_sig does not match\n"
@@ -248,7 +253,9 @@ void print_plan_text(const integration_plan_o &o_plan) {
               << "field-code: " << o_plan.field_code << '\n'
               << "embedded-desktop: " << o_plan.embedded_desktop_path << '\n'
               << "startup-wm-class: "
-              << (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class) << '\n';
+              << (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class)
+              << (o_plan.startup_wm_class_is_explicit ? "  (set explicitly, kept over the embedded entry)" : "")
+              << '\n';
     std::cout << "signature: " << (o_plan.signature.empty() ? "(absent)" : o_plan.signature)
               << '\n';
     std::cout << "mime-types:";
@@ -295,7 +302,9 @@ void print_plan_json(const integration_plan_o &o_plan) {
               << json_escape(o_plan.desktop_entry_path) << "\",\"icon_name\":\""
               << json_escape(o_plan.icon_name) << "\",\"exec\":\""
               << json_escape(o_plan.exec_command) << "\",\"startup_wm_class\":\""
-              << json_escape(o_plan.startup_wm_class) << "\",\"icons\":[";
+              << json_escape(o_plan.startup_wm_class) << "\",\"startup_wm_class_source\":\""
+              << (o_plan.startup_wm_class_is_explicit ? "explicit" : "embedded")
+              << "\",\"icons\":[";
     bool b_first = true;
     for (const integration_icon_o &o_icon : o_plan.icons) {
         if (!b_first) {
@@ -514,6 +523,337 @@ int command_list(bool b_json) {
     }
     if (b_json) {
         std::cout << "]\n";
+    }
+    return EXIT_OK;
+}
+
+// has_display() and the JSON writer are defined further down the file.
+bool has_display();
+
+std::string trim_spaces(const std::string &s_text) {
+    const std::size_t i_first = s_text.find_first_not_of(" \t\r\n");
+    if (std::string::npos == i_first) {
+        return {};
+    }
+    return s_text.substr(i_first, s_text.find_last_not_of(" \t\r\n") - i_first + 1);
+}
+
+// -- running windows and AppImage processes ------------------------------------
+//
+// GNOME does not let other programs enumerate windows: the shell owns the window
+// list and its Introspect.GetWindows method answers "GetWindows is not allowed"
+// (GNOME Shell 46, js/dbusServices/shellIntrospect.js).  Two sources remain:
+//
+//   * X11 and XWayland clients, which xlsclients and xprop can see, with the
+//     WM_CLASS the dock matches on;
+//   * the processes themselves, which name the app an AppImage runs.  GTK sets a
+//     Wayland window's application id from the GtkApplication id when there is one
+//     and from the program name otherwise, so the executable's basename is the id
+//     an AppImage whose app does not use GtkApplication will report.
+
+// One running AppImage, with whatever the window system says about it.
+struct running_appimage_o {
+    std::string appimage;
+    int i_pid = 0;
+    std::string process;
+    std::string executable;
+    std::string window_id;
+    std::string window_instance;
+    std::string window_class;
+    std::string title;
+};
+
+std::string read_proc_text(const std::string &s_path) {
+    std::ifstream o_input(s_path);
+    if (!o_input) {
+        return {};
+    }
+    std::ostringstream o_buffer;
+    o_buffer << o_input.rdbuf();
+    return o_buffer.str();
+}
+
+std::vector<std::string> read_command_line(int i_pid) {
+    std::vector<std::string> o_arguments;
+    const std::string s_raw = read_proc_text("/proc/" + std::to_string(i_pid) + "/cmdline");
+    std::string s_current;
+    for (const char c_character : s_raw) {
+        if ('\0' == c_character) {
+            if (!s_current.empty()) {
+                o_arguments.push_back(s_current);
+                s_current.clear();
+            }
+            continue;
+        }
+        s_current += c_character;
+    }
+    if (!s_current.empty()) {
+        o_arguments.push_back(s_current);
+    }
+    return o_arguments;
+}
+
+std::string process_executable(int i_pid) {
+    std::error_code o_error;
+    const fs::path o_target =
+        fs::read_symlink("/proc/" + std::to_string(i_pid) + "/exe", o_error);
+    return o_error ? std::string() : o_target.string();
+}
+
+int process_parent(int i_pid) {
+    // /proc/<pid>/stat: pid (comm) state ppid ..., and comm may contain spaces.
+    const std::string s_stat = read_proc_text("/proc/" + std::to_string(i_pid) + "/stat");
+    const std::size_t i_close = s_stat.rfind(')');
+    if (std::string::npos == i_close || i_close + 3 > s_stat.size()) {
+        return 0;
+    }
+    std::istringstream o_fields(s_stat.substr(i_close + 1));
+    std::string s_state;
+    int i_parent = 0;
+    o_fields >> s_state >> i_parent;
+    return i_parent;
+}
+
+// An executable path inside a mounted or extracted AppImage.
+bool is_appimage_internal_path(const std::string &s_path) {
+    return std::string::npos != s_path.find("/.mount_")
+           || std::string::npos != s_path.find("/appimage_extracted_");
+}
+
+// The AppImage a process belongs to: its own command line first, then each parent,
+// because the runtime is the ancestor that carries the AppImage path.
+std::string appimage_of_process(int i_pid) {
+    int i_current = i_pid;
+    for (int i_depth = 0; i_depth < 8 && 0 < i_current; i_depth++) {
+        for (const std::string &s_argument : read_command_line(i_current)) {
+            if (s_argument.size() > APPIMAGE_SUFFIX_LENGTH
+                && 0 == s_argument.compare(s_argument.size() - APPIMAGE_SUFFIX_LENGTH,
+                                          APPIMAGE_SUFFIX_LENGTH, ".AppImage")) {
+                return s_argument;
+            }
+        }
+        const int i_parent = process_parent(i_current);
+        if (i_parent == i_current) {
+            break;
+        }
+        i_current = i_parent;
+    }
+    return {};
+}
+
+// Every X11 or XWayland window, from xlsclients, with the pid xprop reports.
+void attach_x11_windows(std::vector<running_appimage_o> &o_running) {
+    if (!command_exists("xlsclients") || !command_exists("xprop") || !has_display()) {
+        return;
+    }
+    const std::string s_listing = capture_command({"xlsclients", "-l"});
+    std::istringstream o_lines(s_listing);
+    std::string s_line;
+    std::string s_window_id;
+    std::string s_title;
+    std::string s_instance;
+    std::string s_class;
+    const auto finish_window = [&]() {
+        if (s_window_id.empty()) {
+            return;
+        }
+        const std::string s_pid_text = capture_command({"xprop", "-id", s_window_id, "_NET_WM_PID"});
+        const std::size_t i_digits = s_pid_text.find_last_not_of("0123456789");
+        const int i_pid = std::string::npos == i_digits || i_digits + 1 >= s_pid_text.size()
+                              ? 0
+                              : std::atoi(s_pid_text.substr(i_digits + 1).c_str());
+        const std::string s_appimage = 0 < i_pid ? appimage_of_process(i_pid) : std::string();
+        if (!s_appimage.empty()) {
+            running_appimage_o o_entry;
+            o_entry.appimage = s_appimage;
+            o_entry.i_pid = i_pid;
+            o_entry.executable = process_executable(i_pid);
+            o_entry.process = fs::path(o_entry.executable).filename().string();
+            o_entry.window_id = s_window_id;
+            o_entry.window_instance = s_instance;
+            o_entry.window_class = s_class;
+            o_entry.title = s_title;
+            o_running.push_back(std::move(o_entry));
+        }
+        s_window_id.clear();
+        s_title.clear();
+        s_instance.clear();
+        s_class.clear();
+    };
+    while (std::getline(o_lines, s_line)) {
+        const std::string s_trimmed = trim_spaces(s_line);
+        if (0 == s_trimmed.rfind("Window ", 0)) {
+            finish_window();
+            s_window_id = trim_spaces(s_trimmed.substr(7));
+            const std::size_t i_colon = s_window_id.find(':');
+            if (std::string::npos != i_colon) {
+                s_window_id = s_window_id.substr(0, i_colon);
+            }
+            continue;
+        }
+        if (0 == s_trimmed.rfind("Name:", 0)) {
+            s_title = trim_spaces(s_trimmed.substr(5));
+            continue;
+        }
+        if (0 == s_trimmed.rfind("Instance/Class:", 0)) {
+            const std::string s_pair = trim_spaces(s_trimmed.substr(15));
+            const std::size_t i_slash = s_pair.find('/');
+            s_instance = std::string::npos == i_slash ? s_pair : s_pair.substr(0, i_slash);
+            s_class = std::string::npos == i_slash ? s_pair : s_pair.substr(i_slash + 1);
+            continue;
+        }
+    }
+    finish_window();
+}
+
+// The AppImages that are running now, from the processes that belong to them.
+std::vector<running_appimage_o> find_running_appimages() {
+    std::vector<running_appimage_o> o_running;
+    std::error_code o_error;
+    for (const fs::directory_entry &o_entry : fs::directory_iterator("/proc", o_error)) {
+        const std::string s_name = o_entry.path().filename().string();
+        if (s_name.empty() || 0 == s_name.find_first_not_of("0123456789")) {
+            continue;
+        }
+        const int i_pid = std::atoi(s_name.c_str());
+        const std::string s_executable = process_executable(i_pid);
+        if (!is_appimage_internal_path(s_executable)) {
+            continue;
+        }
+        const std::string s_appimage = appimage_of_process(i_pid);
+        if (s_appimage.empty()) {
+            continue;
+        }
+        running_appimage_o o_found;
+        o_found.appimage = s_appimage;
+        o_found.i_pid = i_pid;
+        o_found.executable = s_executable;
+        o_found.process = fs::path(s_executable).filename().string();
+        o_running.push_back(std::move(o_found));
+    }
+    // A window is the better evidence, and it also covers AppImages whose processes
+    // are not inside a mount (a synthetic AppImage, or a tool started on one).
+    attach_x11_windows(o_running);
+    // Group by AppImage, and inside a group put the entries that carry a window class
+    // first: that is the class the dock matches on, so both the report and
+    // window_class_for_appimage() must see it before a bare process name.
+    std::sort(o_running.begin(), o_running.end(),
+              [](const running_appimage_o &o_left, const running_appimage_o &o_right) {
+                  if (o_left.appimage != o_right.appimage) {
+                      return o_left.appimage < o_right.appimage;
+                  }
+                  if (o_left.window_class.empty() != o_right.window_class.empty()) {
+                      return !o_left.window_class.empty();
+                  }
+                  return o_left.i_pid < o_right.i_pid;
+              });
+    return o_running;
+}
+
+// The class the dock would match this AppImage's window on: X11's WM_CLASS when the
+// window is an X11 client, otherwise the process name GTK falls back to.
+std::string window_class_for_appimage(const std::string &s_path, std::string &s_source,
+                                      std::string &s_error) {
+    const std::vector<running_appimage_o> o_running = find_running_appimages();
+    std::error_code o_error;
+    const fs::path o_wanted = fs::weakly_canonical(fs::path(s_path), o_error);
+    for (const running_appimage_o &o_entry : o_running) {
+        std::error_code o_entry_error;
+        const fs::path o_candidate = fs::weakly_canonical(fs::path(o_entry.appimage), o_entry_error);
+        if (o_candidate != o_wanted) {
+            continue;
+        }
+        if (!o_entry.window_class.empty()) {
+            s_source = "the window " + o_entry.window_id + " of process "
+                       + std::to_string(o_entry.i_pid);
+            return o_entry.window_class;
+        }
+        if (!o_entry.process.empty()) {
+            s_source = "process " + std::to_string(o_entry.i_pid) + " (" + o_entry.executable + ")";
+            return o_entry.process;
+        }
+    }
+    std::ostringstream o_message;
+    o_message << "no running process belongs to " << s_path;
+    if (o_running.empty()) {
+        o_message << ", and no AppImage is running";
+    } else {
+        o_message << "; running AppImages:";
+        for (const running_appimage_o &o_entry : o_running) {
+            o_message << "\n  " << o_entry.appimage;
+        }
+    }
+    o_message << "\nstart the application, then try again, or pass --wm-class CLASS";
+    s_error = o_message.str();
+    return {};
+}
+
+int command_windows(bool b_json) {
+    const std::vector<running_appimage_o> o_running = find_running_appimages();
+    if (b_json) {
+        std::cout << '[';
+        bool b_first = true;
+        for (const running_appimage_o &o_entry : o_running) {
+            if (!b_first) {
+                std::cout << ',';
+            }
+            b_first = false;
+            std::cout << "{\"appimage\":\"" << gnome_appimage::tools::json_escape(o_entry.appimage)
+                      << "\",\"pid\":" << o_entry.i_pid << ",\"process\":\""
+                      << gnome_appimage::tools::json_escape(o_entry.process)
+                      << "\",\"executable\":\""
+                      << gnome_appimage::tools::json_escape(o_entry.executable)
+                      << "\",\"window_id\":\"" << gnome_appimage::tools::json_escape(o_entry.window_id)
+                      << "\",\"wm_instance\":\""
+                      << gnome_appimage::tools::json_escape(o_entry.window_instance)
+                      << "\",\"wm_class\":\"" << gnome_appimage::tools::json_escape(o_entry.window_class)
+                      << "\",\"title\":\"" << gnome_appimage::tools::json_escape(o_entry.title)
+                      << "\"}";
+        }
+        std::cout << "]\n";
+        return EXIT_OK;
+    }
+    if (o_running.empty()) {
+        std::cout << "no running AppImage was found\n";
+        std::cout << "GNOME does not let other programs list windows, so a native Wayland\n"
+                     "window's class can only be read in Looking Glass: press Alt+F2, run 'lg',\n"
+                     "open the Windows tab and read 'wmclass' for the window, then\n"
+                     "re-integrate with: appimage-integrate install --wm-class <that value> <AppImage>\n";
+        return EXIT_OK;
+    }
+    std::string s_current_appimage;
+    std::vector<std::string> o_suggested_classes;
+    for (const running_appimage_o &o_entry : o_running) {
+        if (o_entry.appimage != s_current_appimage) {
+            s_current_appimage = o_entry.appimage;
+            o_suggested_classes.clear();
+            std::cout << o_entry.appimage << '\n';
+        }
+        if (!o_entry.window_id.empty()) {
+            std::cout << "  window  " << o_entry.window_id << "  " << o_entry.window_instance << '/'
+                      << o_entry.window_class;
+            if (!o_entry.title.empty()) {
+                std::cout << "  \"" << o_entry.title << '"';
+            }
+            std::cout << '\n';
+        }
+        if (0 < o_entry.i_pid) {
+            std::cout << "  process " << o_entry.i_pid << "  " << o_entry.executable << '\n';
+        }
+        const std::string s_class =
+            o_entry.window_class.empty() ? o_entry.process : o_entry.window_class;
+        if (s_class.empty()
+            || o_suggested_classes.end() != std::find(o_suggested_classes.begin(),
+                                                      o_suggested_classes.end(), s_class)) {
+            continue;
+        }
+        o_suggested_classes.push_back(s_class);
+        std::cout << "  --wm-class " << s_class;
+        if (o_entry.window_class.empty()) {
+            std::cout << "   (the program name, which GTK reports as the window app id when "
+                         "the application sets no GtkApplication id)";
+        }
+        std::cout << '\n';
     }
     return EXIT_OK;
 }
@@ -1199,6 +1539,7 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_assume_yes = false;
     bool b_remove_appimage = false;
     bool b_ignore_signature = false;
+    bool b_wm_class_from_window = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -1236,6 +1577,8 @@ int main(int i_argument_count, char **p_arguments) {
             b_icons = false;
         } else if ("--ignore-signature" == s_argument) {
             b_ignore_signature = true;
+        } else if ("--wm-class-from-window" == s_argument) {
+            b_wm_class_from_window = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -1261,6 +1604,22 @@ int main(int i_argument_count, char **p_arguments) {
             std::cerr << "error: only one path may be given\n";
             return EXIT_USAGE;
         }
+    }
+
+    if (b_wm_class_from_window) {
+        if (s_path.empty()) {
+            std::cerr << "error: --wm-class-from-window needs an AppImage path\n";
+            return EXIT_USAGE;
+        }
+        std::string s_source;
+        std::string s_error;
+        s_wm_class = window_class_for_appimage(s_path, s_source, s_error);
+        if (s_wm_class.empty()) {
+            std::cerr << "error: " << s_error << '\n';
+            return EXIT_ERROR;
+        }
+        // A diagnostic, so --json output stays machine-readable.
+        std::cerr << "StartupWMClass " << s_wm_class << " read from " << s_source << '\n';
     }
 
     const appimage_integrator_c o_integrator;
@@ -1326,6 +1685,9 @@ int main(int i_argument_count, char **p_arguments) {
             return run_detached_with_notice(s_path, embedded_name(s_path));
         }
         return command_run(s_path, o_run_arguments, b_extract_and_run);
+    }
+    if ("windows" == s_command) {
+        return command_windows(b_json);
     }
     if ("audit" == s_command) {
         return command_audit(b_json);

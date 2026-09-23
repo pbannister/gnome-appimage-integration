@@ -197,6 +197,31 @@ xprop WM_CLASS          # then click the running window
 
 or, for a running application, `lg` (Looking Glass) in GNOME shows the window's `wmclass`.
 
+The tool does what it can without the compositor:
+
+```
+appimage-integrate windows                      # running AppImages and their window classes
+appimage-integrate install --wm-class-from-window <AppImage>
+```
+
+`windows` answers from two sources.  A process whose executable sits under `/.mount_` or
+`/appimage_extracted_` belongs to a mounted AppImage, and the program name is the id GTK
+falls back to when the application sets no `Gtk.Application` id; the same program name is
+printed as the suggested `--wm-class`.  X11 and XWayland clients are read from `xlsclients -l`
+plus `xprop -id <window> _NET_WM_PID`, and their `WM_CLASS` is preferred, because that is
+literally what the dock matches on.  A native Wayland window cannot be enumerated: GNOME
+answers `Introspect.GetWindows` with `GetWindows is not allowed`, so for those the `lg`
+route above remains the only source, and `windows` says so when it finds nothing.
+
+`--wm-class-from-window` resolves the class for one AppImage from that list and refuses with
+the candidates named when the application is not running.  A class set with `--wm-class`, or
+by an earlier install that used it, is recorded in the manifest as
+`startup_wm_class_source=override` and outranks the embedded entry on every later install.
+That matters when the two disagree: OrcaSlicer's embedded entry says `StartupWMClass=OrcaSlicer`
+while the window's application id is `orca-slicer`, so only the explicit value keeps the dock
+icon.  `explain --json` reports the choice as `startup_wm_class_source` (`explicit` or
+`embedded`), and `plan` marks an explicit class as kept over the embedded entry.
+
 On Wayland the shell matches on the window's **application id**, not on a WM class. GTK takes
 that id from the `Gtk.Application` id when one is set and from the program name otherwise
 (GTK 4.14, `gdk/wayland/gdktoplevel-wayland.c`). Whichever value is in play, it must equal the
@@ -221,7 +246,7 @@ The tool never resolves that silently.
 
 | Situation | What happens |
 | --------- | ------------ |
-| the same file is integrated again | in-place upgrade: the launcher, icon, and record are rewritten, and the previous window class is remembered |
+| the same file is integrated again | in-place upgrade: the launcher, icon, and record are rewritten, and a window class set with `--wm-class` is kept over the embedded one |
 | a different AppImage wants an identifier this tool already owns | reported as a conflict, named as `this tool (a different AppImage for the same identifier)`, and refused until a policy is chosen |
 | a launcher written by another tool represents the application | reported as a conflict with its origin, and refused until a policy is chosen |
 | `--replace` | the displaced launcher is backed up and restored by `uninstall`; the identifier changes hands |
