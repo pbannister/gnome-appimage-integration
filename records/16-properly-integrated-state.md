@@ -55,6 +55,14 @@ AppImage is not where it was)`, while FreeCAD 1.1.3 and Cura 5.10.1 are `another
 represents this application`. Integrating any of them returns the state to `properly integrated`,
 which is the state the owner asked to be able to recognise.
 
+## Where the Window Lands
+
+Integrate wrote its log to Actions and left Actions showing, so the owner saw what was done but
+not what the state had become. Each action now raises the page that answers it: Integrate the
+Status page, which is where `properly integrated` appears; Inspect the Discovered page, with the
+appended report; and Run once or Run now the Actions page, where the output of the run belongs.
+A driven run prints which page is showing, and the test asserts all three.
+
 ## Verification
 
 Verified 2026-09-23 with `make test`; all sixteen test scripts passed, and the installed tool was
@@ -63,3 +71,4 @@ run over every AppImage in `~/Downloads/Applications` to read the modes above.
 ## Commits
 
 - `a021f7b` Report a complete integration as properly integrated
+- `1317732` Show the Status tab after Integrate
