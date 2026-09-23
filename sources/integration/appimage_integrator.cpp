@@ -1614,6 +1614,11 @@ std::vector<installed_appimage_o> appimage_integrator_c::list_installed() const 
                 read_manifest(s_manifest);
             installed_appimage_o o_installed;
             o_installed.identifier = manifest_get(o_lines, "identifier");
+            // The handler keeps its own record in this directory, and it has no
+            // identifier: it is not an installed AppImage.
+            if (o_installed.identifier.empty()) {
+                continue;
+            }
             o_installed.appimage_path = manifest_get(o_lines, "appimage_path");
             o_installed.desktop_entry_path = manifest_get(o_lines, "desktop_entry");
             o_installed.desktop_id = manifest_get(o_lines, "desktop_id");

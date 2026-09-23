@@ -129,6 +129,16 @@ grep -q 'records claim this launcher' "$DIRECTORY_TEMP/audit-duplicate.txt" \
     || fail_test "audit did not report two records claiming one launcher"
 rm -f "$FILE_MANIFEST_DUPLICATE"
 
+# The handler keeps its own record in the same directory, and it has no identifier:
+# it must not be listed as an installed AppImage.
+printf 'handler_desktop=/tmp/appimage-activator.desktop\nprevious_default=application/vnd.appimage\tappimagelauncher.desktop\n' \
+    > "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/appimage-activator.manifest"
+COUNT_ROWS=$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -c . || true)
+if [ "$COUNT_ROWS" -ne 1 ]; then
+    fail_test "list reported $COUNT_ROWS records; the handler record is not an AppImage"
+fi
+rm -f "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration/appimage-activator.manifest"
+
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" uninstall --identifier "$FILE_IDENTIFIER" > /dev/null
 if [ -f "$FILE_DESKTOP" ]; then
     fail_test "uninstall left the desktop entry behind"
