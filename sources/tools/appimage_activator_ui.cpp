@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -287,6 +288,34 @@ std::string escape_markup(const std::string &s_text) {
         }
     }
     return s_result;
+}
+
+// The fields in the Discovered log that decide what happens: what the run would do,
+// and what stopped it.  The same two fields are named "This run" and "Error" in the
+// composed facts and "this run:" and "install preview unavailable:" in the raw
+// report, so the match is case-insensitive and by prefix.
+bool is_significant_line(const std::string &s_line) {
+    static const char *const s_prefixes[] = {"this run", "error", "install preview unavailable",
+                                             "cannot read"};
+    const std::string s_trimmed = trim_spaces(s_line);
+    for (const char *s_prefix : s_prefixes) {
+        const std::size_t u_length = std::strlen(s_prefix);
+        if (s_trimmed.size() < u_length) {
+            continue;
+        }
+        bool b_matches = true;
+        for (std::size_t i_index = 0; i_index < u_length; i_index++) {
+            if (std::tolower(static_cast<unsigned char>(s_trimmed[i_index]))
+                != std::tolower(static_cast<unsigned char>(s_prefix[i_index]))) {
+                b_matches = false;
+                break;
+            }
+        }
+        if (b_matches) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string describe_conflict(int i_index, const value_c &o_conflict) {
@@ -688,7 +717,30 @@ public:
                   << (gtk_widget_has_css_class(p_child, "suggested-action") ? "*" : "");
         }
         o_out << " ===\n";
-        o_out << "=== Status ===\n" << tab_text(tab_e::status);
+        o_out << "=== highlighted ===";
+        if (nullptr != p_significant_tag_) {
+            GtkTextIter o_iter;
+            gtk_text_buffer_get_start_iter(p_discovered_buffer_, &o_iter);
+            while (!gtk_text_iter_is_end(&o_iter)) {
+                GtkTextIter o_line_end = o_iter;
+                gtk_text_iter_forward_line(&o_line_end);
+                if (gtk_text_iter_has_tag(&o_iter, p_significant_tag_)) {
+                    char *s_line =
+                        gtk_text_buffer_get_text(p_discovered_buffer_, &o_iter, &o_line_end, FALSE);
+                    if (nullptr != s_line) {
+                        std::string s_text(s_line);
+                        while (!s_text.empty()
+                               && ('\n' == s_text.back() || '\r' == s_text.back())) {
+                            s_text.pop_back();
+                        }
+                        o_out << "\n" << s_text;
+                        g_free(s_line);
+                    }
+                }
+                o_iter = o_line_end;
+            }
+        }
+        o_out << "\n=== Status ===\n" << tab_text(tab_e::status);
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
     }
@@ -831,6 +883,8 @@ private:
         add_text_page("Status", &p_status_view_, &p_status_buffer_);
         add_text_page("Discovered", &p_discovered_view_, &p_discovered_buffer_);
         add_text_page("Actions", &p_actions_view_, &p_actions_buffer_);
+        p_significant_tag_ = gtk_text_buffer_create_tag(p_discovered_buffer_, "significant",
+                                                       "weight", PANGO_WEIGHT_BOLD, nullptr);
         gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), 0);
         gtk_box_append(GTK_BOX(p_box), p_notebook_);
 
@@ -978,8 +1032,34 @@ private:
 
     void set_tab(tab_e e_tab, const std::string &s_text) {
         GtkTextBuffer *p_buffer = buffer_for(e_tab);
-        if (nullptr != p_buffer) {
-            gtk_text_buffer_set_text(p_buffer, s_text.c_str(), -1);
+        if (nullptr == p_buffer) {
+            return;
+        }
+        gtk_text_buffer_set_text(p_buffer, s_text.c_str(), -1);
+        highlight_significant_lines(e_tab);
+    }
+
+    // Emphasise the lines that carry the two fields the owner acts on.  Replacing or
+    // appending text drops the previous tag applications, so this runs again after
+    // every change rather than being applied once.
+    void highlight_significant_lines(tab_e e_tab) {
+        if (tab_e::discovered != e_tab || nullptr == p_significant_tag_) {
+            return;
+        }
+        GtkTextBuffer *p_buffer = p_discovered_buffer_;
+        GtkTextIter o_iter;
+        gtk_text_buffer_get_start_iter(p_buffer, &o_iter);
+        while (!gtk_text_iter_is_end(&o_iter)) {
+            GtkTextIter o_line_end = o_iter;
+            gtk_text_iter_forward_line(&o_line_end);
+            char *s_line = gtk_text_buffer_get_text(p_buffer, &o_iter, &o_line_end, FALSE);
+            const bool b_significant =
+                nullptr != s_line && is_significant_line(std::string(s_line));
+            g_free(s_line);
+            if (b_significant) {
+                gtk_text_buffer_apply_tag(p_buffer, p_significant_tag_, &o_iter, &o_line_end);
+            }
+            o_iter = o_line_end;
         }
     }
 
@@ -992,6 +1072,7 @@ private:
         GtkTextIter o_end;
         gtk_text_buffer_get_end_iter(p_buffer, &o_end);
         gtk_text_buffer_insert(p_buffer, &o_end, s_text.c_str(), -1);
+        highlight_significant_lines(e_tab);
         if (nullptr != p_view) {
             // Keep the newest line in view.
             gtk_text_buffer_get_end_iter(p_buffer, &o_end);
@@ -1331,11 +1412,11 @@ private:
         refresh_status();
         show_tab(tab_e::status);
         show_name_field();
-        // No suggested choice here: which of the two is likely depends on what the
-        // launcher is, and Status explains both.
-        set_buttons({{"Back", action_e::back, false},
+        // Ordered by likely use like the first view, with the choice that resolves
+        // the conflict suggested.  Status explains both before either is clicked.
+        set_buttons({{"Replace existing", action_e::replace_existing, true},
                      {"Add alongside", action_e::add_alongside, false},
-                     {"Replace existing", action_e::replace_existing, false}});
+                     {"Back", action_e::back, false}});
     }
 
     void on_back() {
@@ -1404,6 +1485,7 @@ private:
     GtkTextBuffer *p_status_buffer_ = nullptr;
     GtkTextBuffer *p_discovered_buffer_ = nullptr;
     GtkTextBuffer *p_actions_buffer_ = nullptr;
+    GtkTextTag *p_significant_tag_ = nullptr;
     // Whether the conflict choice is on screen, and whether anything has been done
     // yet; both decide what the Status and Actions tabs say.
     bool b_prompt_active_ = false;

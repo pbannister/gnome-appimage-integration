@@ -20,6 +20,7 @@
 
 ## Recently Completed
 
+* [x] emphasise the `This run` and `Error` fields in the Discovered log, and order the conflict choice Replace existing, Add alongside, Back.
 * [x] order the first view's buttons by likely use (Integrate first) and mark the likely action with the HIG suggested-action style.
 * [x] report a complete integration as `properly integrated` in the details row and the Status tab, instead of implying work remains.
 * [x] split the activator's text area into Status, Discovered, and Actions tabs, and drop "blocked:" from the conflict mode.

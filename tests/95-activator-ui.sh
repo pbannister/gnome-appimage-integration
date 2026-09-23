@@ -189,6 +189,13 @@ cat > "$FILE_STUB" <<'STUB'
 # Stand-in for appimage-integrate: record the call, and answer explain --json.
 printf '%s|' "$@" >> "$STUB_RECORD"
 printf '\n' >> "$STUB_RECORD"
+if [ "$1" = "explain" ] && [ "$2" != "--json" ]; then
+    # The human report Inspect appends to the Discovered tab, carrying the two lines
+    # the window emphasises.
+    printf 'AppImage: %s\ndetection: type-2\nsize: 1024 bytes\n\nthis run:     %s\ninstall preview unavailable: 1 existing launcher(s) already represent this application:\n' \
+        "$2" "${STUB_MODE:-another launcher already represents this application}"
+    exit 0
+fi
 if [ "$1" = "explain" ]; then
     # The mode is chosen by the caller, so one stub can describe either a conflict
     # or an AppImage that is already where it belongs.
@@ -245,6 +252,24 @@ grep -q 'Identifier' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Discovered tab does not report the identifier it computed"
 grep -Fq 'install --yes --add --name "Probe App 9.9.10"' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the Actions tab does not log the install command"
+# The conflict choice is ordered by likely use too, with the resolving choice
+# suggested and Back last.
+run_driven --activate integrate > "$DIRECTORY_TEMP/prompted.txt" 2>&1
+grep -q '^=== buttons: Replace existing\* Add alongside Back ===$' "$DIRECTORY_TEMP/prompted.txt" \
+    || fail_test "the conflict choice is not Replace existing, Add alongside, Back with Replace existing suggested"
+
+# Only the two fields that decide what happens are emphasised, in both the composed
+# facts and the report Inspect appends.
+sed -n '/^=== highlighted ===$/,/^=== Status ===$/p' "$DIRECTORY_TEMP/driven.txt" \
+    > "$DIRECTORY_TEMP/highlighted.txt"
+grep -q '^  This run ' "$DIRECTORY_TEMP/highlighted.txt" \
+    || fail_test "the This run field is not highlighted in the Discovered log"
+grep -q '^  Error ' "$DIRECTORY_TEMP/highlighted.txt" \
+    || fail_test "the Error field is not highlighted in the Discovered log"
+if grep -q 'Detection\|Identifier\|Existing launchers' "$DIRECTORY_TEMP/highlighted.txt"; then
+    fail_test "a field other than This run and Error is highlighted"
+fi
+
 # Integrate leaves the resulting state on screen; the log waits in Actions. The
 # buttons become the next step, with Run now suggested.
 grep -q '^=== showing: Status ===$' "$DIRECTORY_TEMP/driven.txt" \
@@ -257,6 +282,12 @@ grep -q '^=== showing: Discovered ===$' "$DIRECTORY_TEMP/inspected.txt" \
     || fail_test "Inspect did not leave the Discovered tab showing"
 grep -Eq '^[0-9]{2}:[0-9]{2}:[0-9]{2}  appimage-integrate explain ' "$DIRECTORY_TEMP/inspected.txt" \
     || fail_test "Inspect did not append its report to the Discovered tab"
+sed -n '/^=== highlighted ===$/,/^=== Status ===$/p' "$DIRECTORY_TEMP/inspected.txt" \
+    > "$DIRECTORY_TEMP/highlighted-report.txt"
+grep -q 'install preview unavailable:' "$DIRECTORY_TEMP/highlighted-report.txt" \
+    || fail_test "the appended report's error line is not highlighted"
+grep -q '^this run:' "$DIRECTORY_TEMP/highlighted-report.txt" \
+    || fail_test "the appended report's this run line is not highlighted"
 # Run once leaves the log of what it started.
 run_driven --activate run-once > "$DIRECTORY_TEMP/ran.txt" 2>&1
 grep -q '^=== showing: Actions ===$' "$DIRECTORY_TEMP/ran.txt" \

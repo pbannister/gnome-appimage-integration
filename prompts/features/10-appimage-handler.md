@@ -32,10 +32,11 @@ default.
 - The window must carry three logs in a tabbed panel, each a large read-only text box: Status, Discovered, and Actions, with Status shown by default.
 - The Status log must reflect the current state, including the already-installed notice and the conflict choice, and must not be repeated above the buttons.
 - The Discovered log must list the facts the state was deduced from, with the command that produced them, and must gain the full report when Inspect runs.
+- The Discovered log must emphasise the `This run` and `Error` fields, in the composed facts and in the appended report, and no other line.
 - The Actions log must record every command that changed the system, with a timestamp and the output that says what was done.
 - Each action must raise the page that answers it: Integrate the Status page, Inspect the Discovered page, and Run once or Run now the Actions page.
 - The first view's buttons must be ordered by how likely the owner is to use them: Integrate, Run once, Inspect, Close.
-- The most likely action must carry the GNOME HIG suggested-action style, and only one button in a view may carry it: Integrate on the first view, Run now after a successful integration, and none of the conflict choices.
+- The most likely action must carry the GNOME HIG suggested-action style, and only one button in a view may carry it: Integrate on the first view, Run now after a successful integration, and Replace existing on the conflict choice, which is ordered Replace existing, Add alongside, Back.
 - A conflict must be described from the owner's point of view: the mode says "another launcher already represents this application", not that the run is blocked.
 - An AppImage that is in its managed directory, whose launcher runs it, and which has a record must be reported as `properly integrated`; the details row and the Status tab must say so and must not offer to replace what is already correct.
 - The main window must not show Type, Payload, or Embedded entry.
