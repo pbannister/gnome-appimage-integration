@@ -2,22 +2,28 @@
 
 ## Open Questions
 
-* [ ] decide how to set `StartupWMClass` automatically. `xprop WM_CLASS` works on X11; a Wayland application id needs the compositor.
+* [ ] decide how to set `StartupWMClass` automatically. `xprop WM_CLASS` works on X11; a Wayland application id needs the compositor. Three launchers here warn because of it (Cura, OpenShot, OpenShot-2), and OpenShot's embedded entry has no class to copy.
 * [ ] decide whether `run` should retry with `APPIMAGE_EXTRACT_AND_RUN=1` after a FUSE failure at runtime, not only when FUSE is absent.
-* [ ] decide whether integration should verify the `.sha256_sig` signature when the section is non-empty.
-* [ ] decide the icon naming policy: this tool writes `appimage_<hash8>_<name>`; AppImageLauncher wrote `appimagekit_<md5>_<name>`.
-* [ ] decide how `--add` should distinguish two launchers sharing one `Name` in the menu. The identifier, record, and icon are all suffixed already, so only the visible `Name` is still identical; suffixing the Name with a version is the obvious option.
-* [ ] decide whether to remove the AppImageLauncher-era `~/.local/share/icons/hicolor/0x0` icon directory, which `audit` now reports and nothing else reads.
-* [ ] consider offering a one-command way to run the handler under XWayland with `xdotool` for owners who want saved window positions.
+* [ ] decide whether integration should verify the `.sha256_sig` payload signature. Its presence is reported by `explain` and in the Discovered log; nothing verifies it.
+* [ ] decide whether `install --add` should append the version to `Name=` itself, the way the graphical activator does when it adds alongside an older file or when several launchers already exist. The command line still writes the plain embedded name unless `--name` is given.
+* [ ] decide what `audit` should say about several launchers for one application. Two defects are visible on this host: the grouping key is the visible `Name=`, so `nsdt-app-3.desktop` (renamed `NETGEAR Discovery Tool 2.0.7.7`) is not grouped with its two siblings; and the remedy, "keep one and remove the others", is wrong for launchers the owner deliberately added alongside. Group by the AppImage each launcher runs, and separate intentional coexistence from accidental duplicates.
+* [ ] decide whether `properly integrated` should also compare the launcher's content with what would be written, so a hand-edited or stale entry is not reported as complete.
+* [ ] decide whether the zenity fallback should follow the activator's newer behaviour (the version rules, the suggested buttons, the three logs) or stay minimal and documented as the fallback for a machine without the GTK4 development files.
+* [ ] decide whether to hide the shell's `App Details` item for AppImage launchers with a GNOME Shell extension, or leave it. GNOME Shell 46 adds that item whenever GNOME Software is installed, and nothing in a desktop entry can suppress it.
+* [ ] decide whether to remove the last AppImageLauncher artefact: `~/.local/share/icons/hicolor/0x0/apps/appimagekit_5fde00183f7244e5b3aeb5713d71815b_nsdt-app.png`. No launcher references it and nothing reads it, but `audit` warns about the directory on every run.
+* [ ] consider offering a one-command way to run the activator under XWayland with `xdotool` for owners who want saved window positions. `xdotool` is not installed here, so position saving is inert; the size is still remembered.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
 
 ## Pending
 
-* [ ] migrate the existing AppImageLauncher launchers, if the owner wants them replaced.
+* [ ] add a `refresh` command that re-writes every recorded launcher from the embedded entry, so launchers written before a template change gain the new keys in one command. The `AppImage Activator` context-menu action is the live example: every launcher here still carries only `Actions=Remove-AppImage;`.
 * [ ] consider a `migrate` subcommand that installs this tool's launcher and removes a named older one.
 * [ ] add a `--startup-wm-class-from-window` helper that reads `xprop` for the next window that appears.
 
+## Recently Completed
+
+* [x] open the activator from the launcher's context menu, and establish that the shell's `App Details` item cannot be suppressed from a desktop entry.
 * [x] decide the likely button from the version relation and the launcher count: Close for a complete or older file, Integrate otherwise, and Add alongside (with the version in the name) when an older file or several launchers must coexist.
 * [x] emphasise the `This run` and `Error` fields in the Discovered log, and order the conflict choice Replace existing, Add alongside, Back.
 * [x] order the first view's buttons by likely use (Integrate first) and mark the likely action with the HIG suggested-action style.
@@ -35,7 +41,7 @@
 * [x] treat a different AppImage claiming an owned identifier as a conflict, never a silent takeover.
 * [x] keep the existing launcher, its record, and its icon when `--add` installs alongside.
 * [x] report in `audit` when a record disagrees with the AppImage its launcher actually runs.
-* [x] add a GTK4 activator dialog (`sources/tools/appimage_activator_ui.py`) that remembers its window size between runs.
+* [x] add a GTK4 activator dialog that remembers its window size between runs (`sources/tools/appimage_activator_ui.cpp` since the port to C++).
 * [x] show Name, Comment, GenericName, and the detected version in the handler's first window.
 * [x] make Inspect open a separate window with only a Close button, returning to the AppImage window.
 * [x] make the Integrate dialog list each existing launcher's id, name, origin, version, target, icon, window class, and whether the target exists.
