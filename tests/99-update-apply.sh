@@ -50,42 +50,31 @@ trap cleanup EXIT
 PORT=8081
 BASE_URL="http://127.0.0.1:$PORT"
 
-# One payload builder: the version and a marker are what differ between builds.
-make_payload() { # <directory> <version> <marker>
+# One payload builder: the application, its version and a marker are what differ.
+make_payload() { # <directory> <version> <stem> <name> <marker>
     mkdir -p "$1/usr/share/icons/hicolor/48x48/apps"
-    printf 'png-%s' "$3" > "$1/usr/share/icons/hicolor/48x48/apps/probe.png"
-    printf 'diricon-%s' "$3" > "$1/.DirIcon"
-    cat > "$1/org.example.Probe.desktop" <<ENTRY
+    printf 'png-%s' "$5" > "$1/usr/share/icons/hicolor/48x48/apps/$3.png"
+    printf 'diricon-%s' "$5" > "$1/.DirIcon"
+    cat > "$1/org.example.$3.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application
-Name=Probe App
-Exec=probe %U
-Icon=probe
+Name=$4
+Exec=$3 %U
+Icon=$3
 Categories=Utility;
 X-AppImage-Version=$2
 ENTRY
 }
 
-make_payload "$DIRECTORY_TEMP/old" 1.0.0 old
-make_payload "$DIRECTORY_TEMP/new" 2.0.0 new-and-longer
-# The second application is a different one, so its launcher cannot be mistaken for a
-# competitor of the first.
-make_second_payload() { # <directory> <version> <marker>
-    mkdir -p "$1/usr/share/icons/hicolor/48x48/apps"
-    printf 'png-%s' "$3" > "$1/usr/share/icons/hicolor/48x48/apps/second.png"
-    printf 'diricon-%s' "$3" > "$1/.DirIcon"
-    cat > "$1/org.example.Second.desktop" <<ENTRY
-[Desktop Entry]
-Type=Application
-Name=Second App
-Exec=second %U
-Icon=second
-Categories=Utility;
-X-AppImage-Version=$2
-ENTRY
-}
-make_second_payload "$DIRECTORY_TEMP/second" 1.0.0 second
-make_second_payload "$DIRECTORY_TEMP/second-new" 2.0.0 second-new-and-longer
+make_payload "$DIRECTORY_TEMP/old" 1.0.0 Probe "Probe App" old
+make_payload "$DIRECTORY_TEMP/new" 2.0.0 Probe "Probe App" new-and-longer
+# The other applications are different ones, so their launchers cannot be mistaken for
+# competitors of the first.
+make_payload "$DIRECTORY_TEMP/second" 1.0.0 Second "Second App" second
+make_payload "$DIRECTORY_TEMP/second-new" 2.0.0 Second "Second App" second-new-and-longer
+make_payload "$DIRECTORY_TEMP/local" 1.0.0 Local "Local App" local
+make_payload "$DIRECTORY_TEMP/local-new" 2.0.0 Local "Local App" local-new-and-longer
+make_payload "$DIRECTORY_TEMP/local-broken" 1.0.0 LocalBroken "Local Broken App" local-broken
 
 DIRECTORY_WWW="$DIRECTORY_TEMP/www"
 mkdir -p "$DIRECTORY_WWW"
@@ -149,6 +138,25 @@ Filename: Sig-2.0.0-x86_64.AppImage
 ZSYNC
 build_appimage_with_upd "$DIRECTORY_TEMP/old" "$DIRECTORY_TEMP/Sig.AppImage" \
     "$BASE_URL/Sig-latest-x86_64.AppImage.zsync"
+
+# Transports whose offered file is already beside the installed one.  The .zsync file is
+# served, the AppImage at the URL is not: if the tool downloaded, it would fail.
+build_appimage_with_upd "$DIRECTORY_TEMP/local" "$DIRECTORY_TEMP/Local.AppImage" \
+    "$BASE_URL/Local-latest-x86_64.AppImage.zsync"
+build_appimage_with_upd "$DIRECTORY_TEMP/local-new" "$DIRECTORY_TEMP/Local-2.0.0-x86_64.AppImage" \
+    "$BASE_URL/Local-latest-x86_64.AppImage.zsync"
+cat > "$DIRECTORY_WWW/Local-latest-x86_64.AppImage.zsync" <<'ZSYNC'
+zsync: 0.6.2
+Filename: Local-2.0.0-x86_64.AppImage
+ZSYNC
+
+build_appimage_with_upd "$DIRECTORY_TEMP/local-broken" "$DIRECTORY_TEMP/LocalBroken.AppImage" \
+    "$BASE_URL/LocalBroken-latest-x86_64.AppImage.zsync"
+cat > "$DIRECTORY_WWW/LocalBroken-latest-x86_64.AppImage.zsync" <<'ZSYNC'
+zsync: 0.6.2
+Filename: LocalBroken-2.0.0-x86_64.AppImage
+ZSYNC
+printf 'this is not an AppImage either' > "$DIRECTORY_TEMP/LocalBroken-2.0.0-x86_64.AppImage"
 
 DIRECTORY_HOME="$DIRECTORY_TEMP/home"
 DIRECTORY_APPLICATIONS="$DIRECTORY_HOME/.local/share/applications"
@@ -248,6 +256,50 @@ for FILE_LAUNCHER in "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" \
 done
 if [ "$(run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -c "$FILE_NEW")" != "2" ]; then
     fail_test "the records were not retargeted"
+fi
+
+echo "=== an offered file that is already here is used, not downloaded ==="
+FILE_LOCAL="$DIRECTORY_HOME/Applications/Local.AppImage"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/Local.AppImage" > /dev/null 2>&1
+# The offered file is already sitting beside it; the URL serves no AppImage at all.
+cp "$DIRECTORY_TEMP/Local-2.0.0-x86_64.AppImage" \
+    "$DIRECTORY_HOME/Applications/Local-2.0.0-x86_64.AppImage"
+HASH_LOCAL=$(hash_of "$FILE_LOCAL")
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes "$FILE_LOCAL" \
+    > "$DIRECTORY_TEMP/local.txt" 2>&1
+grep -q 'used the copy already at' "$DIRECTORY_TEMP/local.txt" \
+    || fail_test "the local copy was not used: $(cat "$DIRECTORY_TEMP/local.txt")"
+if [ -f "$FILE_LOCAL" ]; then
+    fail_test "the file that was replaced is still there"
+fi
+if [ "$(version_of "$DIRECTORY_HOME/Applications/Local-2.0.0-x86_64.AppImage")" != "2.0.0" ]; then
+    fail_test "the local copy is not the file that is now in use"
+fi
+if [ "$(hash_of "$FILE_LOCAL.previous")" != "$HASH_LOCAL" ]; then
+    fail_test "the replaced file was not kept as <name>.previous"
+fi
+grep -q "^Exec=$DIRECTORY_HOME/Applications/Local-2.0.0-x86_64.AppImage %U$" \
+    "$DIRECTORY_APPLICATIONS/org.example.Local.desktop" \
+    || fail_test "the launcher of the local copy's application was not retargeted"
+
+echo "=== a local copy that is not usable is refused, not replaced ==="
+FILE_LOCAL_BROKEN="$DIRECTORY_HOME/Applications/LocalBroken.AppImage"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/LocalBroken.AppImage" > /dev/null 2>&1
+cp "$DIRECTORY_TEMP/LocalBroken-2.0.0-x86_64.AppImage" \
+    "$DIRECTORY_HOME/Applications/LocalBroken-2.0.0-x86_64.AppImage"
+HASH_LOCAL_BROKEN=$(hash_of "$FILE_LOCAL_BROKEN")
+if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" update --force --yes \
+        "$FILE_LOCAL_BROKEN" > "$DIRECTORY_TEMP/local-broken.txt" 2>&1; then
+    fail_test "a local copy that is not an AppImage was used"
+fi
+grep -q 'the file already here is not usable' "$DIRECTORY_TEMP/local-broken.txt" \
+    || fail_test "the refusal does not say the local file is unusable: $(cat "$DIRECTORY_TEMP/local-broken.txt")"
+grep -q 'remove ' "$DIRECTORY_TEMP/local-broken.txt" \
+    || fail_test "the refusal does not say how to download instead"
+if [ "$(hash_of "$FILE_LOCAL_BROKEN")" != "$HASH_LOCAL_BROKEN" ]; then
+    fail_test "the refused update replaced the working file"
 fi
 
 echo "=== --no-backup removes the file instead of keeping it ==="

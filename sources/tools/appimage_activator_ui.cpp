@@ -755,6 +755,37 @@ public:
                 o_iter = o_line_end;
             }
         }
+        o_out << "\n=== status in bold ===";
+        if (nullptr != p_notice_tag_) {
+            GtkTextIter o_iter;
+            gtk_text_buffer_get_start_iter(p_status_buffer_, &o_iter);
+            while (!gtk_text_iter_is_end(&o_iter)) {
+                GtkTextIter o_line_end = o_iter;
+                gtk_text_iter_forward_line(&o_line_end);
+                if (gtk_text_iter_has_tag(&o_iter, p_notice_tag_)) {
+                    char *s_line = gtk_text_buffer_get_text(p_status_buffer_, &o_iter,
+                                                            &o_line_end, FALSE);
+                    if (nullptr != s_line) {
+                        std::string s_text(s_line);
+                        while (!s_text.empty() && '\n' == s_text.back()) {
+                            s_text.pop_back();
+                        }
+                        o_out << "\n" << s_text;
+                        g_free(s_line);
+                    }
+                }
+                o_iter = o_line_end;
+            }
+        }
+        o_out << "\n=== disabled ===";
+        for (GtkWidget *p_child = gtk_widget_get_first_child(p_button_box_);
+             nullptr != p_child; p_child = gtk_widget_get_next_sibling(p_child)) {
+            if (!gtk_widget_get_sensitive(p_child)) {
+                const char *s_label = gtk_button_get_label(GTK_BUTTON(p_child));
+                o_out << ' ' << (nullptr == s_label ? "?" : s_label);
+            }
+        }
+        o_out << "\n";
         o_out << "\n=== Status ===\n" << tab_text(tab_e::status);
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
@@ -919,6 +950,8 @@ private:
         add_text_page("Actions", &p_actions_view_, &p_actions_buffer_);
         p_significant_tag_ = gtk_text_buffer_create_tag(p_discovered_buffer_, "significant",
                                                        "weight", PANGO_WEIGHT_BOLD, nullptr);
+        p_notice_tag_ = gtk_text_buffer_create_tag(p_status_buffer_, "notice",
+                                                   "weight", PANGO_WEIGHT_BOLD, nullptr);
         gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), 0);
         gtk_box_append(GTK_BOX(p_box), p_notebook_);
 
@@ -1042,7 +1075,7 @@ private:
                                               {"Inspect", action_e::inspect, false}};
         if (update_is_offered()) {
             o_specs.push_back({"Update", action_e::update, false,
-                               !b_update_running_ && !is_missing()});
+                               !b_update_running_ && !is_missing() && !b_update_disabled_});
         }
         o_specs.push_back({"Close", action_e::close, b_close});
         set_buttons(o_specs);
@@ -1100,6 +1133,10 @@ private:
     // appending text drops the previous tag applications, so this runs again after
     // every change rather than being applied once.
     void highlight_significant_lines(tab_e e_tab) {
+        if (tab_e::status == e_tab) {
+            highlight_status_notice();
+            return;
+        }
         if (tab_e::discovered != e_tab || nullptr == p_significant_tag_) {
             return;
         }
@@ -1115,6 +1152,29 @@ private:
             g_free(s_line);
             if (b_significant) {
                 gtk_text_buffer_apply_tag(p_buffer, p_significant_tag_, &o_iter, &o_line_end);
+            }
+            o_iter = o_line_end;
+        }
+    }
+
+    // Emphasise the one line an Update click produced, so the answer stands out.
+    void highlight_status_notice() {
+        if (nullptr == p_status_buffer_ || nullptr == p_notice_tag_
+            || s_status_notice_line_.empty()) {
+            return;
+        }
+        GtkTextIter o_iter;
+        gtk_text_buffer_get_start_iter(p_status_buffer_, &o_iter);
+        while (!gtk_text_iter_is_end(&o_iter)) {
+            GtkTextIter o_line_end = o_iter;
+            gtk_text_iter_forward_line(&o_line_end);
+            char *s_line = gtk_text_buffer_get_text(p_status_buffer_, &o_iter, &o_line_end, FALSE);
+            const bool b_match =
+                nullptr != s_line && 0 == std::string(s_line).rfind(s_status_notice_line_, 0);
+            g_free(s_line);
+            if (b_match) {
+                gtk_text_buffer_apply_tag(p_status_buffer_, p_notice_tag_, &o_iter, &o_line_end);
+                return;
             }
             o_iter = o_line_end;
         }
@@ -1208,6 +1268,9 @@ private:
     // What the current state is, in the tool's own words where it has them.
     std::string compose_status() const {
         std::ostringstream o_text;
+        if (!s_update_notice_.empty()) {
+            o_text << s_update_notice_ << "\n\n";
+        }
         if (!s_status_note_.empty()) {
             o_text << s_status_note_ << "\n\n";
         }
@@ -1413,6 +1476,7 @@ private:
     }
 
     void refresh_status() {
+        s_status_notice_line_ = s_update_notice_;
         set_tab(tab_e::status, compose_status());
     }
 
@@ -1518,7 +1582,7 @@ private:
     // Ask the tool what the transport offers.  Returns the URL to download, empty when
     // there is nothing to do; s_note says why.
     std::string offered_update_url(std::string &s_note, std::string &s_latest_version,
-                                   bool &b_needs_force) {
+                                   std::string &s_relation, bool &b_needs_force) {
         const std::vector<std::string> o_arguments = {"update", "--check", "--json", s_path_};
         const process_result_o o_result = run_tool(s_tool_, o_arguments);
         log_action(command_line("appimage-integrate", o_arguments), combined_output(o_result));
@@ -1537,6 +1601,7 @@ private:
             return {};
         }
         s_latest_version = o_check.string_or("latest_version");
+        s_relation = o_check.string_or("relation");
         const std::string s_url = o_check.string_or("download_url");
         if (o_check.boolean_or("update_available", false)) {
             return s_url;
@@ -1563,14 +1628,28 @@ private:
         }
         std::string s_note;
         std::string s_latest_version;
+        std::string s_relation;
         bool b_needs_force = false;
-        const std::string s_url = offered_update_url(s_note, s_latest_version, b_needs_force);
+        const std::string s_url =
+            offered_update_url(s_note, s_latest_version, s_relation, b_needs_force);
         if (s_url.empty()) {
             s_status_note_ = s_note;
+            s_update_notice_.clear();
+            b_update_disabled_ = false;
+            if ("same" == s_relation || "same-file" == s_relation) {
+                // Nothing newer to take: say so plainly, and stop offering to look again.
+                s_update_notice_ = "You already are using the latest version.";
+                b_update_disabled_ = true;
+            } else if ("older" == s_relation) {
+                s_update_notice_ = "The release is older than the version you are using.";
+                b_update_disabled_ = true;
+            }
             refresh_status();
+            show_initial_buttons();
             show_tab(tab_e::status);
             return;
         }
+        s_update_notice_.clear();
 
         o_update_arguments_ = {"update", "--yes", "--json"};
         if (b_needs_force) {
@@ -1604,6 +1683,7 @@ private:
         }
         b_update_running_ = true;
         b_update_finished_ = false;
+        b_update_disabled_ = false;
         s_status_note_ = "Downloading " + s_latest_version
                          + (b_needs_force ? " (the transport names no version)" : "")
                          + ".\nThe window stays open; the download can take a while.";
@@ -1661,6 +1741,8 @@ private:
             // Switch to the file that was downloaded: the window is about that one now.
             s_path_ = s_new_path;
             load_description();
+            s_update_notice_.clear();
+            b_update_disabled_ = false;
             s_status_note_ = "Updated to " + display_name() + "\n  " + s_path_
                              + "\nThe Actions tab has the log of the download.";
             refresh_status();
@@ -1780,6 +1862,9 @@ private:
     GtkTextBuffer *p_discovered_buffer_ = nullptr;
     GtkTextBuffer *p_actions_buffer_ = nullptr;
     GtkTextTag *p_significant_tag_ = nullptr;
+    // The one Status line that is emphasised: the answer to an Update click.
+    GtkTextTag *p_notice_tag_ = nullptr;
+    std::string s_status_notice_line_;
     // Whether the conflict choice is on screen, and whether anything has been done
     // yet; both decide what the Status and Actions tabs say.
     bool b_prompt_active_ = false;
@@ -1790,6 +1875,10 @@ private:
     // loop keeps running, and the window stays honest about what it is doing.
     bool b_update_running_ = false;
     bool b_update_finished_ = false;
+    // Set when Update found nothing newer to take: the line Status emphasises, and
+    // whether the Update button is therefore disabled.
+    std::string s_update_notice_;
+    bool b_update_disabled_ = false;
     GSubprocess *p_update_process_ = nullptr;
     std::vector<std::string> o_update_arguments_;
 };

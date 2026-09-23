@@ -48,7 +48,7 @@ default.
 - The main window must not show Type, Payload, or Embedded entry.
 - The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
 - After Integrate succeeds, the window must follow the AppImage to its installed path, so File, Run now, and Inspect refer to the new location.
-- Update must ask the update information what is offered, say why when there is nothing to do, and otherwise download the offered file, keeping the previous one as `<name>.previous`.  The download must not freeze the window, and when it finishes the window must switch to the file that was installed, so Inspect, Integrate, and Run now refer to it.
+- Update must ask the update information what is offered; when there is nothing newer to take it must say so in bold in the Status panel ("You already are using the latest version.") and disable the Update button, and otherwise download the offered file, keeping the previous one as `<name>.previous`.  The download must not freeze the window, and when it finishes the window must switch to the file that was installed, so Inspect, Integrate, and Run now refer to it.
 - The window must show the new location in its output after a move.
 - Inspect must write its details into that text area.
 - Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.

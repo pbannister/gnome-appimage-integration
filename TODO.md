@@ -2,7 +2,7 @@
 
 ## Pending
 
-* [ ] decide what the FreeCAD launcher should run: it now runs FreeCAD 1.1.1 in `~/Applications`, and 1.1.3 sits beside it unrecorded, because the 1.1.1 file was integrated with a replace at 15:10 (the displaced 1.1.3 launcher is in `backup/org.freecad.FreeCAD-8.desktop`). If that was not deliberate, re-integrate 1.1.3 with `--replace`.
+* [ ] decide how long to keep the replaced file: `update` keeps it as `<name>.previous`, which for FreeCAD is another 820 MB. A retention rule (delete on the next successful update, or on request) would be worth having.
 * [ ] use a zsync client for updates when one is installed, so an update transfers a delta instead of the whole file. `zsync`, `zsync2` and `appimageupdatetool` are all absent here, so `update` downloads in full today; the check already prints the size.
 * [ ] decide what to do about the version a file name states: `version_of_appimage` reads OrcaSlicer's `…V2.4.2_62a8fff…` as `2.4`, which is what an update check would compare against a release tag.
 
@@ -13,6 +13,7 @@
 
 ## Recently Completed
 
+* [x] Update uses an offered file that is already beside the installed one instead of downloading it again, and refuses an unusable copy with a message naming the file to remove.  It also declares "You already are using the latest version." in bold in the Status panel and disables the Update button when the check finds nothing newer.  Both were verified live against FreeCAD 1.1.3 through the installed tool.
 * [x] the activator window and the launcher context menu both offer **Update**: the button sits between Inspect and Close (only when the AppImage carries usable update information), the context item is written only then too, and both run the same action. The download runs without freezing the window and the window switches to the file that was installed. `update` downloads the offered file under its own name, points every launcher and record that ran the replaced file at it, and keeps the old file as `<name>.previous`.
 * [x] actually update an AppImage: `update` downloads to `<name>.part`, verifies the download against the release's published `-SHA256.txt` and the file's own `.sha256_sig`, refuses a mismatch or an unreadable file and leaves the working one alone, then replaces the file, makes it executable and re-renders that one launcher (record, icon, name and class kept). `--force` takes the offered file when the transport names no version, `--backup` keeps the old file as `<name>.previous`, and `--dry-run` prints the URL and size without fetching.
 * [x] `migrate` adopts a launcher another tool wrote: it takes the AppImage from the launcher's `Exec`, installs this tool's launcher for it, backs up the displaced one, and steals its window class. A dry run, an ID or a path, JSON, and a clear refusal when the AppImage is gone are all covered.

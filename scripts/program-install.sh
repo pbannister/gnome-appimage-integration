@@ -14,22 +14,29 @@ DIRECTORY_BIN="$PREFIX/bin"
 
 mkdir -p "$DIRECTORY_BIN"
 
+# Copy to a temporary name and rename it over the destination: writing in place fails
+# with "Text file busy" while the program is running, and a rename leaves any running
+# copy with the file it started from.
+install_program() { # <source> <destination>
+    file_temporary="$2.installing.$$"
+    cp "$1" "$file_temporary"
+    chmod 755 "$file_temporary"
+    mv -f "$file_temporary" "$2"
+    echo "program-install: $2"
+}
+
 for program_name in appimage-inspect desktop-inspect appimage-integrate; do
     if [ ! -x "$DIRECTORY_BUILD/$program_name" ]; then
         echo "program-install: missing $DIRECTORY_BUILD/$program_name; run 'make build' first" >&2
         exit 1
     fi
-    cp "$DIRECTORY_BUILD/$program_name" "$DIRECTORY_BIN/$program_name"
-    chmod 755 "$DIRECTORY_BIN/$program_name"
-    echo "program-install: $DIRECTORY_BIN/$program_name"
+    install_program "$DIRECTORY_BUILD/$program_name" "$DIRECTORY_BIN/$program_name"
 done
 
 # The graphical activator sits next to the tool so the tool can exec it. It is a
 # GTK4 program, built only where the GTK4 development files are present.
 if [ -x "$DIRECTORY_BUILD/appimage-activator" ]; then
-    cp "$DIRECTORY_BUILD/appimage-activator" "$DIRECTORY_BIN/appimage-activator"
-    chmod 755 "$DIRECTORY_BIN/appimage-activator"
-    echo "program-install: $DIRECTORY_BIN/appimage-activator"
+    install_program "$DIRECTORY_BUILD/appimage-activator" "$DIRECTORY_BIN/appimage-activator"
 else
     echo "program-install: appimage-activator was not built; the handler will use zenity" >&2
 fi

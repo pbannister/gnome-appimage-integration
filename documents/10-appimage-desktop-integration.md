@@ -274,10 +274,16 @@ window class.  So the file name tells the truth about the version it holds, and 
 the old file is left pointing at a file that is gone.  `--force` takes the offered file when the
 transport names no version.
 
+If the offered file is already beside the installed one — downloaded by hand into the managed
+directory, or put there by an earlier integration — it is verified and used, and nothing is
+downloaded.  That is the common case after a manual upgrade, and it is worth 800 MB of traffic.
+
 The window's **Update** button, and the launcher's **Update** item, do the same thing: both ask the
 update information first, and the button sits between Inspect and Close, present only when the
 AppImage carries usable update information.  The download runs without freezing the window, and
-when it finishes the window switches to the file that was installed.
+when it finishes the window switches to the file that was installed.  When there is nothing newer
+to take, the Status panel says so in bold — *You already are using the latest version.* — and the
+Update button is disabled, because asking again would only produce the same answer.
 
 Two things are deliberately still out of scope. A zsync *delta* needs a zsync client, which is not
 installed here, so an update downloads the whole file — the check prints the size so the cost is

@@ -425,6 +425,31 @@ grep -q '^=== buttons: Integrate Run once Inspect Update Close\* ===$' \
     "$DIRECTORY_TEMP/update-button.txt" \
     || fail_test "the Update button is not between Inspect and Close: $(grep -m1 '=== buttons' "$DIRECTORY_TEMP/update-button.txt")"
 
+echo "=== nothing newer: the Status line is bold and Update is disabled ==="
+: > "$FILE_RECORD"
+STUB_UPDATE_USABLE=true STUB_UPDATE_INFORMATION="zsync|https://example.invalid/x.zsync" \
+    STUB_UPDATE_RELATION="same" STUB_UPDATE_AVAILABLE=false \
+    run_driven --activate update > "$DIRECTORY_TEMP/update-latest.txt" 2>&1
+sed -n '/^=== status in bold ===$/,/^=== disabled ===$/p' "$DIRECTORY_TEMP/update-latest.txt" \
+    > "$DIRECTORY_TEMP/update-latest-bold.txt"
+grep -Fxq 'You already are using the latest version.' \
+    "$DIRECTORY_TEMP/update-latest-bold.txt" \
+    || fail_test "a check with nothing newer does not say so in bold: $(cat "$DIRECTORY_TEMP/update-latest-bold.txt")"
+grep -Fxq '=== disabled === Update' "$DIRECTORY_TEMP/update-latest.txt" \
+    || fail_test "the Update button is not disabled when there is nothing newer: $(grep '^=== disabled' "$DIRECTORY_TEMP/update-latest.txt")"
+if grep -Fq 'update|--yes' "$FILE_RECORD"; then
+    fail_test "the window downloaded something although there was nothing newer"
+fi
+
+echo "=== the same file offered is also the latest version ==="
+STUB_UPDATE_USABLE=true STUB_UPDATE_INFORMATION="zsync|https://example.invalid/x.zsync" \
+    STUB_UPDATE_RELATION="same-file" STUB_UPDATE_AVAILABLE=false \
+    run_driven --activate update > "$DIRECTORY_TEMP/update-same-file.txt" 2>&1
+grep -q 'You already are using the latest version.' "$DIRECTORY_TEMP/update-same-file.txt" \
+    || fail_test "the same file offered is not reported as the latest version"
+grep -Fxq '=== disabled === Update' "$DIRECTORY_TEMP/update-same-file.txt" \
+    || fail_test "Update is not disabled when the transport offers the installed file"
+
 echo "=== Update downloads the new AppImage and the window switches to it ==="
 : > "$FILE_RECORD"
 STUB_UPDATE_USABLE=true \
@@ -442,6 +467,8 @@ grep -q 'Updated to' "$DIRECTORY_TEMP/update-run.txt" \
     || fail_test "the window did not report the update: $(sed -n '/=== Status ===/,/=== Discovered ===/p' "$DIRECTORY_TEMP/update-run.txt" | head -6)"
 grep -q 'Probe-2.0.0-x86_64.AppImage' "$DIRECTORY_TEMP/update-run.txt" \
     || fail_test "the window did not switch to the file it downloaded"
+grep -Fxq '=== disabled ===' "$DIRECTORY_TEMP/update-run.txt" \
+    || fail_test "the Update button stayed disabled after an update"
 
 echo "=== a new version is taken without --force ==="
 : > "$FILE_RECORD"

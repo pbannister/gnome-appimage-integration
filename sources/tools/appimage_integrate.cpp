@@ -1292,6 +1292,8 @@ struct update_check_o {
     std::string applied;
     // Where the offered file was put, and what happened to the one it replaced.
     std::string installed_path;
+    // True when the offered file was already beside the installed one.
+    bool b_used_local_copy = false;
     std::string kept_previous;
     std::string removed_previous;
 };
@@ -1942,25 +1944,45 @@ bool apply_update(const appimage_integrator_c &o_integrator,
     std::error_code o_error;
     fs::remove(s_part, o_error);
 
-    if (!download_file(o_check.download_url, s_part, s_error)) {
-        fs::remove(s_part, o_error);
-        return false;
-    }
-    update_verification_o o_verification;
-    if (!verify_download(s_part, o_check.digest_url, o_verification, s_error)) {
-        fs::remove(s_part, o_error);
-        return false;
-    }
-    if (o_verification.b_refused) {
-        fs::remove(s_part, o_error);
-        s_error = o_verification.problem;
-        return false;
-    }
-
     std::error_code o_same_error;
     const bool b_same_path =
         fs::weakly_canonical(fs::path(s_destination), o_same_error).string()
         == fs::weakly_canonical(fs::path(s_old), o_same_error).string();
+    // The offered file may already be here, which is what happens when an AppImage was
+    // downloaded by hand next to the one in use.  Then there is nothing to download: the
+    // local file is verified and used in place.
+    std::error_code o_local_error;
+    const bool b_local_copy =
+        !b_same_path && fs::is_regular_file(s_destination, o_local_error);
+
+    update_verification_o o_verification;
+    if (b_local_copy) {
+        if (!verify_download(s_destination, o_check.digest_url, o_verification, s_error)) {
+            return false;
+        }
+        if (o_verification.b_refused) {
+            s_error = "the file already here is not usable: " + o_verification.problem
+                      + " (remove " + s_destination + " to download the offered file)";
+            return false;
+        }
+        if (!make_executable_file(s_destination, s_error)) {
+            return false;
+        }
+    } else {
+        if (!download_file(o_check.download_url, s_part, s_error)) {
+            fs::remove(s_part, o_error);
+            return false;
+        }
+        if (!verify_download(s_part, o_check.digest_url, o_verification, s_error)) {
+            fs::remove(s_part, o_error);
+            return false;
+        }
+        if (o_verification.b_refused) {
+            fs::remove(s_part, o_error);
+            s_error = o_verification.problem;
+            return false;
+        }
+    }
 
     // The old file gives way first, so the new one can take its name when it has the
     // same one.
@@ -1980,16 +2002,19 @@ bool apply_update(const appimage_integrator_c &o_integrator,
             o_result.removed_previous = s_old;
         }
     }
-    fs::rename(s_part, s_destination, o_error);
-    if (o_error) {
-        s_error = "cannot put the download in place: " + o_error.message();
-        return false;
-    }
-    if (!make_executable_file(s_destination, s_error)) {
-        return false;
+    if (!b_local_copy) {
+        fs::rename(s_part, s_destination, o_error);
+        if (o_error) {
+            s_error = "cannot put the download in place: " + o_error.message();
+            return false;
+        }
+        if (!make_executable_file(s_destination, s_error)) {
+            return false;
+        }
     }
 
-    std::string s_note = "downloaded from " + o_check.download_url;
+    std::string s_note = b_local_copy ? "used the copy already at " + s_destination
+                                      : "downloaded from " + o_check.download_url;
     if (o_verification.b_digest_published) {
         s_note += ", digest matches the published " + o_verification.digest;
     } else if (!o_verification.signature.empty()
@@ -2021,6 +2046,7 @@ bool apply_update(const appimage_integrator_c &o_integrator,
     }
 
     o_result.installed_path = s_destination;
+    o_result.b_used_local_copy = b_local_copy;
     o_result.applied = s_note;
     return true;
 }
@@ -2181,6 +2207,13 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
             const std::string s_name = offered_file_name(o_check);
             if (!s_name.empty() && s_name != fs::path(o_check.appimage).filename().string()) {
                 std::cout << "  will be placed beside it as: " << s_name << '\n';
+                std::error_code o_local_error;
+                const std::string s_destination =
+                    (fs::path(o_check.appimage).parent_path() / s_name).string();
+                if (fs::is_regular_file(s_destination, o_local_error)) {
+                    std::cout << "  that file is already here, so nothing is downloaded: "
+                              << s_destination << '\n';
+                }
             }
         }
     }
@@ -2241,6 +2274,7 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
         const std::string s_removed = o_applied.removed_previous;
         o_check.applied = s_applied;
         o_check.installed_path = s_installed;
+        o_check.b_used_local_copy = o_applied.b_used_local_copy;
         o_check.kept_previous = s_kept;
         o_check.removed_previous = s_removed;
         i_written++;
@@ -2273,7 +2307,8 @@ int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_no
                       << (o_check.b_update_available ? "true" : "false")
                       << ",\"applied\":" << (o_check.applied.empty() ? "false" : "true")
                       << ",\"installed\":\"" << json_escape(o_check.installed_path)
-                      << "\",\"kept_previous\":\"" << json_escape(o_check.kept_previous)
+                      << "\",\"used_local_copy\":" << (o_check.b_used_local_copy ? "true" : "false")
+                      << ",\"kept_previous\":\"" << json_escape(o_check.kept_previous)
                       << "\",\"detail\":\"" << json_escape(o_check.applied)
                       << "\",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
         }
