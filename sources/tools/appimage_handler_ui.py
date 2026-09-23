@@ -3,9 +3,10 @@
 
 Invoked as:  appimage_handler_ui.py --tool <appimage-integrate> <AppImage>
 
-The first window shows what the AppImage is (name, version, generic name, comment)
-and offers Run once, Integrate, Inspect, and Close.  Every window remembers its
-size, and its position where the platform allows it.
+A single-window application, sized like a dialog.  The window shows what the
+AppImage is, a row of actions, and one large text area that Inspect and Integrate
+write into.  Every window remembers its size, and its position where the platform
+allows it.
 
 All real work is delegated to the `appimage-integrate` CLI, so this file only
 presents information and choices.
@@ -22,8 +23,10 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-MINIMUM_WIDTH = 360
-MINIMUM_HEIGHT = 280
+MINIMUM_WIDTH = 420
+MINIMUM_HEIGHT = 320
+DEFAULT_WIDTH = 660
+DEFAULT_HEIGHT = 720
 
 
 def state_directory():
@@ -105,8 +108,27 @@ def x11_move(window, x, y):
         return False
 
 
+def center_window(window):
+    """Centre the window where the platform allows it.
+
+    Wayland does not let a client choose its position, so there this does
+    nothing and the compositor places the window.
+    """
+    if shutil.which("xdotool") is None or x11_window_id(window) is None:
+        return False
+    area_x, area_y, area_width, area_height = work_area()
+    try:
+        width = window.get_width() or DEFAULT_WIDTH
+        height = window.get_height() or DEFAULT_HEIGHT
+    except Exception:
+        width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    x = area_x + max(0, (area_width - width) // 2)
+    y = area_y + max(0, (area_height - height) // 2)
+    return x11_move(window, x, y)
+
+
 class Geometry:
-    """Remembers each window's size, and its position where the platform allows."""
+    """Remembers the window's size, and its position where the platform allows."""
 
     def __init__(self):
         self.path = os.path.join(state_directory(), "ui.json")
@@ -155,22 +177,25 @@ class Geometry:
     def apply(self, key, window):
         entry = self.entry(key)
         area_x, area_y, area_width, area_height = work_area()
+        width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
         try:
-            width = int(entry.get("width", 0))
-            height = int(entry.get("height", 0))
+            width = int(entry.get("width", 0)) or DEFAULT_WIDTH
+            height = int(entry.get("height", 0)) or DEFAULT_HEIGHT
         except Exception:
-            width, height = 0, 0
-        if width >= MINIMUM_WIDTH and height >= MINIMUM_HEIGHT:
-            # Keep the whole window on the screen.
-            width = max(MINIMUM_WIDTH, min(width, area_width))
-            height = max(MINIMUM_HEIGHT, min(height, area_height))
-            window.set_default_size(width, height)
+            width, height = DEFAULT_WIDTH, DEFAULT_HEIGHT
+        width = max(MINIMUM_WIDTH, min(width, area_width))
+        height = max(MINIMUM_HEIGHT, min(height, area_height))
+        window.set_default_size(width, height)
+
         x = entry.get("x")
         y = entry.get("y")
         if isinstance(x, int) and isinstance(y, int):
-            x = max(area_x, min(x, area_x + area_width - max(width, MINIMUM_WIDTH)))
-            y = max(area_y, min(y, area_y + area_height - max(height, MINIMUM_HEIGHT)))
+            x = max(area_x, min(x, area_x + area_width - width))
+            y = max(area_y, min(y, area_y + area_height - height))
             GLib.idle_add(lambda: (x11_move(window, x, y), False)[1])
+        else:
+            # No remembered position: behave like a dialog and ask to be centred.
+            GLib.idle_add(lambda: (center_window(window), False)[1])
 
     def watch(self, key, window):
         self.apply(key, window)
@@ -245,10 +270,10 @@ class Handler:
         self.path = path
         self.geometry = Geometry()
         self.data = self.load_description()
-        self.windows = []
         self.window = Gtk.ApplicationWindow(application=application, title="AppImage")
-        self.window.set_child(self.build_content())
+        self.build_content()
         self.geometry.watch("main", self.window)
+        self.show_initial_buttons()
         self.window.present()
 
     # -- data ---------------------------------------------------------------
@@ -270,13 +295,17 @@ class Handler:
             }
         return data
 
-    def real_conflicts(self):
-        return [item for item in self.data.get("conflicts", []) if not item.get("upgrade")]
+    def conflicts(self):
+        return [
+            item
+            for item in self.data.get("conflicts", [])
+            if not item.get("upgrade")
+        ]
 
     def is_missing(self):
         return not os.path.exists(self.path)
 
-    # -- rendering ----------------------------------------------------------
+    # -- widgets ------------------------------------------------------------
     def build_content(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_top(16)
@@ -327,13 +356,11 @@ class Handler:
             row += 1
         box.append(details)
 
-        conflicts = self.real_conflicts()
-        if conflicts:
-            box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        if self.conflicts():
             notice = Gtk.Label()
             notice.set_markup(
                 "<b>This application is already installed.</b>\n"
-                "Integrate will ask whether to replace or add alongside."
+                "Integrate will offer to replace it or add alongside it."
             )
             notice.set_xalign(0)
             notice.set_wrap(True)
@@ -345,83 +372,57 @@ class Handler:
             error_label.set_wrap(True)
             box.append(error_label)
 
-        spacer = Gtk.Box()
-        spacer.set_vexpand(True)
-        box.append(spacer)
+        self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.button_box.set_halign(Gtk.Align.END)
+        box.append(self.button_box)
 
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        buttons.set_halign(Gtk.Align.END)
-        for label, callback in (
-            ("Close", self.on_close),
-            ("Inspect", self.on_inspect),
-            ("Integrate", self.on_integrate),
-            ("Run once", self.on_run_once),
-        ):
-            button = Gtk.Button(label=label)
-            button.connect("clicked", callback)
-            buttons.append(button)
-        box.append(buttons)
-        return box
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_vexpand(True)
+        scroller.set_hexpand(True)
+        scroller.set_size_request(-1, MINIMUM_HEIGHT)
+        self.text_view = Gtk.TextView()
+        self.text_view.set_editable(False)
+        self.text_view.set_monospace(True)
+        self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        scroller.set_child(self.text_view)
+        box.append(scroller)
+
+        self.window.set_child(box)
 
     def detail_rows(self):
         rows = [
             ("File", self.path),
-            ("Type", self.data.get("detection") or "(not an AppImage)"),
             ("Size", human_size(self.data.get("file_size", 0))),
         ]
-        if self.data.get("compression"):
-            rows.append(
-                (
-                    "Payload",
-                    "%s, %s"
-                    % (human_size(self.data.get("payload_size", 0)), self.data["compression"]),
-                )
-            )
-        if self.data.get("embedded_desktop"):
-            rows.append(("Embedded entry", self.data["embedded_desktop"]))
         if self.data.get("desktop_id"):
             rows.append(("Will install as", self.data["desktop_id"]))
-        if self.data.get("update_information"):
-            rows.append(("Updates", self.data["update_information"]))
         if self.is_missing():
             rows.append(("Note", "this file is no longer at that path"))
         return rows
 
-    # -- window helpers -----------------------------------------------------
-    def show_text_window(self, key, title, text, extra_buttons=None):
-        window = Gtk.Window(transient_for=self.window, title=title)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_vexpand(True)
-        view = Gtk.TextView()
-        view.set_editable(False)
-        view.set_monospace(True)
-        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        view.get_buffer().set_text(text)
-        scroller.set_child(view)
-        box.append(scroller)
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        buttons.set_halign(Gtk.Align.END)
-        for label, callback in extra_buttons or []:
+    def set_buttons(self, specs):
+        child = self.button_box.get_first_child()
+        while child is not None:
+            following = child.get_next_sibling()
+            self.button_box.remove(child)
+            child = following
+        for label, callback in specs:
             button = Gtk.Button(label=label)
             button.connect("clicked", callback)
-            buttons.append(button)
-        close = Gtk.Button(label="Close")
-        close.connect("clicked", lambda _button: window.close())
-        buttons.append(close)
-        box.append(buttons)
+            self.button_box.append(button)
 
-        window.set_child(box)
-        self.geometry.watch(key, window)
-        window.present()
-        self.windows.append(window)
-        return window
+    def show_initial_buttons(self):
+        self.set_buttons(
+            [
+                ("Run once", self.on_run_once),
+                ("Integrate", self.on_integrate),
+                ("Inspect", self.on_inspect),
+                ("Close", self.on_close),
+            ]
+        )
+
+    def set_text(self, text):
+        self.text_view.get_buffer().set_text(text or "")
 
     # -- actions ------------------------------------------------------------
     def on_close(self, _button):
@@ -429,49 +430,34 @@ class Handler:
         self.window.close()
 
     def start_appimage(self):
-        try:
-            subprocess.Popen(
-                [self.tool, "run", "--detached", self.path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-        except Exception:
-            pass
+        _code, out, err = run_tool(self.tool, ["run", "--detached", self.path])
+        return combined_output(out, err)
 
     def on_run_once(self, _button):
         if self.is_missing():
-            self.show_missing_window()
+            self.set_text(
+                "This AppImage is no longer at\n  %s\n\n"
+                "It has probably been integrated already.\n"
+                "Look for \"%s\" in the application menu."
+                % (self.path, self.data.get("name") or "the application")
+            )
             return
-        self.geometry.save("main", self.window)
-        self.start_appimage()
-        self.window.close()
-
-    def show_missing_window(self):
-        self.show_text_window(
-            "result",
-            "AppImage moved",
-            "This AppImage is no longer at\n  %s\n\n"
-            "It has probably been integrated already.\n"
-            "Look for \"%s\" in the application menu.\n\n"
-            "Close returns to the AppImage window."
-            % (self.path, self.data.get("name") or "the application"),
-        )
+        self.set_text(self.start_appimage())
 
     def on_inspect(self, _button):
         _code, out, err = run_tool(self.tool, ["explain", self.path])
-        self.show_text_window(
-            "inspect",
-            "Inspect — %s" % (self.data.get("name") or "AppImage"),
-            combined_output(out, err),
-        )
+        self.set_text(combined_output(out, err))
 
     def on_integrate(self, _button):
         if self.is_missing():
-            self.show_missing_window()
+            self.set_text(
+                "This AppImage is no longer at\n  %s\n\n"
+                "It has probably been integrated already.\n"
+                "Look for \"%s\" in the application menu."
+                % (self.path, self.data.get("name") or "the application")
+            )
             return
-        policy = []
-        conflicts = self.real_conflicts()
+        conflicts = self.conflicts()
         if conflicts:
             lines = [
                 "%s is already represented by:" % (self.data.get("name") or "This AppImage"),
@@ -486,86 +472,49 @@ class Handler:
             lines.append(
                 "Replace existing backs those launchers up and installs this version in their place."
             )
-            lines.append("Add alongside keeps them and installs this version under a new id.")
-            choice = self.ask_conflict("\n".join(lines))
-            if choice == "replace":
-                policy = ["--replace"]
-            elif choice == "add":
-                policy = ["--add"]
-            else:
-                return
+            lines.append(
+                "Add alongside keeps them and installs this version under a new identifier."
+            )
+            self.set_text("\n".join(lines))
+            self.set_buttons(
+                [
+                    ("Back", self.on_back),
+                    ("Add alongside", self.on_add_alongside),
+                    ("Replace existing", self.on_replace_existing),
+                ]
+            )
+            return
+        self.run_install([])
 
+    def on_back(self, _button):
+        self.set_text("")
+        self.show_initial_buttons()
+
+    def on_add_alongside(self, _button):
+        self.run_install(["--add"])
+
+    def on_replace_existing(self, _button):
+        self.run_install(["--replace"])
+
+    def run_install(self, policy):
         code, out, err = run_tool(self.tool, ["install", "--yes"] + policy + [self.path])
         report = combined_output(out, err)
         if code == 0:
             self.data = self.load_description()
-            self.show_text_window(
-                "result",
-                "Integrated — %s" % (self.data.get("name") or "AppImage"),
-                report + "\n\nClose returns to the AppImage window.",
-                extra_buttons=[("Run now", self.on_run_now)],
+            self.set_text(report)
+            self.set_buttons(
+                [
+                    ("Run now", self.on_run_now),
+                    ("Inspect", self.on_inspect),
+                    ("Close", self.on_close),
+                ]
             )
         else:
-            self.show_text_window(
-                "result",
-                "Could not integrate — %s" % (self.data.get("name") or "AppImage"),
-                "The integration did not complete.\n\n" + report,
-            )
+            self.set_text("The integration did not complete.\n\n" + report)
+            self.show_initial_buttons()
 
-    def on_run_now(self, button):
-        if not self.is_missing():
-            self.start_appimage()
-        window = button.get_ancestor(Gtk.Window)
-        if window is not None:
-            window.close()
-        self.window.close()
-
-    def ask_conflict(self, text):
-        """Return 'replace', 'add', or None."""
-        dialog = Gtk.Window(transient_for=self.window, modal=True, title="Integrate AppImage")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_vexpand(True)
-        view = Gtk.TextView()
-        view.set_editable(False)
-        view.set_monospace(True)
-        view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        view.get_buffer().set_text(text)
-        scroller.set_child(view)
-        box.append(scroller)
-
-        answer = {"value": None}
-
-        def choose(value):
-            answer["value"] = value
-            dialog.close()
-
-        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        buttons.set_halign(Gtk.Align.END)
-        for label, value in (
-            ("Cancel", None),
-            ("Add alongside", "add"),
-            ("Replace existing", "replace"),
-        ):
-            button = Gtk.Button(label=label)
-            button.connect("clicked", lambda _button, v=value: choose(v))
-            buttons.append(button)
-        box.append(buttons)
-        dialog.set_child(box)
-        self.geometry.watch("conflict", dialog)
-        dialog.present()
-        self.windows.append(dialog)
-
-        loop = GLib.MainLoop()
-        dialog.connect("close-request", lambda _window: (loop.quit(), False)[1])
-        loop.run()
-        self.windows.remove(dialog)
-        return answer["value"]
+    def on_run_now(self, _button):
+        self.set_text(self.start_appimage())
 
 
 def main(argv):

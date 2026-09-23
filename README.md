@@ -113,10 +113,11 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 
 The graphical handler needs PyGObject with GTK4, which Ubuntu ships.
 When it is absent, the handler falls back to zenity, and then to printing the equivalent commands.
+It is a single window: the application name, version, generic name, and comment, then File, Size, and Will install as, then the action buttons, then one large text area that Inspect and Integrate write into.
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
-Every handler window remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json`.
-A window position is remembered and restored only where the platform allows a client to choose it:
-Wayland deliberately does not, so on a Wayland session the compositor places the window.
+`handler install` gives the handler its own AppImage Handler icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the handler share one icon.
+It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json`, and is centred where the platform allows.
+A window position is saved and restored only where a client may choose it: Wayland deliberately does not, so on a Wayland session the compositor places the window.
 On X11, or under XWayland with `GDK_BACKEND=x11`, the handler restores the position with `xdotool` when it is installed, clamped so the window stays on the screen.
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
 

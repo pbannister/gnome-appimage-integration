@@ -30,3 +30,15 @@ if [ -f "$DIRECTORY_BUILD/appimage_handler_ui.py" ]; then
     chmod 755 "$DIRECTORY_BIN/appimage_handler_ui.py"
     echo "program-install: $DIRECTORY_BIN/appimage_handler_ui.py"
 fi
+
+# The handler icon, both next to the tool and in the icon theme.
+DIRECTORY_ICON="$DIRECTORY_BUILD/icons"
+if [ -f "$DIRECTORY_ICON/appimage-handler.svg" ]; then
+    mkdir -p "$DIRECTORY_BIN/icons"
+    cp "$DIRECTORY_ICON/appimage-handler.svg" "$DIRECTORY_BIN/icons/appimage-handler.svg"
+    DIRECTORY_THEME="$PREFIX/share/icons/hicolor/scalable/apps"
+    mkdir -p "$DIRECTORY_THEME"
+    cp "$DIRECTORY_ICON/appimage-handler.svg" "$DIRECTORY_THEME/appimage-handler.svg"
+    chmod 644 "$DIRECTORY_THEME/appimage-handler.svg"
+    echo "program-install: $DIRECTORY_THEME/appimage-handler.svg"
+fi

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
@@ -569,6 +570,43 @@ int command_run(const std::string &s_path,
     return EXIT_ERROR;
 }
 
+// Locate the handler icon next to the tool, or in the source tree.
+std::string handler_icon_source(const std::string &s_tool) {
+    const fs::path o_tool(s_tool);
+    const std::vector<fs::path> o_candidates = {
+        o_tool.parent_path() / "icons/appimage-handler.svg",
+        o_tool.parent_path() / "appimage-handler.svg",
+        o_tool.parent_path().parent_path().parent_path()
+            / "sources/tools/icons/appimage-handler.svg",
+    };
+    for (const fs::path &o_candidate : o_candidates) {
+        std::error_code o_error;
+        if (fs::exists(o_candidate, o_error)) {
+            return o_candidate.string();
+        }
+    }
+    return {};
+}
+
+bool write_text_file(const std::string &s_path, const std::string &s_text) {
+    std::ofstream o_output(s_path, std::ios::trunc);
+    if (!o_output) {
+        return false;
+    }
+    o_output << s_text;
+    return o_output.good();
+}
+
+std::string read_text_file(const std::string &s_path) {
+    std::ifstream o_input(s_path);
+    if (!o_input) {
+        return {};
+    }
+    std::ostringstream o_buffer;
+    o_buffer << o_input.rdbuf();
+    return o_buffer.str();
+}
+
 std::string handler_desktop_path(const appimage_integrator_c &o_integrator) {
     return (fs::path(o_integrator.application_directories()[0]) / HANDLER_DESKTOP_ID).string();
 }
@@ -598,31 +636,23 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         return EXIT_ERROR;
     }
     std::error_code o_error;
-    fs::create_directories(o_integrator.state_directory(), o_error);
+    const fs::path o_state_directory(o_integrator.state_directory());
+    const fs::path o_data_home = o_state_directory.parent_path();
+    fs::create_directories(o_state_directory, o_error);
 
     const std::vector<std::string> o_types = {"application/vnd.appimage",
                                               "application/x-appimage",
                                               "application/x-iso9660-appimage"};
+    const std::string s_tool = tool_path(o_integrator);
 
-    std::ostringstream o_manifest;
-    o_manifest << "handler_desktop=" << handler_desktop_path(o_integrator) << '\n';
-    for (const std::string &s_type : o_types) {
-        const std::string s_previous = capture_command({"xdg-mime", "query", "default", s_type});
-        o_manifest << "previous_default=" << s_type << '\t' << s_previous << '\n';
-    }
-    const std::string s_manifest =
-        (fs::path(o_integrator.state_directory()) / HANDLER_MANIFEST).string();
-    std::ofstream o_output(s_manifest, std::ios::trunc);
-    o_output << o_manifest.str();
-    o_output.close();
-
+    // The launcher must carry the handler icon.
     std::ostringstream o_desktop;
     o_desktop << "[Desktop Entry]\n"
               << "Type=Application\n"
               << "Name=AppImage Handler\n"
               << "Comment=Run or integrate an AppImage\n"
-              << "Exec=" << tool_path(o_integrator) << " handle %f\n"
-              << "Icon=application-x-executable\n"
+              << "Exec=" << s_tool << " handle %f\n"
+              << "Icon=appimage-handler\n"
               << "Terminal=false\n"
               << "NoDisplay=true\n"
               << "MimeType=application/vnd.appimage;application/x-appimage;"
@@ -630,9 +660,92 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
               << "X-Integrated-By=gnome-appimage-integration\n"
               << "X-Integrated-At=" << gnome_appimage::version::version_string() << '\n';
     const std::string s_desktop = handler_desktop_path(o_integrator);
-    std::ofstream o_writer(s_desktop, std::ios::trunc);
-    o_writer << o_desktop.str();
-    o_writer.close();
+    write_text_file(s_desktop, o_desktop.str());
+
+    // Install the icon into the user's icon theme.
+    std::string s_icon_installed;
+    const std::string s_icon_source = handler_icon_source(s_tool);
+    if (!s_icon_source.empty()) {
+        const fs::path o_theme_directory = o_data_home / "icons/hicolor/scalable/apps";
+        fs::create_directories(o_theme_directory, o_error);
+        std::error_code o_icon_error;
+        const std::string s_icon_target = (o_theme_directory / "appimage-handler.svg").string();
+        fs::copy_file(s_icon_source, s_icon_target, fs::copy_options::overwrite_existing,
+                      o_icon_error);
+        if (!o_icon_error) {
+            s_icon_installed = s_icon_target;
+        }
+    }
+
+    // Point the AppImage MIME types at the same icon, backing up the definition.
+    std::string s_mime_package;
+    std::string s_mime_backup;
+    const fs::path o_mime_package = o_data_home / "mime/packages/appimage.xml";
+    std::error_code o_mime_error;
+    if (fs::exists(o_mime_package, o_mime_error)) {
+        std::string s_content = read_text_file(o_mime_package.string());
+        const std::string s_old_icon = "application-x-executable";
+        const std::string s_new_icon = "appimage-handler";
+        if (std::string::npos != s_content.find(s_old_icon)) {
+            const fs::path o_backup_directory = o_state_directory / "backup";
+            fs::create_directories(o_backup_directory, o_mime_error);
+            s_mime_backup = (o_backup_directory / "appimage.xml").string();
+            std::error_code o_backup_error;
+            if (!fs::exists(s_mime_backup, o_backup_error)) {
+                write_text_file(s_mime_backup, s_content);
+            }
+            std::size_t i_position = 0;
+            while ((i_position = s_content.find(s_old_icon, i_position)) != std::string::npos) {
+                s_content.replace(i_position, s_old_icon.size(), s_new_icon);
+                i_position += s_new_icon.size();
+            }
+            if (write_text_file(o_mime_package.string(), s_content)) {
+                s_mime_package = o_mime_package.string();
+                if (command_exists("update-mime-database")) {
+                    const std::string s_update = capture_command(
+                        {"update-mime-database", (o_data_home / "mime").string()});
+                    static_cast<void>(s_update);
+                }
+            }
+        }
+    }
+
+    std::ostringstream o_manifest;
+    o_manifest << "handler_desktop=" << s_desktop << '\n';
+    if (!s_icon_installed.empty()) {
+        o_manifest << "icon=" << s_icon_installed << '\n';
+    }
+    if (!s_mime_package.empty()) {
+        o_manifest << "mime_package=" << s_mime_package << '\n';
+        o_manifest << "mime_backup=" << s_mime_backup << '\n';
+    }
+    // Preserve the real previous defaults when our own handler is re-installed.
+    std::map<std::string, std::string> o_previous_by_type;
+    {
+        std::ifstream o_old_manifest((o_state_directory / HANDLER_MANIFEST).string());
+        std::string s_old_line;
+        while (std::getline(o_old_manifest, s_old_line)) {
+            const std::size_t i_old_tab = s_old_line.find('\t');
+            if (0 != s_old_line.compare(0, 17, "previous_default=")
+                || std::string::npos == i_old_tab) {
+                continue;
+            }
+            o_previous_by_type[s_old_line.substr(17, i_old_tab - 17)] =
+                s_old_line.substr(i_old_tab + 1);
+        }
+    }
+    for (const std::string &s_type : o_types) {
+        std::string s_previous = capture_command({"xdg-mime", "query", "default", s_type});
+        if (HANDLER_DESKTOP_ID == s_previous) {
+            const auto o_old = o_previous_by_type.find(s_type);
+            if (o_previous_by_type.end() != o_old && !o_old->second.empty()) {
+                s_previous = o_old->second;
+            }
+        }
+        o_manifest << "previous_default=" << s_type << '\t' << s_previous << '\n';
+    }
+    const std::string s_manifest = (o_state_directory / HANDLER_MANIFEST).string();
+    write_text_file(s_manifest, o_manifest.str());
 
     std::vector<std::string> o_command = {"xdg-mime", "default", HANDLER_DESKTOP_ID};
     for (const std::string &s_type : o_types) {
@@ -641,26 +754,43 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     const std::string s_result = capture_command(o_command);
     static_cast<void>(s_result);
     if (command_exists("update-desktop-database")) {
-        std::vector<std::string> o_update = {"update-desktop-database",
-                                             o_integrator.application_directories()[0]};
-        const std::string s_update = capture_command(o_update);
+        const std::string s_update = capture_command(
+            {"update-desktop-database", o_integrator.application_directories()[0]});
         static_cast<void>(s_update);
     }
-    std::cout << "handler installed: " << s_desktop << '\n'
-              << "previous defaults recorded in " << s_manifest << '\n';
+    std::cout << "handler installed: " << s_desktop << '\n';
+    if (!s_icon_installed.empty()) {
+        std::cout << "handler icon: " << s_icon_installed << '\n';
+    }
+    std::cout << "previous defaults recorded in " << s_manifest << '\n';
     return command_handler_status(o_integrator);
 }
 
 int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
-    const std::string s_manifest =
-        (fs::path(o_integrator.state_directory()) / HANDLER_MANIFEST).string();
+    const fs::path o_state_directory(o_integrator.state_directory());
+    const std::string s_manifest = (o_state_directory / HANDLER_MANIFEST).string();
     std::ifstream o_input(s_manifest);
     if (!o_input) {
         std::cerr << "error: no handler manifest at " << s_manifest << '\n';
         return EXIT_ERROR;
     }
     std::string s_line;
+    std::string s_mime_package;
+    std::string s_mime_backup;
+    std::vector<std::string> o_icons;
     while (std::getline(o_input, s_line)) {
+        if (0 == s_line.compare(0, 5, "icon=")) {
+            o_icons.push_back(s_line.substr(5));
+            continue;
+        }
+        if (0 == s_line.compare(0, 13, "mime_package=")) {
+            s_mime_package = s_line.substr(13);
+            continue;
+        }
+        if (0 == s_line.compare(0, 12, "mime_backup=")) {
+            s_mime_backup = s_line.substr(12);
+            continue;
+        }
         const std::size_t i_tab = s_line.find('\t');
         if (0 != s_line.compare(0, 17, "previous_default=") || std::string::npos == i_tab) {
             continue;
@@ -676,7 +806,25 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
             static_cast<void>(s_result);
         }
     }
+    o_input.close();
+
     std::error_code o_error;
+    for (const std::string &s_icon : o_icons) {
+        fs::remove(s_icon, o_error);
+        o_error.clear();
+    }
+    if (!s_mime_package.empty() && !s_mime_backup.empty()
+        && fs::exists(s_mime_backup, o_error)) {
+        std::error_code o_restore_error;
+        fs::copy_file(s_mime_backup, s_mime_package, fs::copy_options::overwrite_existing,
+                      o_restore_error);
+        if (!o_restore_error && command_exists("update-mime-database")) {
+            const std::string s_mime_directory =
+                fs::path(s_mime_package).parent_path().parent_path().string();
+            const std::string s_result = capture_command({"update-mime-database", s_mime_directory});
+            static_cast<void>(s_result);
+        }
+    }
     fs::remove(handler_desktop_path(o_integrator), o_error);
     fs::remove(s_manifest, o_error);
     std::cout << "handler removed and previous defaults restored\n";

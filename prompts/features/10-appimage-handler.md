@@ -26,12 +26,15 @@ default.
 - Integrate must show the list of what was written.
 - Integrate must offer Replace existing, Add alongside, and Cancel when another launcher already represents the application.
 - The handler must prefer a GTK dialog when PyGObject and GTK4 are available, and fall back to zenity, then to printed instructions.
-- The main window must show the application Name, Comment, and GenericName, the detected version, the file size, and the payload type.
-- Every handler window must remember its size on resize and on close.
-- Every handler window must remember its position where the platform permits it, and a restored geometry must be clamped so the window is entirely on the screen.
+- The main window must show the application Name, Comment, and GenericName, the detected version, and a details block containing File, Size, and Will install as.
+- The main window must not show Type, Payload, or Embedded entry.
+- The handler must be a single window: the action buttons sit below the details block, and a large text area below the buttons takes the remaining height and is initially empty.
+- Inspect must write its details into that text area.
+- Integrate must write the integration result into that text area, and must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
+- The window must remember its size on resize and on close.
+- The window must be centred where the platform permits it, and must remember its position where the platform permits it; a restored geometry must be clamped so the window is entirely on the screen.
 - Position cannot be restored under Wayland, which does not let a client choose its own placement; the handler must not fail when that is the case.
-- Inspect must open a separate window whose only button is Close, and closing it must return to the main window.
-- The Integrate dialog must list each existing launcher with its identifier, name, origin, version, target AppImage, icon, window class, and whether the target still exists.
+- The handler desktop entry must use the project's own AppImage Handler icon, installed into the user icon theme, and the AppImage MIME types must name that icon as their generic icon.
 
 ## Behavior
 
