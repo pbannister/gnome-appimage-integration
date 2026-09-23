@@ -96,4 +96,4 @@ FreeCAD 1.1.3 is skipped as up to date. The 820 MB download itself was deliberat
 
 ## Commits
 
-- `TBD` Update an AppImage, migrate a launcher, and repair two defects
+- `63c34c1` Update an AppImage, migrate a launcher, and repair two defects
