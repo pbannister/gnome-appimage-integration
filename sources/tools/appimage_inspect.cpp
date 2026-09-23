@@ -1,6 +1,7 @@
 // appimage-inspect: read AppImage containers, their payloads, and the embedded desktop entry.
 #include "appimage/appimage_reader.h"
 #include "appimage/appimage_signature.h"
+#include "appimage/appimage_update_information.h"
 #include "appimage/squashfs_reader.h"
 #include "desktop/desktop_entry_reader.h"
 #include "tools/desktop_entry_output.h"
@@ -21,6 +22,8 @@ using gnome_appimage::appimage::appimage_info_o;
 using gnome_appimage::appimage::appimage_reader_c;
 using gnome_appimage::appimage::squashfs_entry_o;
 using gnome_appimage::appimage::squashfs_reader_c;
+using gnome_appimage::appimage::understand_update_information;
+using gnome_appimage::appimage::update_information_o;
 using gnome_appimage::desktop::desktop_entry_diagnostic_o;
 using gnome_appimage::desktop::desktop_entry_file_o;
 using gnome_appimage::desktop::desktop_entry_reader_c;
@@ -35,6 +38,7 @@ void print_usage(std::ostream &o_out) {
           << "  --desktop          print only the embedded desktop entry\n"
           << "  --list             print only the payload root listing\n"
           << "  --locale <locale>  select localized desktop entry values\n"
+          << "  --update-url       resolve the update information into the URLs it names\n"
           << "  --json             print JSON\n"
           << "  --help             print this help\n"
           << "  --version          print the build-time version\n";
@@ -51,11 +55,34 @@ std::string magic_string(const appimage_info_o &o_info) {
     return s_buffer;
 }
 
+// The update-information value names a transport; print what that resolves to, so the
+// string is readable without knowing the AppImage specification by heart.
+void print_update_resolution(const update_information_o &o_update) {
+    std::cout << "update-transport: "
+              << (o_update.transport_name.empty() ? "(none)" : o_update.transport_name) << '\n';
+    if (!o_update.description.empty()) {
+        std::cout << "update-description: " << o_update.description << '\n';
+    }
+    if (!o_update.request_url.empty()) {
+        std::cout << "update-request-url: " << o_update.request_url
+                  << (o_update.request_is_list ? "   (read the list, newest first)" : "") << '\n';
+    }
+    if (!o_update.image_pattern.empty()) {
+        std::cout << "update-image-pattern: " << o_update.image_pattern
+                  << "   (the AppImage is the zsync file without .zsync)\n";
+    }
+    std::cout << "update-usable: " << (o_update.usable ? "yes" : "no") << '\n';
+    if (!o_update.usable) {
+        std::cout << "update-problem: " << o_update.problem << '\n';
+    }
+}
+
 void print_summary(const appimage_info_o &o_info,
                    const std::vector<squashfs_entry_o> &o_entries,
                    const std::string &s_payload_error,
                    const std::optional<std::string> &s_desktop_path,
-                   const desktop_entry_file_o &o_desktop_file) {
+                   const desktop_entry_file_o &o_desktop_file,
+                   bool b_update_details) {
     std::cout << "path: " << o_info.path << '\n';
     std::cout << "detection: " << gnome_appimage::appimage::appimage_detection_name(o_info.detection)
               << '\n';
@@ -73,6 +100,9 @@ void print_summary(const appimage_info_o &o_info,
         std::cout << "update-information: " << o_info.update_information << '\n';
     } else {
         std::cout << "update-information: (absent)\n";
+    }
+    if (b_update_details) {
+        print_update_resolution(understand_update_information(o_info.update_information));
     }
     if (o_info.signature_section.present) {
         std::cout << "signature: "
@@ -132,6 +162,19 @@ void print_json(const appimage_info_o &o_info,
     std::cout << ",\"payload_offset\":" << o_info.payload_offset;
     std::cout << ",\"payload_size\":" << o_info.payload_size;
     std::cout << ",\"update_information\":\"" << json_escape(o_info.update_information) << "\"";
+    {
+        const update_information_o o_update =
+            understand_update_information(o_info.update_information);
+        std::cout << ",\"update_transport\":\"" << json_escape(o_update.transport_name) << "\"";
+        std::cout << ",\"update_description\":\"" << json_escape(o_update.description) << "\"";
+        std::cout << ",\"update_usable\":" << (o_update.usable ? "true" : "false");
+        std::cout << ",\"update_problem\":\"" << json_escape(o_update.problem) << "\"";
+        std::cout << ",\"update_request_url\":\"" << json_escape(o_update.request_url) << "\"";
+        std::cout << ",\"update_request_is_list\":"
+                  << (o_update.request_is_list ? "true" : "false");
+        std::cout << ",\"update_zsync_pattern\":\"" << json_escape(o_update.zsync_pattern) << "\"";
+        std::cout << ",\"update_image_pattern\":\"" << json_escape(o_update.image_pattern) << "\"";
+    }
     std::cout << ",\"signature_present\":"
               << (o_info.signature_section.present ? "true" : "false");
     std::cout << ",\"signature\":\""
@@ -185,6 +228,7 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_desktop = false;
     bool b_list = false;
     bool b_json = false;
+    bool b_update_url = false;
 
     for (int i_index = 1; i_index < i_argument_count; i_index++) {
         const std::string s_argument = p_arguments[i_index];
@@ -194,6 +238,8 @@ int main(int i_argument_count, char **p_arguments) {
             b_list = true;
         } else if ("--json" == s_argument) {
             b_json = true;
+        } else if ("--update-url" == s_argument) {
+            b_update_url = true;
         } else if ("--help" == s_argument) {
             print_usage(std::cout);
             return EXIT_OK;
@@ -291,6 +337,7 @@ int main(int i_argument_count, char **p_arguments) {
         return EXIT_OK;
     }
 
-    print_summary(o_info, o_entries, s_payload_error, s_desktop_path, o_desktop_file);
+    print_summary(o_info, o_entries, s_payload_error, s_desktop_path, o_desktop_file,
+                  b_update_url);
     return EXIT_OK;
 }

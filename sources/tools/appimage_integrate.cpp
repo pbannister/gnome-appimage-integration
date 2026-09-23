@@ -1,14 +1,18 @@
 // appimage-integrate: plan, install, uninstall, audit, and run AppImages,
 // and manage the *.AppImage double-click handler.
 #include "appimage/appimage_reader.h"
+#include "appimage/appimage_update_information.h"
 #include "appimage/squashfs_reader.h"
 #include "desktop/desktop_entry_locator.h"
 #include "desktop/desktop_entry_reader.h"
 #include "integration/appimage_integrator.h"
+#include "json/json_reader.h"
 #include "tools/desktop_entry_output.h"
 #include "version/version.h"
+#include "version/version_compare.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -33,6 +37,7 @@ using gnome_appimage::integration::integration_action_o;
 using gnome_appimage::integration::integration_conflict_o;
 using gnome_appimage::integration::integration_conflict_policy_e;
 using gnome_appimage::integration::integration_icon_o;
+using gnome_appimage::appimage::understand_update_information;
 using gnome_appimage::integration::integration_options_o;
 using gnome_appimage::integration::integration_plan_o;
 
@@ -63,9 +68,10 @@ void print_usage(std::ostream &o_out) {
           << "  uninstall --identifier ID [--remove-appimage]\n"
           << "  list                      list AppImages integrated by this tool\n"
           << "  refresh                   rewrite every recorded launcher from its embedded entry\n"
+          << "  update --check            ask the update information whether a newer build exists\n"
           << "  windows                   list running AppImages and their window classes\n"
           << "  run <AppImage> [args...]  run once, without integrating\n"
-          << "  audit                     report desktop integration inconsistencies\n"
+          << "  audit [--check]           report desktop integration inconsistencies\n"
           << "  handler status            show the current *.AppImage handler\n"
           << "  handler install           make this tool the *.AppImage handler\n"
           << "  handler uninstall         restore the previous *.AppImage handler\n"
@@ -89,6 +95,9 @@ void print_usage(std::ostream &o_out) {
           << "  --json                    machine-readable output where supported\n"
           << "  --yes                     do not ask before writing\n"
           << "  --dry-run                 for refresh: show what would be rewritten\n"
+          << "  --check                   for update and audit: ask the transport\n"
+          << "  --all                     for update: every AppImage this tool integrated\n"
+          << "  --notify                  for update: show the result in a desktop notification\n"
           << "  --version                 print the build-time version\n";
 }
 
@@ -377,10 +386,13 @@ int command_plan_or_explain(const std::string &s_path,
 
 // Machine-readable description, used by the graphical handler.
 int command_explain_json(const std::string &s_path, const integration_options_o &o_options) {
+    using gnome_appimage::appimage::update_information_o;
     using gnome_appimage::tools::json_escape;
     const appimage_integrator_c o_integrator;
     integration_plan_o o_plan;
     const bool b_valid = o_integrator.plan(s_path, o_options, o_plan);
+    const update_information_o o_update =
+        understand_update_information(o_plan.update_information);
     std::cout << "{\"path\":\"" << json_escape(s_path) << "\""
               << ",\"name\":\"" << json_escape(o_plan.name) << "\""
               << ",\"generic_name\":\"" << json_escape(o_plan.generic_name) << "\""
@@ -399,6 +411,9 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"signature_mismatch\":" << (o_plan.signature_mismatch ? "true" : "false")
               << ",\"compression\":\"" << json_escape(o_plan.compression_name) << "\""
               << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
+              << ",\"update_usable\":" << (o_update.usable ? "true" : "false")
+              << ",\"update_description\":\"" << json_escape(o_update.description)
+              << "\",\"update_problem\":\"" << json_escape(o_update.problem) << "\""
               << ",\"identifier\":\"" << json_escape(o_plan.identifier) << "\""
               << ",\"desktop_id\":\"" << json_escape(o_plan.desktop_id) << "\""
               << ",\"installed\":\"" << json_escape(o_plan.installed_path) << "\""
@@ -1189,9 +1204,553 @@ int command_refresh(bool b_json, bool b_assume_yes, bool b_dry_run, bool b_wm_cl
     return o_skipped.empty() && o_failed.empty() ? EXIT_OK : EXIT_ERROR;
 }
 
-int command_audit(bool b_json) {
+
+// -- update checks --------------------------------------------------------------
+//
+// The update-information value names where newer builds of an AppImage live.  These
+// helpers resolve that value, ask the transport what it has, and compare it with what
+// is installed.  Nothing is downloaded or installed: checking is a read.
+
+// One asset of a GitHub release.
+struct update_asset_o {
+    std::string name;
+    long long i_size = 0;
+};
+
+// One release of a GitHub repository.
+struct update_release_o {
+    std::string tag;
+    bool b_prerelease = false;
+    std::vector<update_asset_o> o_assets;
+};
+
+// What one check found.
+struct update_check_o {
+    std::string appimage;
+    std::string information;
+    std::string installed_version;
+    std::string installed_source;
+    std::string latest_version;
+    std::string relation;
+    std::string asset_name;
+    long long i_asset_size = 0;
+    std::string zsync_name;
+    long long i_zsync_size = 0;
+    bool b_update_available = false;
+    // Empty when the check was made; otherwise why it could not be.
+    std::string problem;
+};
+
+// Run a command and capture its output, keeping the exit status: a network failure
+// must be reportable, which popen-with-stderr-discarded cannot do.
+bool run_capture(const std::vector<std::string> &o_arguments, std::string &o_output,
+                 int &i_status) {
+    int i_pipe[2];
+    if (0 != pipe(i_pipe)) {
+        return false;
+    }
+    const pid_t i_child = fork();
+    if (0 > i_child) {
+        close(i_pipe[0]);
+        close(i_pipe[1]);
+        return false;
+    }
+    if (0 == i_child) {
+        dup2(i_pipe[1], STDOUT_FILENO);
+        dup2(i_pipe[1], STDERR_FILENO);
+        close(i_pipe[0]);
+        close(i_pipe[1]);
+        std::vector<char *> o_argv;
+        o_argv.reserve(o_arguments.size() + 1);
+        for (const std::string &s_argument : o_arguments) {
+            o_argv.push_back(const_cast<char *>(s_argument.c_str()));
+        }
+        o_argv.push_back(nullptr);
+        execvp(o_argv[0], o_argv.data());
+        _exit(127);
+    }
+    close(i_pipe[1]);
+    char s_buffer[4096];
+    ssize_t i_count = 0;
+    while (0 < (i_count = read(i_pipe[0], s_buffer, sizeof(s_buffer)))) {
+        o_output.append(s_buffer, static_cast<std::size_t>(i_count));
+    }
+    close(i_pipe[0]);
+    int i_wait_status = 0;
+    waitpid(i_child, &i_wait_status, 0);
+    i_status = WIFEXITED(i_wait_status) ? WEXITSTATUS(i_wait_status) : -1;
+    return true;
+}
+
+std::string first_line(const std::string &s_text) {
+    const std::size_t i_end = s_text.find('\n');
+    return std::string::npos == i_end ? s_text : s_text.substr(0, i_end);
+}
+
+std::string tool_user_agent() {
+    return std::string("gnome-appimage-integration/")
+           + gnome_appimage::version::version_string();
+}
+
+// Fetch a URL with curl.  The Accept header selects the GitHub API media type; for a
+// plain zsync file only the first few kilobytes are asked for, which is all the header
+// of a .zsync file needs.
+bool http_get(const std::string &s_url, const std::string &s_accept, bool b_first_block,
+              std::string &o_body, std::string &s_error) {
+    if (!command_exists("curl")) {
+        s_error = "curl is not installed, so no update check can be made";
+        return false;
+    }
+    std::vector<std::string> o_command = {"curl", "-sS", "-L", "--max-time", "25",
+                                          "-H", "User-Agent: " + tool_user_agent()};
+    if (!s_accept.empty()) {
+        o_command.push_back("-H");
+        o_command.push_back("Accept: " + s_accept);
+    }
+    if (b_first_block) {
+        o_command.push_back("-r");
+        o_command.push_back("0-4095");
+    }
+    o_command.push_back(s_url);
+    std::string s_output;
+    int i_status = 0;
+    if (!run_capture(o_command, s_output, i_status)) {
+        s_error = "cannot run curl";
+        return false;
+    }
+    if (0 != i_status) {
+        s_error = "the request failed: " + first_line(s_output);
+        return false;
+    }
+    o_body = s_output;
+    return true;
+}
+
+// Read the fields of one release object from the GitHub API.
+bool release_from_object(const gnome_appimage::json::value_c &o_object,
+                         update_release_o &o_release) {
+    const gnome_appimage::json::value_c *p_tag = o_object.member("tag_name");
+    if (nullptr == p_tag || !p_tag->is_string()) {
+        return false;
+    }
+    o_release.tag = p_tag->as_string();
+    const gnome_appimage::json::value_c *p_prerelease = o_object.member("prerelease");
+    o_release.b_prerelease = nullptr != p_prerelease && p_prerelease->as_boolean();
+    const gnome_appimage::json::value_c *p_assets = o_object.member("assets");
+    if (nullptr == p_assets || !p_assets->is_array()) {
+        return true;
+    }
+    for (const gnome_appimage::json::value_c &o_asset : p_assets->items()) {
+        const gnome_appimage::json::value_c *p_name = o_asset.member("name");
+        if (nullptr == p_name || !p_name->is_string()) {
+            continue;
+        }
+        update_asset_o o_found;
+        o_found.name = p_name->as_string();
+        const gnome_appimage::json::value_c *p_size = o_asset.member("size");
+        if (nullptr != p_size && p_size->is_number()) {
+            o_found.i_size = static_cast<long long>(p_size->as_number());
+        }
+        o_release.o_assets.push_back(std::move(o_found));
+    }
+    return true;
+}
+
+// Pick the release a transport asked for out of an API response.  `latest` answers with
+// one release; `latest-pre` and `latest-all` answer with the list, newest first.
+bool release_from_response(const std::string &s_body, bool b_is_list, bool b_want_prerelease,
+                           update_release_o &o_release, std::string &s_error) {
+    std::string s_json_error;
+    const gnome_appimage::json::value_c o_value =
+        gnome_appimage::json::value_c::parse(s_body, s_json_error);
+    if (!s_json_error.empty()) {
+        s_error = "the answer is not JSON: " + s_json_error;
+        return false;
+    }
+    if (!b_is_list) {
+        if (!o_value.is_object() || !release_from_object(o_value, o_release)) {
+            const gnome_appimage::json::value_c *p_message = o_value.member("message");
+            s_error = nullptr != p_message && p_message->is_string()
+                          ? "the API answered: " + p_message->as_string()
+                          : "the answer describes no release";
+            return false;
+        }
+        return true;
+    }
+    if (!o_value.is_array() || o_value.items().empty()) {
+        s_error = "the API answered with no releases";
+        return false;
+    }
+    for (const gnome_appimage::json::value_c &o_item : o_value.items()) {
+        update_release_o o_candidate;
+        if (!release_from_object(o_item, o_candidate)) {
+            continue;
+        }
+        // latest-all takes the newest of either kind, which the API lists first.
+        if (!b_want_prerelease || o_candidate.b_prerelease) {
+            o_release = std::move(o_candidate);
+            return true;
+        }
+    }
+    s_error = "the API answered with no release that fits";
+    return false;
+}
+
+const update_asset_o *find_asset(const update_release_o &o_release,
+                                 const std::string &s_pattern) {
+    for (const update_asset_o &o_asset : o_release.o_assets) {
+        if (gnome_appimage::appimage::update_pattern_matches(s_pattern, o_asset.name)) {
+            return &o_asset;
+        }
+    }
+    return nullptr;
+}
+
+// The version a release tag names: a leading v or V in front of a digit is how people
+// tag releases, and it is not part of the version.
+std::string release_version(const std::string &s_tag) {
+    if (2 <= s_tag.size() && ('v' == s_tag[0] || 'V' == s_tag[0])
+        && 0 != std::isdigit(static_cast<unsigned char>(s_tag[1]))) {
+        return s_tag.substr(1);
+    }
+    return s_tag;
+}
+
+// Ask the transport named by one update-information value what it has, and compare that
+// with the installed version.  Fills `o_result.problem` rather than failing.
+void check_update(const std::string &s_appimage, const std::string &s_information,
+                  const std::string &s_installed_version, const std::string &s_installed_source,
+                  update_check_o &o_result) {
+    using gnome_appimage::appimage::update_transport_e;
+
+    o_result.appimage = s_appimage;
+    o_result.information = s_information;
+    o_result.installed_version = s_installed_version;
+    o_result.installed_source = s_installed_source;
+
+    const gnome_appimage::appimage::update_information_o o_update =
+        understand_update_information(s_information);
+    if (update_transport_e::absent == o_update.transport) {
+        o_result.problem = "the AppImage carries no update information, so there is nothing "
+                           "to ask";
+        return;
+    }
+    if (!o_update.usable) {
+        o_result.problem = o_update.problem;
+        return;
+    }
+
+    std::string s_body;
+    std::string s_error;
+    if (update_transport_e::github_releases == o_update.transport) {
+        if (!http_get(o_update.request_url, "application/vnd.github+json", false, s_body,
+                      s_error)) {
+            o_result.problem = s_error;
+            return;
+        }
+        update_release_o o_release;
+        if (!release_from_response(s_body, o_update.request_is_list,
+                                   "latest-pre" == o_update.release, o_release, s_error)) {
+            o_result.problem = s_error;
+            return;
+        }
+        o_result.latest_version = release_version(o_release.tag);
+        const update_asset_o *p_zsync = find_asset(o_release, o_update.zsync_pattern);
+        if (nullptr == p_zsync) {
+            o_result.problem = "release " + o_release.tag + " has no asset matching "
+                               + o_update.zsync_pattern;
+            return;
+        }
+        o_result.zsync_name = p_zsync->name;
+        o_result.i_zsync_size = p_zsync->i_size;
+        if (!o_update.image_pattern.empty()) {
+            const update_asset_o *p_image = find_asset(o_release, o_update.image_pattern);
+            if (nullptr != p_image) {
+                o_result.asset_name = p_image->name;
+                o_result.i_asset_size = p_image->i_size;
+            }
+        }
+    } else {
+        if (!http_get(o_update.request_url, {}, true, s_body, s_error)) {
+            o_result.problem = s_error;
+            return;
+        }
+        // A .zsync file starts with "key: value" header lines; Filename names the
+        // AppImage this zsync file updates.
+        std::istringstream o_lines(s_body);
+        std::string s_line;
+        while (std::getline(o_lines, s_line)) {
+            const std::string s_trimmed = trim_spaces(s_line);
+            if (0 == s_trimmed.compare(0, 9, "Filename:")) {
+                o_result.asset_name = trim_spaces(s_trimmed.substr(9));
+            } else if (0 == s_trimmed.compare(0, 7, "Length:")) {
+                o_result.i_asset_size = std::atoll(trim_spaces(s_trimmed.substr(7)).c_str());
+            }
+        }
+        if (o_result.asset_name.empty()) {
+            o_result.problem = "the zsync file names no Filename, so nothing can be compared";
+            return;
+        }
+        // A zsync file carries no version, only the name of the file it updates, so the
+        // honest answer is whether that name is the one already installed.
+        o_result.relation =
+            o_result.asset_name == fs::path(s_appimage).filename().string() ? "same-file"
+                                                                           : "other-file";
+        return;
+    }
+
+    if (o_result.installed_version.empty()) {
+        o_result.relation = "unknown";
+        return;
+    }
+    const int i_relation = gnome_appimage::version::compare_versions(o_result.latest_version,
+                                                                    o_result.installed_version);
+    if (0 > i_relation) {
+        o_result.relation = "older";
+    } else if (0 < i_relation) {
+        o_result.relation = "newer";
+        o_result.b_update_available = true;
+    } else {
+        o_result.relation = "same";
+    }
+}
+
+// The sentence a person reads for one check.
+std::string update_check_sentence(const update_check_o &o_check) {
+    if (!o_check.problem.empty()) {
+        return "cannot check: " + o_check.problem;
+    }
+    if ("newer" == o_check.relation) {
+        return "an update is available: " + o_check.latest_version;
+    }
+    if ("same" == o_check.relation) {
+        return "up to date (" + o_check.latest_version + ")";
+    }
+    if ("same-file" == o_check.relation) {
+        return "up to date: the transport offers the file that is installed";
+    }
+    if ("other-file" == o_check.relation) {
+        return "a different file is offered: " + o_check.asset_name
+               + " (the transport names no version, so this tool cannot tell whether it is "
+                 "newer)";
+    }
+    if ("older" == o_check.relation) {
+        return "the release is older than the installed version: " + o_check.latest_version
+               + " against " + o_check.installed_version;
+    }
+    return "the installed version is unknown, and the release names "
+           + o_check.latest_version;
+}
+
+void print_update_check_text(const update_check_o &o_check) {
+    std::cout << "checking: " << o_check.appimage << '\n';
+    std::cout << "  update-information: "
+              << (o_check.information.empty() ? "(absent)" : o_check.information) << '\n';
+    if (!o_check.installed_version.empty()) {
+        std::cout << "  installed-version: " << o_check.installed_version;
+        if (!o_check.installed_source.empty()) {
+            std::cout << "  (from " << o_check.installed_source << ')';
+        }
+        std::cout << '\n';
+    }
+    std::cout << "  result: " << update_check_sentence(o_check) << '\n';
+    if (!o_check.asset_name.empty()) {
+        std::cout << "  appimage-asset: " << o_check.asset_name;
+        if (0 < o_check.i_asset_size) {
+            std::cout << "  (" << o_check.i_asset_size << " bytes)";
+        }
+        std::cout << '\n';
+    }
+    if (!o_check.zsync_name.empty()) {
+        std::cout << "  zsync-asset: " << o_check.zsync_name;
+        if (0 < o_check.i_zsync_size) {
+            std::cout << "  (" << o_check.i_zsync_size << " bytes)";
+        }
+        std::cout << '\n';
+    }
+}
+
+// Tell the user the result without a terminal: the launcher's context action runs this
+// from the shell's menu, where nothing else would be visible.
+void notify_update_checks(const std::vector<update_check_o> &o_checks) {
+    std::string s_text;
+    for (const update_check_o &o_check : o_checks) {
+        if (!s_text.empty()) {
+            s_text += "\n";
+        }
+        s_text += fs::path(o_check.appimage).filename().string() + ": "
+                  + update_check_sentence(o_check);
+    }
+    if (s_text.empty()) {
+        return;
+    }
+    if (command_exists("zenity") && has_display()) {
+        static_cast<void>(capture_command(
+            {"zenity", "--info", "--title=AppImage updates", "--text=" + s_text}));
+        return;
+    }
+    if (command_exists("notify-send")) {
+        static_cast<void>(capture_command(
+            {"notify-send", "AppImage updates", s_text}));
+        return;
+    }
+    std::cerr << "note: neither zenity nor notify-send is installed; the result is:\n"
+              << s_text << '\n';
+}
+
+// Check each of these AppImages once.  Reading the file is what an update check is
+// about, not whether it is integrated, so a launcher conflict must not stop it.
+std::vector<update_check_o> run_update_checks(const appimage_integrator_c &o_integrator,
+                                              const std::vector<std::string> &o_paths) {
+    std::vector<update_check_o> o_checks;
+    for (const std::string &s_target : o_paths) {
+        gnome_appimage::appimage::appimage_info_o o_info;
+        update_check_o o_check;
+        if (!gnome_appimage::appimage::appimage_reader_c::read(s_target, o_info)) {
+            o_check.appimage = s_target;
+            o_check.problem = o_info.error;
+            o_checks.push_back(std::move(o_check));
+            continue;
+        }
+        std::string s_version_source;
+        const std::string s_version = o_integrator.appimage_version(s_target, s_version_source);
+        check_update(s_target, o_info.update_information, s_version, s_version_source, o_check);
+        o_checks.push_back(std::move(o_check));
+    }
+    return o_checks;
+}
+
+int command_update(const std::string &s_path, bool b_all, bool b_json, bool b_notify) {
+    using gnome_appimage::tools::json_escape;
+
     const appimage_integrator_c o_integrator;
-    const std::vector<audit_finding_o> o_findings = o_integrator.audit();
+    std::vector<std::string> o_paths;
+    if (b_all) {
+        // Several records can describe launchers for one file; check the file once.
+        std::vector<std::string> o_seen;
+        for (const installed_appimage_o &o_entry : o_integrator.list_installed()) {
+            std::error_code o_error;
+            const std::string s_key =
+                fs::weakly_canonical(fs::path(o_entry.appimage_path), o_error).string();
+            if (o_seen.end() != std::find(o_seen.begin(), o_seen.end(), s_key)) {
+                continue;
+            }
+            o_seen.push_back(s_key);
+            o_paths.push_back(o_entry.appimage_path);
+        }
+        if (o_paths.empty()) {
+            if (b_json) {
+                std::cout << "{\"checks\":[]}\n";
+            } else {
+                std::cout << "nothing is recorded, so there is nothing to check\n";
+            }
+            return EXIT_OK;
+        }
+    } else {
+        o_paths.push_back(s_path);
+    }
+
+    const std::vector<update_check_o> o_checks = run_update_checks(o_integrator, o_paths);
+    bool b_failed = false;
+    for (const update_check_o &o_check : o_checks) {
+        if (!o_check.problem.empty()) {
+            b_failed = true;
+        }
+    }
+
+    if (b_json) {
+        std::cout << "{\"checks\":[";
+        for (std::size_t i_index = 0; i_index < o_checks.size(); i_index++) {
+            const update_check_o &o_check = o_checks[i_index];
+            if (0 < i_index) {
+                std::cout << ',';
+            }
+            std::cout << "{\"appimage\":\"" << json_escape(o_check.appimage)
+                      << "\",\"update_information\":\"" << json_escape(o_check.information)
+                      << "\",\"installed_version\":\""
+                      << json_escape(o_check.installed_version)
+                      << "\",\"installed_version_source\":"
+                      << (o_check.installed_source.empty()
+                              ? std::string("null")
+                              : "\"" + json_escape(o_check.installed_source) + "\"")
+                      << ",\"latest_version\":\"" << json_escape(o_check.latest_version)
+                      << "\",\"relation\":\"" << json_escape(o_check.relation)
+                      << "\",\"update_available\":"
+                      << (o_check.b_update_available ? "true" : "false")
+                      << ",\"appimage_asset\":\"" << json_escape(o_check.asset_name)
+                      << "\",\"appimage_asset_size\":" << o_check.i_asset_size
+                      << ",\"zsync_asset\":\"" << json_escape(o_check.zsync_name)
+                      << "\",\"zsync_asset_size\":" << o_check.i_zsync_size
+                      << ",\"problem\":\"" << json_escape(o_check.problem) << "\"}";
+        }
+        std::cout << "]}\n";
+    } else {
+        for (const update_check_o &o_check : o_checks) {
+            print_update_check_text(o_check);
+        }
+        if (1 < o_checks.size()) {
+            std::size_t i_checked = 0;
+            std::size_t i_available = 0;
+            for (const update_check_o &o_check : o_checks) {
+                if (o_check.problem.empty()) {
+                    i_checked++;
+                }
+                if (o_check.b_update_available) {
+                    i_available++;
+                }
+            }
+            std::cout << "checked " << i_checked << " of " << o_checks.size()
+                      << ", could not check " << (o_checks.size() - i_checked)
+                      << ", updates available " << i_available << '\n';
+        }
+        if (0 < o_checks.size()) {
+            std::cout << "note: this command only checks; it does not download or install an "
+                         "update\n";
+        }
+    }
+    if (b_notify) {
+        notify_update_checks(o_checks);
+    }
+    return b_failed ? EXIT_ERROR : EXIT_OK;
+}
+
+int command_audit(bool b_json, bool b_check) {
+    const appimage_integrator_c o_integrator;
+    std::vector<audit_finding_o> o_findings = o_integrator.audit();
+    if (b_check) {
+        // Asking the transport is opt-in: it needs the network and the desktop's
+        // AppImages, and an audit that reaches out on its own would be a surprise.
+        std::vector<std::string> o_paths;
+        std::vector<std::string> o_seen;
+        for (const installed_appimage_o &o_entry : o_integrator.list_installed()) {
+            std::error_code o_error;
+            const std::string s_key =
+                fs::weakly_canonical(fs::path(o_entry.appimage_path), o_error).string();
+            if (o_seen.end() != std::find(o_seen.begin(), o_seen.end(), s_key)) {
+                continue;
+            }
+            o_seen.push_back(s_key);
+            o_paths.push_back(o_entry.appimage_path);
+        }
+        for (const update_check_o &o_check : run_update_checks(o_integrator, o_paths)) {
+            const std::string s_subject = fs::path(o_check.appimage).filename().string();
+            if (!o_check.problem.empty()) {
+                o_findings.push_back(
+                    {audit_finding_o::severity_e::info, s_subject,
+                     "the update check could not be made: " + o_check.problem,
+                     "run: appimage-inspect --update-url " + o_check.appimage});
+            } else if (o_check.b_update_available) {
+                o_findings.push_back(
+                    {audit_finding_o::severity_e::warning, s_subject,
+                     "an update is available: " + o_check.latest_version + ", against the "
+                         "installed " + o_check.installed_version,
+                     "download it, then run: appimage-integrate install --replace <the new file>"});
+            } else {
+                o_findings.push_back({audit_finding_o::severity_e::info, s_subject,
+                                      "up to date: " + o_check.latest_version, {}});
+            }
+        }
+    }
     bool b_has_error = false;
     if (b_json) {
         std::cout << '[';
@@ -1872,6 +2431,9 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_ignore_signature = false;
     bool b_wm_class_from_window = false;
     bool b_dry_run = false;
+    bool b_check = false;
+    bool b_all = false;
+    bool b_notify = false;
     std::vector<std::string> o_run_arguments;
 
     for (int i_index = 2; i_index < i_argument_count; i_index++) {
@@ -1913,6 +2475,12 @@ int main(int i_argument_count, char **p_arguments) {
             b_wm_class_from_window = true;
         } else if ("--dry-run" == s_argument) {
             b_dry_run = true;
+        } else if ("--check" == s_argument) {
+            b_check = true;
+        } else if ("--all" == s_argument) {
+            b_all = true;
+        } else if ("--notify" == s_argument) {
+            b_notify = true;
         } else if ("--replace" == s_argument) {
             e_conflict_policy = integration_conflict_policy_e::replace;
         } else if ("--add" == s_argument) {
@@ -2011,6 +2579,18 @@ int main(int i_argument_count, char **p_arguments) {
     if ("list" == s_command) {
         return command_list(b_json);
     }
+    if ("update" == s_command) {
+        if (!b_check) {
+            std::cerr << "error: only checking is implemented; run: appimage-integrate update "
+                         "--check [--all] <AppImage>\n";
+            return EXIT_USAGE;
+        }
+        if (!b_all && s_path.empty()) {
+            std::cerr << "error: update --check needs an AppImage path, or --all\n";
+            return EXIT_USAGE;
+        }
+        return command_update(s_path, b_all, b_json, b_notify);
+    }
     if ("refresh" == s_command) {
         return command_refresh(b_json, b_assume_yes, b_dry_run, b_wm_class_from_window, s_wm_class);
     }
@@ -2028,7 +2608,7 @@ int main(int i_argument_count, char **p_arguments) {
         return command_windows(b_json);
     }
     if ("audit" == s_command) {
-        return command_audit(b_json);
+        return command_audit(b_json, b_check);
     }
     if ("handler" == s_command) {
         const std::string s_subcommand = s_path.empty() ? std::string("status") : s_path;

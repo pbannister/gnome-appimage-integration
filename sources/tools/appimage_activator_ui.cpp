@@ -1336,7 +1336,17 @@ private:
         add_fact("Signature", s_signature.empty() ? "(absent)" : s_signature);
         const std::string s_update = o_data_.string_or("update_information");
         if (!s_update.empty()) {
-            add_fact("Update info", s_update);
+            // The raw value is a transport string; say what it means, or why nothing can
+            // be done with it, rather than printing the pipe-separated form alone.
+            if (o_data_.boolean_or("update_usable", false)) {
+                const std::string s_description = o_data_.string_or("update_description");
+                add_fact("Update info",
+                         s_description.empty() ? s_update : s_description);
+            } else {
+                add_fact("Update info",
+                         s_update + "  (cannot be used: "
+                             + o_data_.string_or("update_problem", "unknown reason") + ")");
+            }
         }
         add_fact("Identifier", o_data_.string_or("identifier", "(unknown)"));
         add_fact("Embedded entry", o_data_.string_or("embedded_desktop", "(unknown)"));

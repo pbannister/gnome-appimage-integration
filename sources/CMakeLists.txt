@@ -26,7 +26,7 @@ if(PkgConfig_FOUND)
     pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
 endif()
 
-add_library(version_info STATIC version/version_info.cpp)
+add_library(version_info STATIC version/version_info.cpp version/version_compare.cpp)
 target_include_directories(version_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_library(desktop_entry STATIC
@@ -39,6 +39,7 @@ target_include_directories(desktop_entry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 add_library(appimage_reader STATIC
     appimage/appimage_reader.cpp
     appimage/appimage_signature.cpp
+    appimage/appimage_update_information.cpp
     appimage/squashfs_reader.cpp)
 target_include_directories(appimage_reader PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(appimage_reader PUBLIC ZLIB::ZLIB crypto)
@@ -63,13 +64,13 @@ target_include_directories(json_value PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 add_library(integration STATIC
     integration/appimage_integrator.cpp)
 target_include_directories(integration PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(integration PUBLIC appimage_reader desktop_entry)
+target_link_libraries(integration PUBLIC appimage_reader desktop_entry version_info)
 
 add_executable(appimage-inspect tools/appimage_inspect.cpp)
 target_link_libraries(appimage-inspect PRIVATE appimage_reader desktop_entry version_info)
 
 add_executable(appimage-integrate tools/appimage_integrate.cpp)
-target_link_libraries(appimage-integrate PRIVATE integration appimage_reader desktop_entry version_info)
+target_link_libraries(appimage-integrate PRIVATE integration appimage_reader desktop_entry json_value version_info)
 
 file(COPY tools/icons DESTINATION "${CMAKE_BINARY_DIR}")
 
@@ -103,6 +104,12 @@ target_link_libraries(mime-association-reader-test PRIVATE desktop_entry)
 
 add_executable(integration-plan-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/integration_plan_test.cpp")
 target_link_libraries(integration-plan-test PRIVATE integration appimage_reader desktop_entry)
+
+add_executable(appimage-update-information-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_update_information_test.cpp")
+target_link_libraries(appimage-update-information-test PRIVATE appimage_reader)
+
+add_executable(version-compare-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/version_compare_test.cpp")
+target_link_libraries(version-compare-test PRIVATE version_info)
 
 add_executable(appimage-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_reader_test.cpp")
 target_link_libraries(appimage-reader-test PRIVATE appimage_reader)

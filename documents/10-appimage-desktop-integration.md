@@ -148,7 +148,7 @@ fields that must change patched, and with provenance keys added.
 | `StartupNotify` | `true` | lets the launcher show a busy state while starting |
 | `Terminal` | `false` | an AppImage launcher is a GUI application |
 | `X-AppImage-Identifier` | a stable identifier for this AppImage | lets update and remove find it later |
-| `Actions` | `AppImage-Activator;Remove-AppImage;` with a `[Desktop Action …]` group for each | exposes the lifecycle in the launcher context menu |
+| `Actions` | `AppImage-Activator;Update-AppImage;Remove-AppImage;` with a `[Desktop Action …]` group for each | exposes the lifecycle in the launcher context menu |
 
 The `%U` field code passes selected URLs or files to the application.
 `%F` passes files; choose the code that matches the embedded entry.
@@ -162,6 +162,7 @@ downloaded AppImage can offer its own lifecycle:
 | Action | Label | Runs |
 | ------ | ----- | ---- |
 | `AppImage-Activator` | `AppImage Activator` | `appimage-integrate handle <AppImage>`, which opens the graphical activator on that file |
+| `Update-AppImage` | `Check for updates` | `appimage-integrate update --check --notify <AppImage>`, which asks the update information and shows the answer in a notification |
 | `Remove-AppImage` | `Remove this AppImage` | `appimage-integrate uninstall --identifier <id>` |
 
 The shell also adds its own **App Details** item to that menu, which opens GNOME Software. That
@@ -248,6 +249,23 @@ instead of the two collapsing into one.  `--dry-run` lists what would change, `-
 gives every rewritten launcher that class, and `--wm-class-from-window` reads the class from
 each running application instead.  A record whose AppImage is gone is named and skipped, and
 the command exits non-zero so a script notices.
+
+### Update information
+
+`.upd_info` is the only field that points outside the file: it names the transport and the
+release the next build will come from. It is the file's own claim, so it is shown, never followed
+silently. `appimage-inspect --update-url` resolves it offline into the URL it names;
+`appimage-integrate update --check [--all]` asks that URL what it has and compares the answer with
+the installed version; `audit` reports a value that cannot work, and `audit --check` reports which
+AppImages have an update waiting. Two of the specification's transports are dead or impractical
+(`bintray-zsync`, and `pling-v1-zsync`, which Pling does not serve as a zsync file), and
+`appimagetool`'s `--guess` option has been embedded as if it were a transport; all three are named
+rather than treated as a network error.
+
+Reading is the whole of it for now: nothing downloads or installs an update. A zsync delta needs a
+zsync client, and the new file's authenticity needs the vendor's signature — which, on this host,
+the FreeCAD AppImages do not carry (their `.sha256_sig` is empty padding). Both are decisions for a
+later episode; the check is what tells the owner an update exists.
 
 ### Naming a launcher the user can tell apart
 
@@ -368,7 +386,9 @@ The owner asked for AppImageLauncher to be uninstalled because its presence made
 4. Quote the absolute path in `Exec` and add a matching `TryExec`.
 5. Install the icon under `hicolor` and reference it by name.
 6. Set `StartupWMClass` from the running application, and keep it current.
-7. Add `Actions` for remove and update, so the lifecycle is reachable from the launcher.
+7. Add `Actions` for remove and update, so the lifecycle is reachable from the launcher. Update
+   means asking the embedded update information whether a newer build exists, not downloading one
+   behind the user's back.
 8. Record provenance, so the entry can be audited and reversed.
 9. Make the double-click handler explicit, opt-in, and restorable.
 10. Prefer one managed directory and one launcher per application; detect duplicates.

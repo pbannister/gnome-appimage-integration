@@ -204,6 +204,12 @@ public:
 
     std::vector<installed_appimage_o> list_installed() const;
 
+    // The version an AppImage states, and where it was found: X-AppImage-Version,
+    // then AppStream metadata, then the file name.  Empty when it states none.  This
+    // does not look at the desktop at all, so it is safe to call for any file.
+    std::string appimage_version(const std::string &s_appimage_path,
+                                 std::string &s_source) const;
+
     // Inspect the real desktop and report everything that is inconsistent.
     std::vector<audit_finding_o> audit() const;
 

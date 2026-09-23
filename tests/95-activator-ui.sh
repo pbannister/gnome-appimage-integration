@@ -199,12 +199,14 @@ fi
 if [ "$1" = "explain" ]; then
     # The story of this AppImage is chosen by the caller: its version, the installed
     # version, how the two compare, and how many launchers already exist.
-    printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","signature_mismatch":%s,"signature_stored":"%s","signature_computed":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
+    printf '{"path":"%s","name":"Probe App","generic_name":"Probe Tool","comment":"Probe comment","version":"%s","version_source":"X-AppImage-Version","mode":"%s","installed_version":"%s","version_relation":"%s","signature_mismatch":%s,"signature_stored":"%s","signature_computed":"%s","update_information":"%s","update_usable":%s,"update_description":"%s","update_problem":"%s","valid":false,"file_size":1024,"installed":"","error":"1 existing launcher(s) already represent this application:\\n  /home/u/.local/share/applications/org.example.Probe-2.desktop  (this tool)\\nchoose --replace to back them up and install this version in their place, or --add to install alongside them","conflicts":[' \
         "$3" "${STUB_VERSION:-9.9.10}" \
         "${STUB_MODE:-another launcher already represents this application}" \
         "${STUB_INSTALLED_VERSION:-9.9.9}" "${STUB_RELATION:-same}" \
         "${STUB_SIGNATURE_MISMATCH:-false}" "${STUB_SIGNATURE_STORED:-}" \
-        "${STUB_SIGNATURE_COMPUTED:-}"
+        "${STUB_SIGNATURE_COMPUTED:-}" "${STUB_UPDATE_INFORMATION:-}" \
+        "${STUB_UPDATE_USABLE:-false}" "${STUB_UPDATE_DESCRIPTION:-}" \
+        "${STUB_UPDATE_PROBLEM:-}"
     CONFLICT_INDEX=1
     while [ "$CONFLICT_INDEX" -le "${STUB_CONFLICTS:-1}" ]; do
         if [ "$CONFLICT_INDEX" -gt 1 ]; then
@@ -235,6 +237,10 @@ run_driven() {
         STUB_SIGNATURE_MISMATCH="${STUB_SIGNATURE_MISMATCH:-false}" \
         STUB_SIGNATURE_STORED="${STUB_SIGNATURE_STORED:-}" \
         STUB_SIGNATURE_COMPUTED="${STUB_SIGNATURE_COMPUTED:-}" \
+        STUB_UPDATE_INFORMATION="${STUB_UPDATE_INFORMATION:-}" \
+        STUB_UPDATE_USABLE="${STUB_UPDATE_USABLE:-false}" \
+        STUB_UPDATE_DESCRIPTION="${STUB_UPDATE_DESCRIPTION:-}" \
+        STUB_UPDATE_PROBLEM="${STUB_UPDATE_PROBLEM:-}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
@@ -360,6 +366,24 @@ grep -q 'The payload does not match the digest recorded in .sha256_sig.' \
 grep -q 'Integrate is refused unless --ignore-signature is given.' \
     "$DIRECTORY_TEMP/story-signature.txt" \
     || fail_test "a signature mismatch does not name the override"
+
+# The update information is a transport string; the window says what it means, and says
+# when nothing can be done with it.
+STUB_UPDATE_INFORMATION="gh-releases-zsync|FreeCAD|FreeCAD|latest|FreeCAD*x86_64*.AppImage.zsync" \
+    STUB_UPDATE_USABLE=true \
+    STUB_UPDATE_DESCRIPTION="GitHub releases in FreeCAD/FreeCAD, the latest release, file FreeCAD*x86_64*.AppImage.zsync" \
+    run_driven --activate back > "$DIRECTORY_TEMP/story-update.txt" 2>&1
+grep -q 'Update info' "$DIRECTORY_TEMP/story-update.txt" \
+    || fail_test "the window does not report the update information"
+grep -q 'GitHub releases in FreeCAD/FreeCAD, the latest release' \
+    "$DIRECTORY_TEMP/story-update.txt" \
+    || fail_test "the window does not explain a usable update information value"
+
+STUB_UPDATE_INFORMATION="guess" STUB_UPDATE_USABLE=false \
+    STUB_UPDATE_PROBLEM='guess is not a transport the AppImage specification defines' \
+    run_driven --activate back > "$DIRECTORY_TEMP/story-update-bad.txt" 2>&1
+grep -q 'cannot be used' "$DIRECTORY_TEMP/story-update-bad.txt" \
+    || fail_test "the window does not flag an unusable update information value"
 
 # 2. The same version, a different file: integrate it.
 expect_row "same version, different file" " Integrate* Run once Inspect Close" same 1 back

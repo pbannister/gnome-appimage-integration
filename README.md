@@ -91,6 +91,7 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate install --replace <AppImage>` | replace an existing launcher, backing it up |
 | `appimage-integrate install --add <AppImage>` | install alongside an existing launcher |
 | `appimage-integrate install --wm-class CLASS <AppImage>` | set the window class the dock matches on |
+| `appimage-inspect --update-url <AppImage>` | resolve the update information into the URL and asset pattern it names |
 | `appimage-integrate windows` | list running AppImages and the window class each one reports |
 | `appimage-integrate install --wm-class-from-window <AppImage>` | read that class from the running application |
 | `appimage-integrate install --name NAME <AppImage>` | set `Name=` in the launcher, e.g. to carry a version |
@@ -101,14 +102,18 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate refresh --dry-run` | show what refresh would rewrite, and change nothing |
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
-| `appimage-integrate audit` | report every integration inconsistency on this desktop |
+| `appimage-integrate update --check <AppImage>` | ask the embedded update information whether a newer build exists |
+| `appimage-integrate update --check --all` | do that for every AppImage this tool integrated |
+| `appimage-integrate audit [--check]` | report every integration inconsistency on this desktop, and with `--check` which AppImages have an update waiting |
 | `appimage-integrate install --ignore-signature <AppImage>` | integrate although `.sha256_sig` does not match the payload |
 
 An AppImage whose `.sha256_sig` section holds a digest or a signature is checked: the digest covers the file with that section zeroed. `explain`, `plan`, `appimage-inspect` and `install` report the result, a mismatch refuses the install unless `--ignore-signature` is given, and the activator shows it in Status.
 
 `refresh` is for launchers written by an older version of this tool: it re-renders each one from the AppImage's embedded entry, so new keys appear in one command, and preserves what the embedded entry does not carry (the `Name=` you chose, the desktop id, the icon name, the window class, and the launcher's own record). `--wm-class CLASS` uses that class for every launcher it rewrites; `--wm-class-from-window` reads the class from each running application instead. A recorded AppImage that is no longer at its path is named and skipped, and makes the command exit non-zero.
 
-The launcher each integration writes carries two context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
+`update --check` reads the AppImage's `.upd_info` section and asks the transport it names what it has, then compares that with the installed version: `gh-releases-zsync` through the GitHub API (release, prerelease or a specific tag, with the asset matched by the specification's file-name pattern), and `zsync` by reading the `Filename:` header of the zsync file. It downloads nothing. A value that is absent, not a transport the specification defines (Cura's `guess` is an `appimagetool` option), or one this tool cannot follow (`pling-v1-zsync`, `bintray-zsync`) is reported as such, and makes the command exit non-zero. `appimage-inspect --update-url` resolves the same field offline, so the pipe-separated string can be read without a network.
+
+The launcher each integration writes carries three context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, **Check for updates**, which runs the check and shows the answer in a notification, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |
 | `appimage-integrate handle <AppImage>` | the handler entry point: a GTK dialog, or the zenity fallback |
 | `desktop-inspect <file.desktop>` | print one desktop entry |

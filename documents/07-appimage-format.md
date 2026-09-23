@@ -99,7 +99,23 @@ The content is an ASCII string; a known transport mechanism is required, otherwi
 | `gh-releases-zsync` | `gh-releases-zsync\|user\|repo\|tag\|filename.zsync` |
 | `pling-v1-zsync` | `pling-v1-zsync\|product-id\|pattern` |
 
-The GitHub release tag accepts the special values `latest`, `latest-pre`, and `latest-all`.
+| `bintray-zsync` | the deprecated Bintray form; Bintray was shut down in 2021 |
+
+The GitHub release tag accepts the special values `latest` (the latest release), `latest-pre`
+(the latest prerelease) and `latest-all` (the latest of either); any other value is a release
+tag. GitHub has no latest-prerelease endpoint, so this project reads the release list for those
+two and takes the first entry that fits, newest first.
+
+`pling-v1-zsync` names a Pling product and a file-name pattern rather than a zsync file: Pling
+does not host the `.zsync`, so the transport needs Pling's own API. This project recognises it
+and says that it cannot be checked, rather than pretending it can.
+
+The value is a claim by the file about where its successors live. Reading it is free; following
+it means asking a third party for a download, so this project resolves the string into the URL it
+names (`appimage-inspect --update-url`), can ask that URL what it has
+(`appimage-integrate update --check`), and does not download or install anything yet. The zsync
+file named by the field is the AppImage's own name plus `.zsync`, so the AppImage asset is the
+same pattern without that suffix.
 
 The section is fixed size, so the string is followed by NUL padding, and some builds put
 non-text bytes there: the specification says content that is not a known transport should be

@@ -1,5 +1,8 @@
 #include "integration/appimage_integrator.h"
 
+#include "appimage/appimage_update_information.h"
+#include "version/version_compare.h"
+
 #include "appimage/appimage_reader.h"
 #include "appimage/appimage_signature.h"
 #include "appimage/squashfs_reader.h"
@@ -54,6 +57,10 @@ using gnome_appimage::desktop::desktop_entry_reader_c;
 using gnome_appimage::desktop::desktop_entry_locator_c;
 using gnome_appimage::desktop::icon_theme_locator_c;
 using gnome_appimage::desktop::mime_association_reader_c;
+using gnome_appimage::appimage::understand_update_information;
+using gnome_appimage::appimage::update_transport_e;
+using gnome_appimage::appimage::update_information_o;
+using gnome_appimage::version::compare_versions;
 
 constexpr const char *VARIABLE_HOME = "HOME";
 constexpr const char *VARIABLE_DATA_HOME = "XDG_DATA_HOME";
@@ -72,115 +79,6 @@ std::string trim_spaces(const std::string &s_text) {
         i_end--;
     }
     return s_text.substr(i_begin, i_end - i_begin);
-}
-
-// A version string, split into the runs a person reads: digits stay together and
-// compare as numbers, letters stay together and compare case-insensitively, and
-// separators are not tokens.  So 1.1.3 < 1.1.10, and 26.3.0 > 5.13.0.
-std::vector<std::string> version_tokens(const std::string &s_version) {
-    std::vector<std::string> o_tokens;
-    std::string s_current;
-    bool b_current_is_digits = false;
-    const auto flush = [&o_tokens, &s_current, &b_current_is_digits]() {
-        if (!s_current.empty()) {
-            o_tokens.push_back(s_current);
-            s_current.clear();
-        }
-        b_current_is_digits = false;
-    };
-    for (const char c_character : s_version) {
-        const unsigned char u_character = static_cast<unsigned char>(c_character);
-        const bool b_digits = 0 != std::isdigit(u_character);
-        const bool b_letters = 0 != std::isalpha(u_character);
-        if (!b_digits && !b_letters) {
-            flush();
-            continue;
-        }
-        if (!s_current.empty() && b_digits != b_current_is_digits) {
-            flush();
-        }
-        if (s_current.empty()) {
-            b_current_is_digits = b_digits;
-        }
-        s_current += static_cast<char>(b_digits ? c_character
-                                                : static_cast<char>(std::tolower(u_character)));
-    }
-    flush();
-    return o_tokens;
-}
-
-bool is_digit_token(const std::string &s_token) {
-    for (const char c_character : s_token) {
-        if (0 == std::isdigit(static_cast<unsigned char>(c_character))) {
-            return false;
-        }
-    }
-    return !s_token.empty();
-}
-
-// Compare two digit runs as numbers, without converting them.
-int compare_digit_tokens(const std::string &s_left, const std::string &s_right) {
-    std::size_t i_left = s_left.find_first_not_of('0');
-    std::size_t i_right = s_right.find_first_not_of('0');
-    const std::string s_left_trimmed =
-        std::string::npos == i_left ? std::string() : s_left.substr(i_left);
-    const std::string s_right_trimmed =
-        std::string::npos == i_right ? std::string() : s_right.substr(i_right);
-    if (s_left_trimmed.size() != s_right_trimmed.size()) {
-        return s_left_trimmed.size() < s_right_trimmed.size() ? -1 : 1;
-    }
-    if (s_left_trimmed == s_right_trimmed) {
-        return 0;
-    }
-    return s_left_trimmed < s_right_trimmed ? -1 : 1;
-}
-
-// Compare two version strings, oldest first.  A position with no token counts as
-// zero against a number, and as a release against letters, so 1.0 < 1.0.1 and
-// 1.0rc1 < 1.0.  Versions that are not comparable (empty, or no shared shape) still
-// get a stable answer rather than an exception.
-int compare_versions(const std::string &s_left, const std::string &s_right) {
-    const std::vector<std::string> o_left = version_tokens(s_left);
-    const std::vector<std::string> o_right = version_tokens(s_right);
-    const std::size_t u_count = std::max(o_left.size(), o_right.size());
-    for (std::size_t i_index = 0; i_index < u_count; i_index++) {
-        const bool b_left_present = i_index < o_left.size();
-        const bool b_right_present = i_index < o_right.size();
-        const std::string s_left_token = b_left_present ? o_left[i_index] : std::string();
-        const std::string s_right_token = b_right_present ? o_right[i_index] : std::string();
-        if (!b_left_present && !b_right_present) {
-            return 0;
-        }
-        const bool b_left_digits = b_left_present && is_digit_token(s_left_token);
-        const bool b_right_digits = b_right_present && is_digit_token(s_right_token);
-        if (b_left_present != b_right_present) {
-            // The missing side is a release: it beats letters and loses to a number.
-            const bool b_present_is_digits = b_left_present ? b_left_digits : b_right_digits;
-            if (b_present_is_digits) {
-                const std::string &s_number = b_left_present ? s_left_token : s_right_token;
-                const int i_compare = compare_digit_tokens("0", s_number);
-                if (0 != i_compare) {
-                    return b_left_present ? i_compare : -i_compare;
-                }
-                continue;
-            }
-            return b_left_present ? -1 : 1;
-        }
-        if (b_left_digits && b_right_digits) {
-            const int i_compare = compare_digit_tokens(s_left_token, s_right_token);
-            if (0 != i_compare) {
-                return i_compare;
-            }
-            continue;
-        }
-        if (b_left_digits != b_right_digits) {
-            return b_left_digits ? 1 : -1;
-        }
-        if (s_left_token != s_right_token) {
-            return s_left_token < s_right_token ? -1 : 1;
-        }
-    }
-    return 0;
 }
 
 // A Name= value is shown in the menu and may not contain a newline; any control
@@ -1459,7 +1357,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_replacements["TryExec"] = o_plan.installed_path;
         o_replacements["Terminal"] = "false";
         o_replacements["StartupNotify"] = "true";
-        o_replacements["Actions"] = "AppImage-Activator;Remove-AppImage;";
+        o_replacements["Actions"] = "AppImage-Activator;Update-AppImage;Remove-AppImage;";
         o_replacements["X-AppImage-Identifier"] = o_plan.identifier;
         o_replacements["X-AppImage-Source-Path"] = o_plan.appimage_path;
         o_replacements["X-Integrated-By"] = "gnome-appimage-integration";
@@ -1503,6 +1401,10 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                << "Name=AppImage Activator\n"
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
                << " handle " << exec_quote(o_plan.installed_path) << "\n"
+               << "\n[Desktop Action Update-AppImage]\n"
+               << "Name=Check for updates\n"
+               << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
+               << " update --check --notify " << exec_quote(o_plan.installed_path) << "\n"
                << "\n[Desktop Action Remove-AppImage]\n"
                << "Name=Remove this AppImage\n"
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
@@ -1809,6 +1711,11 @@ bool appimage_integrator_c::uninstall(const std::string &s_identifier,
     }
 }
 
+std::string appimage_integrator_c::appimage_version(const std::string &s_appimage_path,
+                                                    std::string &s_source) const {
+    return version_of_appimage(s_appimage_path, s_source);
+}
+
 std::vector<installed_appimage_o> appimage_integrator_c::list_installed() const {
     std::vector<installed_appimage_o> o_results;
     try {
@@ -1875,7 +1782,15 @@ std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
                   << "\n";
         }
         if (o_info.update_information_section.present) {
+            const update_information_o o_update =
+                understand_update_information(o_info.update_information);
             o_out << "update information: " << o_info.update_information << "\n";
+            if (!o_update.description.empty()) {
+                o_out << "update source: " << o_update.description << "\n";
+            }
+            if (!o_update.usable) {
+                o_out << "update check: cannot be made: " << o_update.problem << "\n";
+            }
         }
         // Inspect is a deliberate command, so it pays for the hash when the section
         // holds something to check.
@@ -2143,6 +2058,39 @@ std::vector<audit_finding_o> appimage_integrator_c::audit() const {
                 if (!s_key.empty()) {
                     o_groups[s_key].push_back(o_candidate.id);
                 }
+            }
+        }
+
+        // Each recorded AppImage's own update information: whether one exists, and
+        // whether anything can be done with it.  Reading the section is cheap, so this
+        // is always part of the audit; asking the transport is `audit --check`.
+        std::set<std::string> o_update_checked_paths;
+        for (const installed_appimage_o &o_entry : o_installed) {
+            std::error_code o_image_error;
+            if (!fs::exists(o_entry.appimage_path, o_image_error)) {
+                continue;
+            }
+            // Several records can describe launchers for one file; report it once.
+            if (!o_update_checked_paths.insert(o_entry.appimage_path).second) {
+                continue;
+            }
+            appimage_info_o o_info;
+            if (!appimage_reader_c::read(o_entry.appimage_path, o_info)) {
+                continue;
+            }
+            const std::string s_subject = fs::path(o_entry.appimage_path).filename().string();
+            const update_information_o o_update =
+                understand_update_information(o_info.update_information);
+            if (update_transport_e::absent == o_update.transport) {
+                o_findings.push_back(
+                    {audit_finding_o::severity_e::warning, s_subject,
+                     "the AppImage has no update information, so it cannot be updated in place",
+                     "update it by hand, or use a build that embeds update information"});
+            } else if (!o_update.usable) {
+                o_findings.push_back(
+                    {audit_finding_o::severity_e::warning, s_subject,
+                     "the update information cannot be used: " + o_update.problem,
+                     "run: appimage-inspect --update-url " + o_entry.appimage_path});
             }
         }
 
