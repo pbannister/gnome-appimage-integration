@@ -77,5 +77,5 @@ payload swapped after signing reports a mismatch, `install` refuses it and names
 
 ## Commits
 
-- `1b6e31c` Check the `.sha256_sig` section, and read 64-bit section headers correctly
-- `TODO` edit by the owner took the two items off the open list
+- `62ff28a` TODO: the owner's edited list, with both requested items completed
+- `2340ac9` Check the `.sha256_sig` section, and read 64-bit section headers correctly
