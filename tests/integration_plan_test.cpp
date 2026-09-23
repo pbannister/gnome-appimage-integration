@@ -106,7 +106,10 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK(contains(o_plan.desktop_entry_text, "Terminal=false"));
     CHECK(contains(o_plan.desktop_entry_text, "StartupNotify=true"));
     CHECK(contains(o_plan.desktop_entry_text, "StartupWMClass=TestApp"));
-    CHECK(contains(o_plan.desktop_entry_text, "Actions=Remove-AppImage;"));
+    CHECK(contains(o_plan.desktop_entry_text, "Actions=AppImage-Activator;Remove-AppImage;"));
+    CHECK(contains(o_plan.desktop_entry_text, "[Desktop Action AppImage-Activator]"));
+    CHECK(contains(o_plan.desktop_entry_text, "Name=AppImage Activator"));
+    CHECK(contains(o_plan.desktop_entry_text, "handle " + o_plan.installed_path));
     CHECK(contains(o_plan.desktop_entry_text, "[Desktop Action Remove-AppImage]"));
     CHECK(contains(o_plan.desktop_entry_text, "X-AppImage-Identifier=" + o_plan.identifier));
 

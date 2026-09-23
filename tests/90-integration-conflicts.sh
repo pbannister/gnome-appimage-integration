@@ -304,6 +304,26 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$DIRECTORY_T
 grep -q '^this-run: new integration$' "$DIRECTORY_TEMP/mode-new.txt" \
     || fail_test "a first install is not labelled as a new integration"
 
+# The launcher carries the actions the shell's context menu is built from: opening the
+# activator for this AppImage, then removing it.
+grep -q '^Actions=AppImage-Activator;Remove-AppImage;$' "$FILE_REPAIR_LAUNCHER" \
+    || fail_test "the launcher does not list the activator action before the remove action"
+grep -q '^\[Desktop Action AppImage-Activator\]$' "$FILE_REPAIR_LAUNCHER" \
+    || fail_test "the launcher has no activator action group"
+awk '/^\[Desktop Action AppImage-Activator\]$/,/^$/' "$FILE_REPAIR_LAUNCHER" \
+    | grep -q '^Name=AppImage Activator$' \
+    || fail_test "the activator action is not named AppImage Activator"
+awk '/^\[Desktop Action AppImage-Activator\]$/,/^$/' "$FILE_REPAIR_LAUNCHER" \
+    | grep -q "^Exec=.* handle .*Applications/Repair.AppImage$" \
+    || fail_test "the activator action does not open the activator on this AppImage"
+# A path with a space has to be quoted in the action's Exec.
+cp "$FILE_REPAIR_MANAGED" "$DIRECTORY_XDG/home/Applications/Repair Copy.AppImage"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" plan \
+    "$DIRECTORY_XDG/home/Applications/Repair Copy.AppImage" > "$DIRECTORY_TEMP/spaced.txt" 2>&1
+grep -q '^Exec=.* handle ".*Applications/Repair Copy.AppImage"$' "$DIRECTORY_TEMP/spaced.txt" \
+    || fail_test "the action does not quote a path with a space"
+rm -f "$DIRECTORY_XDG/home/Applications/Repair Copy.AppImage"
+
 # 2. The same file again is a complete integration: say so, rather than reporting
 #    work that would only rewrite the same files. One plan must be printed exactly
 #    once: the cache-refresh children fork, and their inherited stdout buffer must

@@ -98,6 +98,8 @@ The C++ build uses CMake with the highest warning level and treats warnings as e
 | `appimage-integrate run <AppImage> [args]` | run once, forwarding arguments |
 | `appimage-integrate run --detached <AppImage>` | start in a new session and report the process id |
 | `appimage-integrate audit` | report every integration inconsistency on this desktop |
+
+The launcher each integration writes carries two context-menu actions: **AppImage Activator**, which opens the graphical activator on that file, and **Remove this AppImage**. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |
 | `appimage-integrate handle <AppImage>` | the handler entry point: a GTK dialog, or the zenity fallback |
 | `desktop-inspect <file.desktop>` | print one desktop entry |

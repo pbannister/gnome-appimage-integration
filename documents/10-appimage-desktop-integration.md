@@ -148,10 +148,29 @@ fields that must change patched, and with provenance keys added.
 | `StartupNotify` | `true` | lets the launcher show a busy state while starting |
 | `Terminal` | `false` | an AppImage launcher is a GUI application |
 | `X-AppImage-Identifier` | a stable identifier for this AppImage | lets update and remove find it later |
-| `Actions` | optional `Run`, `Update`, `Remove` actions | exposes the lifecycle in the launcher context menu |
+| `Actions` | `AppImage-Activator;Remove-AppImage;` with a `[Desktop Action …]` group for each | exposes the lifecycle in the launcher context menu |
 
 The `%U` field code passes selected URLs or files to the application.
 `%F` passes files; choose the code that matches the embedded entry.
+
+### The launcher's context menu
+
+GNOME Shell builds the right-click menu of an application icon from the entry's `Actions=`, using
+each action group's `Name=` as the label and running its `Exec=`. So the actions are where a
+downloaded AppImage can offer its own lifecycle:
+
+| Action | Label | Runs |
+| ------ | ----- | ---- |
+| `AppImage-Activator` | `AppImage Activator` | `appimage-integrate handle <AppImage>`, which opens the graphical activator on that file |
+| `Remove-AppImage` | `Remove this AppImage` | `appimage-integrate uninstall --identifier <id>` |
+
+The shell also adds its own **App Details** item to that menu, which opens GNOME Software. That
+item is not the entry's business and cannot be suppressed from a `.desktop` file: GNOME Shell 46
+shows it whenever GNOME Software is installed, whatever the application is
+(`js/ui/appMenu.js`, `_updateDetailsVisibility()`: the item is visible when
+`lookup_app('org.gnome.Software.desktop')` finds an app). For an AppImage from a download, GNOME
+Software then shows the distribution's package, which is a different thing entirely. The way to
+remove it is to remove GNOME Software, or to hide the item with a GNOME Shell extension.
 
 ### The icon
 

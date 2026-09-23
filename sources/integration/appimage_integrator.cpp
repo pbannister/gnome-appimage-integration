@@ -1406,7 +1406,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_replacements["TryExec"] = o_plan.installed_path;
         o_replacements["Terminal"] = "false";
         o_replacements["StartupNotify"] = "true";
-        o_replacements["Actions"] = "Remove-AppImage;";
+        o_replacements["Actions"] = "AppImage-Activator;Remove-AppImage;";
         o_replacements["X-AppImage-Identifier"] = o_plan.identifier;
         o_replacements["X-AppImage-Source-Path"] = o_plan.appimage_path;
         o_replacements["X-Integrated-By"] = "gnome-appimage-integration";
@@ -1443,7 +1443,14 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             }
         }
         const std::string s_tool = o_options.tool_path.empty() ? s_tool_path_ : o_options.tool_path;
-        o_text << "\n[Desktop Action Remove-AppImage]\n"
+        // The launcher's context menu in the shell is built from these actions, so the
+        // first one opens the activator for this AppImage: the launcher is a download,
+        // and the shell's own "App Details" offers the distribution's package instead.
+        o_text << "\n[Desktop Action AppImage-Activator]\n"
+               << "Name=AppImage Activator\n"
+               << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
+               << " handle " << exec_quote(o_plan.installed_path) << "\n"
+               << "\n[Desktop Action Remove-AppImage]\n"
                << "Name=Remove this AppImage\n"
                << "Exec=" << exec_quote(s_tool.empty() ? "appimage-integrate" : s_tool)
                << " uninstall --identifier " << o_plan.identifier << "\n";
