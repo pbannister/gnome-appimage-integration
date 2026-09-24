@@ -10,7 +10,7 @@
 # "origin"); set PUSH_REMOTE to a URL when the configured remote cannot be pushed to.
 #
 # Environment:
-#   TAG          the release tag (default v<version the products report>)
+#   TAG          the release tag (default: the tag on this commit, else v<version>)
 #   TITLE        the release title (default "gnome-appimage-integration <version>")
 #   PUSH_REMOTE  where to push the commit and the tag (default origin)
 set -eu
@@ -53,6 +53,11 @@ esac
 sh "$DIRECTORY_SCRIPT/release-package.sh"
 
 VERSION=$(cat "$DIRECTORY_RELEASE/VERSION")
+# Without TAG, publish the tag this commit already carries, and only invent one when the
+# commit has none: a release should reuse the tag a person chose rather than make a second.
+if [ -z "${TAG:-}" ]; then
+    TAG=$(git -C "$REPOSITORY_ROOT" tag --points-at HEAD | head -1)
+fi
 TAG=${TAG:-v$VERSION}
 TITLE=${TITLE:-"gnome-appimage-integration $VERSION"}
 FILE_TARBALL=$(find "$DIRECTORY_RELEASE" -maxdepth 1 -name '*.tar.gz' | head -1)
