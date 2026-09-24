@@ -1,82 +1,38 @@
 # GNOME AppImage Integration
 
-This project reads AppImage files and `*.desktop` files so that an AppImage can be
-integrated into the GNOME application menu.
+This project integrates AppImage files into the Gnome desktop.
 
-The project is derived from `00-project-skeleton`.
-The skeleton's interaction rules, workflow, and conventions apply unchanged.
+(Might work for other XDG / FreeDesktop compliant desktops, but this has not been tried.)
 
-## For the LLM
+Aim was to make using a downloaded AppImage as simple as possible.
+A couple of clicks, and you are done.
+* The AppImage is *properly* integrated into the GNOME application menu.
+* The AppImage is moved into an XDG / FreeDesktop standard comforming directory.
 
-The LLM should begin by reading these files in this order (the numeric prefix marks the load order):
+Lots you do not have to do:
+* No need to manually move the file out of the `Downloads` directory.
+* No need to manually place and edit `*.desktop` files.
+* No need to run an specific application (that you might have forgot) to manage an AppImage.
+* No arcane knowledge required.
 
-1. `prompts/01-contract.md`
-2. `prompts/02-workflow.md`
-3. `prompts/03-conventions.md`
+At the same time, all the *hidden* knowledge is just a couple of clicks away.
+* With a click, you can inspect an AppImage to get much detail about the contents. 
+* With a click, you can see the exact command-line equivalent for operations in the GUI.
 
-- These define the interaction rules, workflow, and formatting conventions.
-- The LLM must follow the workflow defined in `prompts/02-workflow.md` for every task.
-- This project targets C++, so `prompts/flavors/02-cpp-conventions.md` applies to source work.
+Everything done in the GUI (and more) is available on the command line.
 
-## For Human Contributors
-
-Human contributors should begin by reading:
-
-- `prompts/README.md`
-- `documents/README.md`
-
-## Project Scope
-
-The project reads two file formats, locates one of them on disk, and integrates AppImages into the desktop.
-
-1. Read an AppImage container: image type, ELF facts, payload offset and size, embedded update information and signature, and the SquashFS payload.
-2. Read a desktop entry file: groups, keys, values, localized values, lists, escapes, actions, and `Exec` field codes.
-3. Locate desktop entry files using the GNOME (GIO) search path built from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
-4. Resolve icon names through the freedesktop icon theme, and MIME defaults through `mimeapps.list` and `mimeinfo.cache`, so every loaded fact has a named source.
-5. Plan, install, and reverse the integration of one AppImage: managed location, launcher, hicolor icons, and a manifest.
-6. Handle a double-clicked `*.AppImage` and manage the registration of that handler.
-
-The project does not modify an AppImage; it moves or copies it, and it never requires root.
-`appimage-integrate run` executes the AppImage only when the user asks for it.
-
-## Research Findings
-
-The format research that the readers implement is recorded in `documents/`.
-
-- `documents/07-appimage-format.md` — the AppImage specification, the payload offset algorithm, and the SquashFS superblock.
-- `documents/08-desktop-entry-format.md` — the Desktop Entry Specification version 1.5.
-- `documents/09-desktop-file-search-paths.md` — where GNOME looks for `*.desktop` files, with the observed host values.
-- `documents/10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
-- `documents/11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
-- `documents/12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
-
-## Top-Level Map
-
-- `README.md` is the project overview.
-- `TODO.md` tracks pending and completed project tasks.
-- `PHASES.md` records the current phase and its milestones.
-- `prompts/` contains LLM interaction rules, common requirements, feature requirements, task definitions, and episode work orders.
-- `documents/` contains human-consumption documents: the interaction pattern, worked examples, tool notes, and the format research.
-- `records/` contains version-controlled outcome, incident, and handoff records.
-- `tools/` contains tool-specific rules.
-- `tools/aider-rules.md` is used only with Aider.
-- `sources/` contains the C++ readers and command-line tools.
-- `scripts/` contains project scripts.
-- `tests/` contains tests and validation code.
-- `dataflow.in/` contains input data, including sample desktop entry files.
-- `dataflow.out/` contains generated data output and the build tree (not version-controlled).
-- `logs/` contains generated logs (not version-controlled).
-- `site.in/` contains static-site input.
-- `site.out/` contains generated static-site output (not version-controlled).
-- `Makefile` drives the build (`make build`), the tests (`make test`), the pages (`make site`), and cleanup (`make clean`).
+Aim is simple to use, and transparent in operation.
+Make it easy.
 
 ## Installing
 
-A release carries the built tools for Linux, and one script installs them:
+Easy to grab a release off Github with a one script install:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pbannister/gnome-appimage-integration/master/scripts/install.sh | sh
 ```
+
+Run the script, and you are done.
 
 The script fetches the release tarball for this machine, checks it against the release's
 `SHA256SUMS`, and installs into `$HOME/.local`. `PREFIX` installs elsewhere, `VERSION` pins a
@@ -90,18 +46,6 @@ appimage-integrate handler install
 
 `scripts/release-package.sh` makes the assets a release publishes, and `make release-publish` (with
 the GitHub CLI authenticated) tags the commit and publishes them.
-
-## Building and Testing
-
-- `make build` configures and compiles the readers and command-line tools into `dataflow.out/build/`.
-- `make install` installs `appimage-inspect`, `desktop-inspect`, and `appimage-integrate` into `$HOME/.local/bin` (`PREFIX` overrides).
-- `make test` runs every test in `tests/` and writes a timestamped log to `logs/`.
-- `make site` builds the published page set.
-- `make release` builds the release assets into `dataflow.out/release/`.
-- `make release-publish` tags the commit and publishes a GitHub release (needs `gh`, authenticated).
-- `make clean` removes generated output.
-
-The C++ build uses CMake with the highest warning level and treats warnings as errors.
 
 ## Commands
 
@@ -144,12 +88,47 @@ An AppImage whose `.sha256_sig` section holds a digest or a signature is checked
 `update` without `--check` downloads the file the transport offers under its own name, beside the file it replaces. It downloads to `<name>.part`, verifies the download, and only then does anything: the new file becomes the managed one, every launcher and record that ran the old file is re-rendered against it (desktop id, icon, `Name=` and window class kept), and the old file is kept as `<name>.previous` unless `--no-backup` is given. The window's **Update** button and the launcher's **Update** item do the same thing, and the window switches to the new file when the download finishes. When there is nothing newer to take, Status says so in bold — *You already are using the latest version.* — and the Update button is disabled. If the offered file is already beside the installed one — an AppImage downloaded by hand, or a build integrated earlier — it is verified and used, and nothing is downloaded. Verification compares the release's published `<asset>-SHA256.txt` when there is one and always checks the downloaded file's own `.sha256_sig`; a mismatch refuses the update and leaves the working file untouched. A download with nothing published to check against is reported as exactly that. `--force` takes the offered file when the check cannot show it is newer (a zsync file names no version), and `--dry-run` prints the download URL and size without fetching anything.
 
 The launcher each integration writes carries **AppImage Activator**, which opens the graphical activator on that file, and **Remove this AppImage**. It also carries **Update**, which opens the activator as if its Update button had been clicked — but only when the AppImage carries usable update information. GNOME Shell also adds its own **App Details** item, which opens GNOME Software; that item belongs to the shell and cannot be suppressed from a desktop entry.
+
+| Command | Purpose |
+| --- | --- |
 | `appimage-integrate handler status\|install\|uninstall` | manage the `*.AppImage` handler (the AppImage Activator) |
 | `appimage-integrate handle <AppImage>` | the handler entry point: a GTK dialog, or the zenity fallback |
 | `desktop-inspect <file.desktop>` | print one desktop entry |
 | `desktop-inspect --explain ID` | show which file wins an identifier and what it masks |
 | `desktop-inspect --icon NAME [--theme T] [--why]` | show where an icon resolves from |
 | `desktop-inspect --mime TYPE [--why]` | show which application opens a type, and from where |
+
+## Top-Level Map
+
+- `README.md` is the project overview.
+- `TODO.md` tracks pending and completed project tasks.
+- `PHASES.md` records the current phase and its milestones.
+- `prompts/` contains LLM interaction rules, common requirements, feature requirements, task definitions, and episode work orders.
+- `documents/` contains human-consumption documents: the interaction pattern, worked examples, tool notes, and the format research.
+- `records/` contains version-controlled outcome, incident, and handoff records.
+- `tools/` contains tool-specific rules.
+- `tools/aider-rules.md` is used only with Aider.
+- `sources/` contains the C++ readers and command-line tools.
+- `scripts/` contains project scripts.
+- `tests/` contains tests and validation code.
+- `dataflow.in/` contains input data, including sample desktop entry files.
+- `dataflow.out/` contains generated data output and the build tree (not version-controlled).
+- `logs/` contains generated logs (not version-controlled).
+- `site.in/` contains static-site input.
+- `site.out/` contains generated static-site output (not version-controlled).
+- `Makefile` drives the build (`make build`), the tests (`make test`), the pages (`make site`), and cleanup (`make clean`).
+
+## Building and Testing
+
+- `make build` configures and compiles the readers and command-line tools into `dataflow.out/build/`.
+- `make install` installs `appimage-inspect`, `desktop-inspect`, and `appimage-integrate` into `$HOME/.local/bin` (`PREFIX` overrides).
+- `make test` runs every test in `tests/` and writes a timestamped log to `logs/`.
+- `make site` builds the published page set.
+- `make release` builds the release assets into `dataflow.out/release/`.
+- `make release-publish` tags the commit and publishes a GitHub release (needs `gh`, authenticated).
+- `make clean` removes generated output.
+
+The C++ build uses CMake with the highest warning level and treats warnings as errors.
 
 ## Source Layout
 
@@ -170,6 +149,50 @@ It sets its program name to `appimage-activator` and the entry sets `StartupWMCl
 The window's application id is its program name, `appimage-activator`, because no `Gtk.Application` id is set: GTK uses the application id when there is one and the program name otherwise, and GNOME only matches a Wayland window to a launcher whose file name is that same id.
 The right-click "Open With" item is named `AppImage Activator`, because `AppImage Handler` is another project's name; `handler install` also removes the pre-rename `appimage-handler` entry, icon, and record, and carries their recorded previous defaults into the new record.
 It remembers its size in `$XDG_DATA_HOME/gnome-appimage-integration/ui.json` and honours it on the next run; the remembered position is clamped so the window stays on the screen.
+
+## For Human Contributors
+
+Human contributors should begin by reading:
+
+- `prompts/README.md`
+- `documents/README.md`
+
+## For the LLM
+
+The LLM should begin by reading these files in this order (the numeric prefix marks the load order):
+
+1. `prompts/01-contract.md`
+2. `prompts/02-workflow.md`
+3. `prompts/03-conventions.md`
+
+- These define the interaction rules, workflow, and formatting conventions.
+- The LLM must follow the workflow defined in `prompts/02-workflow.md` for every task.
+- This project targets C++, so `prompts/flavors/02-cpp-conventions.md` applies to source work.
+
+## Project Scope
+
+The project reads two file formats, locates one of them on disk, and integrates AppImages into the desktop.
+
+1. Read an AppImage container: image type, ELF facts, payload offset and size, embedded update information and signature, and the SquashFS payload.
+2. Read a desktop entry file: groups, keys, values, localized values, lists, escapes, actions, and `Exec` field codes.
+3. Locate desktop entry files using the GNOME (GIO) search path built from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
+4. Resolve icon names through the freedesktop icon theme, and MIME defaults through `mimeapps.list` and `mimeinfo.cache`, so every loaded fact has a named source.
+5. Plan, install, and reverse the integration of one AppImage: managed location, launcher, hicolor icons, and a manifest.
+6. Handle a double-clicked `*.AppImage` and manage the registration of that handler.
+
+The project does not modify an AppImage; it moves or copies it, and it never requires root.
+`appimage-integrate run` executes the AppImage only when the user asks for it.
+
+## Research Findings
+
+The format research that the readers implement is recorded in `documents/`.
+
+- `documents/07-appimage-format.md` — the AppImage specification, the payload offset algorithm, and the SquashFS superblock.
+- `documents/08-desktop-entry-format.md` — the Desktop Entry Specification version 1.5.
+- `documents/09-desktop-file-search-paths.md` — where GNOME looks for `*.desktop` files, with the observed host values.
+- `documents/10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
+- `documents/11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
+- `documents/12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
 
 ## Window Placement
 
