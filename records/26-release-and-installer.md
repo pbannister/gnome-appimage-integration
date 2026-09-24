@@ -71,10 +71,28 @@ run covers the offline path.  No test uses the outside network.
 
 ## Publishing
 
-`scripts/release-publish.sh` refuses a dirty tree, requires `gh` to be authenticated, packages the
-release, tags `v<version>` (overridable with `TAG`), pushes the commit and the tag to
+`scripts/release-publish.sh` refuses a dirty tree, requires `gh` to be authenticated, builds from
+the commit being released (and refuses a build whose version does not name that commit), packages
+the release, tags `v<version>` (overridable with `TAG`), pushes the commit and the tag to
 `PUSH_REMOTE` (default `origin`), and creates the release with the tarball and `SHA256SUMS` as
 assets.  `TITLE` overrides the title.
+
+## The First Release
+
+The tag is **v2026.09.23**, chosen over the exact build string for readability; the binaries still
+report `2026-09-23-master-757d174`, so a download can be traced to a commit.
+
+Publishing is left to the owner, because the GitHub API needs a token and this machine has none:
+`gh` is not authenticated, while `git` pushes work over the SSH key that is present.  The commits
+are pushed, the tag is pushed, the assets are packaged in `dataflow.out/release/`, and the one
+remaining command is
+
+```sh
+TAG=v2026.09.23 make release-publish
+```
+
+after `gh auth login`.  The script is written to be run again safely: an existing tag is reused, and
+an existing release has its assets re-uploaded.
 
 ## Verification
 

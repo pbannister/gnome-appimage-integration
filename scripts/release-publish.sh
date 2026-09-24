@@ -34,6 +34,21 @@ if [ -n "$(git -C "$REPOSITORY_ROOT" status --porcelain)" ]; then
     exit 1
 fi
 
+# Build from the commit being released, so the products in the tarball are this commit's.
+sh "$DIRECTORY_SCRIPT/program-build.sh"
+
+VERSION=$("$REPOSITORY_ROOT/dataflow.out/build/appimage-integrate" --version | awk '{print $2}')
+COMMIT=$(git -C "$REPOSITORY_ROOT" rev-parse --short HEAD)
+case "$VERSION" in
+    *"$COMMIT"*)
+        ;;
+    *)
+        echo "release-publish: the build reports $VERSION, which does not name $COMMIT" >&2
+        echo "release-publish: the products would not be the tagged commit's; stopping" >&2
+        exit 1
+        ;;
+esac
+
 sh "$DIRECTORY_SCRIPT/release-package.sh"
 
 VERSION=$(cat "$DIRECTORY_RELEASE/VERSION")

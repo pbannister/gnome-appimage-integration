@@ -42,6 +42,16 @@ esac
 
 # The version the products report, which the build stamped from the commit.
 VERSION=$("$DIRECTORY_BUILD/appimage-integrate" --version | awk '{print $2}')
+COMMIT=$(git -C "$REPOSITORY_ROOT" rev-parse --short HEAD 2>/dev/null || echo "")
+case "$VERSION" in
+    *"$COMMIT"*)
+        ;;
+    *)
+        echo "release-package: warning: the built products report $VERSION," >&2
+        echo "release-package: warning: which does not name the current commit $COMMIT" >&2
+        echo "release-package: warning: run 'make build' to package what this commit builds" >&2
+        ;;
+esac
 FILE_TARBALL="$DIRECTORY_RELEASE/$PROGRAM_NAME-linux-$ARCHITECTURE.tar.gz"
 
 rm -rf "$DIRECTORY_RELEASE"
