@@ -35,9 +35,10 @@ still be pinned by putting the tag in the path, which is what `VERSION=<tag>` do
 *title* and the tarball's `VERSION` file carry the version the binaries report, which the build
 stamps from the commit.
 
-The tarball is deterministic — sorted names, no owner, the commit's own timestamp, and `gzip -n` —
-so rebuilding one commit produces one digest, and the digest in `SHA256SUMS` means something.  The
-test rebuilds and compares, which is how that property is held in place.
+Packing is deterministic — sorted names, no owner, the commit's own timestamp, and `gzip -n` — so
+packing the same build twice produces one digest, and the digest in `SHA256SUMS` means something.
+Building again does not reproduce it: the build counter that `--version` reports changes with every
+build.  The test packs twice and compares, which is how the property is held in place.
 
 ## The Installer
 
@@ -114,3 +115,4 @@ and the package built from that clean tree was installed and run by the installe
 - `1b1b627`, `2f1414b` Record: the release tooling
 - `5b4cf58` Skip a push the remote already has, and keep a release on its tag
 - `d18cdb1` Publish the tag a commit already carries instead of inventing one
+- `6171dd2` Record: the handover for the first release

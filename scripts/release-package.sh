@@ -7,9 +7,10 @@
 #   SHA256SUMS                                       the digest of that tarball
 #   RELEASE-NOTES.md                                 what the release says
 #
-# The tarball is deterministic: sorted names, no owner, and the commit's own timestamp,
-# so rebuilding one commit produces one digest.  scripts/install.sh expects exactly these
-# names, which is why they carry no version: GitHub serves
+# Packing one build is deterministic: sorted names, no owner, and the commit's own
+# timestamp, so packing twice produces one digest.  (Building again does not: the build
+# counter the version reports changes with every build.)  scripts/install.sh expects
+# exactly these names, which is why they carry no version: GitHub serves
 #   https://github.com/<repository>/releases/latest/download/<asset>
 # without an API call, and a version can still be pinned by adding the tag to the path.
 set -eu
