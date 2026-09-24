@@ -75,8 +75,9 @@ run covers the offline path.  No test uses the outside network.
 the commit being released (and refuses a build whose version does not name that commit), packages
 the release, tags `v<version>` (overridable with `TAG`), pushes the branch and the tag to
 `PUSH_REMOTE` (default `origin`), and creates the release with the tarball and `SHA256SUMS` as
-assets.  `TITLE` overrides the title.  An existing tag has to be on the commit being published, or
-the run stops: a release that does not match its tag is worse than no release.  A push is skipped
+assets.  `TITLE` overrides the title.  Without `TAG`, the tag the commit already carries is
+published; only a commit with no tag gets an invented `v<version>`.  An existing tag has to be on
+the commit being published, or the run stops: a release that does not match its tag is worse than no release.  A push is skipped
 when the remote already has the ref, which is safe because reading a public repository needs no
 credentials — and it is what lets the release be published on a checkout whose push credentials
 are not configured, once the commit and tag are there.
@@ -95,8 +96,10 @@ remaining command is
 TAG=v2026.09.23 make release-publish
 ```
 
-after `gh auth login`.  The script is written to be run again safely: an existing tag is reused, and
-an existing release has its assets re-uploaded.
+after `gh auth login` — with the tag already on the commit, plain `make release-publish` runs it,
+because the tag the commit carries is the one that gets published.  The script is written to be run
+again safely: an existing tag is reused, the branch and tag pushes are skipped when the remote
+already has them, and an existing release has its assets re-uploaded.
 
 ## Verification
 
@@ -108,3 +111,6 @@ and the package built from that clean tree was installed and run by the installe
 
 - `22f46ce` Publish a release, with a script that installs it
 - `757d174` Let make clean remove the release directory too
+- `1b1b627`, `2f1414b` Record: the release tooling
+- `5b4cf58` Skip a push the remote already has, and keep a release on its tag
+- `d18cdb1` Publish the tag a commit already carries instead of inventing one
