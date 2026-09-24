@@ -21,7 +21,7 @@ that names the file at all. The runtime process that does name it is a sibling, 
 The authoritative source is the environment the runtime leaves behind:
 
 ```
-APPIMAGE=/home/preston/Applications/UltiMaker-Cura-5.13.0-linux-X64.AppImage
+APPIMAGE=~/Applications/UltiMaker-Cura-5.13.0-linux-X64.AppImage
 APPDIR=/tmp/.mount_UltiManBieKJ
 ```
 

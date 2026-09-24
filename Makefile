@@ -5,8 +5,10 @@
 #	Each rule calls the appropriate tool instead of reimplementing work:
 #		build:  sh scripts/program-build.sh (readers and command-line tools)
 #		        The build tree is written to dataflow.out/build/.
-#		site:   sh scripts/site-build.sh + sh scripts/site-condense.sh
+#		site:   sh scripts/site-state-fetch.sh (live state, owning host)
+#		        sh scripts/site-build.sh + sh scripts/site-condense.sh
 #		        (the standard page set; see prompts/features/02-project-pages.md)
+#		state:  sh scripts/site-state-fetch.sh (refresh the live-state file only)
 #		clean:  remove generated output, including the path-bound build tree
 #		test:   npm test
 #		deploy: RETIRED - all publishing to labs.bannister.us goes through
@@ -21,7 +23,11 @@
 build:
 	sh scripts/program-build.sh
 
+state:
+	sh scripts/site-state-fetch.sh
+
 site:
+	sh scripts/site-state-fetch.sh
 	sh scripts/site-build.sh
 	sh scripts/site-condense.sh
 
@@ -46,4 +52,4 @@ release:
 release-publish:
 	sh scripts/release-publish.sh
 
-.PHONY: build site clean test deploy install release release-publish
+.PHONY: build site state clean test deploy install release release-publish

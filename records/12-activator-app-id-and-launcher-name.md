@@ -66,7 +66,7 @@ conflict, Integrate simply installs, and there is nothing to tell apart.
 ## Found While Verifying
 
 `~/Applications` no longer exists on this host; the whole directory now sits at
-`~/Downloads/Applications`. Every integrated launcher still has `Exec=/home/preston/Applications/…`,
+`~/Downloads/Applications`. Every integrated launcher still has `Exec=~/Applications/…`,
 so those launchers are broken until they are re-integrated from the new paths. Nothing in this
 project moved them — the tests work only inside `mktemp` sandboxes with a redirected `HOME` — but
 it is worth re-running `appimage-integrate audit` and `install` once the directory is settled.

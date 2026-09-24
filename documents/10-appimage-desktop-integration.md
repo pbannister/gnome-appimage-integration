@@ -387,7 +387,7 @@ Verified 2026-09-21; this is the state the project's `audit` command is designed
 - AppImageLauncher 3.0.0-beta-2 was installed and was the default handler for all three AppImage MIME types.
 - Five AppImages were integrated: OpenShot, FreeCAD, OrcaSlicer, UltiMaker Cura, and Raspberry Pi Imager.
 - Two FreeCAD launchers existed, from identifiers `f55dc857fd6b44ae58db0c1e87cf797c` and `cd74351f9d906bd3afef3d151af73e79`.
-- OrcaSlicer had an active `com.orcaslicer.OrcaSlicer.desktop` whose `Exec` pointed at a wrapper script outside `~/Applications`, alongside an `appimagekit_c39dc95119a81b9d7e5153a6feb79bfb-OrcaSlicer.desktop` whose `Icon` was the absolute path `/home/preston/Applications/OrcaSlicer.png`, plus two `.bak` files.
+- OrcaSlicer had an active `com.orcaslicer.OrcaSlicer.desktop` whose `Exec` pointed at a wrapper script outside `~/Applications`, alongside an `appimagekit_c39dc95119a81b9d7e5153a6feb79bfb-OrcaSlicer.desktop` whose `Icon` was the absolute path `~/Applications/OrcaSlicer.png`, plus two `.bak` files.
 - One icon was installed into a size directory literally named `0x0`, which no theme lookup will find.
 - Icons for OpenShot and FreeCAD were split across `16x16`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256`, `512x512`, and `scalable`, which is the correct hicolor practice.
 

@@ -60,11 +60,11 @@ This is the ordinary case for a tool that installs itself an activator.
 ## Live Verification
 
 - `appimage-activator --activate update` on the installed `FreeCAD_1.1.3-…AppImage`, driven through
-  `/home/preston/.local/bin/appimage-integrate`, printed
+  `~/.local/bin/appimage-integrate`, printed
   `=== status in bold ===` / `You already are using the latest version.` / `=== disabled === Update`.
 - The FreeCAD integration itself is now 1.1.3, integrated and `properly integrated`, with the
   launcher, `TryExec` and the Update item all naming
-  `/home/preston/Applications/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage`, and 1.1.1 preserved as
+  `~/Applications/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage`, and 1.1.1 preserved as
   `FreeCAD_1.1.1-…AppImage.previous`.  An update on the real desktop completed at 16:09 and did
   exactly what this feature set describes — the new file under its own name, the replaced file
   kept — which also means it was that update, not a hand edit, that changed the FreeCAD launcher

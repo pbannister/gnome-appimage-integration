@@ -29,6 +29,7 @@ DIRECTORY_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$DIRECTORY_SCRIPT/.." && pwd)
 DIRECTORY_INPUT="$REPOSITORY_ROOT/site.in"
 DIRECTORY_OUTPUT="$REPOSITORY_ROOT/site.out"
+DIRECTORY_BUILD="$REPOSITORY_ROOT/dataflow.out/build"
 FILE_TEMPLATE="$DIRECTORY_INPUT/template.html"
 COMMENT_MARKER='<!-- SITE-CONTENT -->'
 
@@ -275,6 +276,55 @@ fi
 page 'Todo' "$tmp_todo" "$DIRECTORY_OUTPUT/todo.html"
 rm -f "$tmp_todo"
 
+# --- appimages.html (extra page: the live inventory on the owning host) ------
+# Read from the tool itself, so the page cannot drift from the desktop it describes.
+# An extra page has to appear in pages.txt (site.in/pages.nav), or the homelab nav
+# would not offer it.
+FILE_TOOL="$DIRECTORY_BUILD/appimage-integrate"
+tmp_appimages=$(mktemp)
+{
+    echo '<h1>AppImages on this host</h1>'
+    if [ -x "$FILE_TOOL" ]; then
+        file_listing=$(mktemp)
+        "$FILE_TOOL" list > "$file_listing" 2>/dev/null || true
+        count_integrated=$(grep -c . "$file_listing" || true)
+        echo "<p>Read from the installed tool at build time: $count_integrated AppImage(s) integrated on this host.</p>"
+        if [ "$count_integrated" -gt 0 ]; then
+            echo '<table>'
+            echo '  <tr><th>Application</th><th>Version</th><th>File</th><th>Launcher</th><th>State</th></tr>'
+            while IFS="$(printf '\t')" read -r identifier appimage launcher extra; do
+                [ -n "${appimage:-}" ] || continue
+                description=$(SITE_PATH="$appimage" "$FILE_TOOL" explain --json "$appimage" 2>/dev/null \
+                    | python3 -c 'import json,os,sys
+data = json.load(sys.stdin)
+name = data.get("name") or os.path.basename(os.environ["SITE_PATH"])
+print("%s\t%s\t%s" % (name, data.get("version") or "(none)", data.get("mode") or "(unknown)"))' \
+                    2>/dev/null || printf '%s\t%s\t%s' "$(basename "$appimage")" "(none)" "(unknown)")
+                name=$(printf '%s' "$description" | cut -f1)
+                version=$(printf '%s' "$description" | cut -f2)
+                state=$(printf '%s' "$description" | cut -f3)
+                if [ -n "${extra:-}" ]; then
+                    state="$state <strong>[MISSING: the file is not there]</strong>"
+                fi
+                printf '  <tr><td>%s</td><td>%s</td><td><code>%s</code></td><td><code>%s</code></td><td>%s</td></tr>\n' \
+                    "$(printf '%s' "$name" | html_escape)" \
+                    "$(printf '%s' "$version" | html_escape)" \
+                    "$(printf '%s' "$appimage" | sed "s|$HOME|~|" | html_escape)" \
+                    "$(printf '%s' "$launcher" | sed "s|$HOME|~|" | html_escape)" \
+                    "$(printf '%s' "$state" | html_escape)"
+            done < "$file_listing"
+            echo '</table>'
+        else
+            echo '<p>No AppImage has been integrated by this tool on this host.</p>'
+        fi
+        rm -f "$file_listing"
+    else
+        echo '<p>The tool is not built in this checkout, so the inventory cannot be read.</p>'
+    fi
+} > "$tmp_appimages"
+page 'AppImages' "$tmp_appimages" "$DIRECTORY_OUTPUT/appimages.html"
+rm -f "$tmp_appimages"
+
 # --- prompts.html / documents.html / records.html + full-text pages ---------
 map_tree 'Prompts' "$REPOSITORY_ROOT/prompts" "$DIRECTORY_OUTPUT/prompts.html"
 publish_tree "$REPOSITORY_ROOT/prompts"
@@ -287,17 +337,30 @@ publish_tree "$REPOSITORY_ROOT/records"
 # Reads PHASES.md ("Current: phase N — state") and writes site.out/phase.txt
 # as KEY=VALUE lines (PHASE=N, PHASE_STATE=state). The homelab fetch stages
 # this file and the site merges it with the registry activity status.
+# The Current line reads "Current: phase N — <description> — <state>", where the state is
+# the last field and is one of the three the conventions allow; the description in the
+# middle is for people.  A line that does not fit leaves phase.txt unwritten, and the
+# /projects/ page simply shows the activity without a phase.
 FILE_PHASES="$REPOSITORY_ROOT/PHASES.md"
 if [ -f "$FILE_PHASES" ]; then
-    phase_current=$(sed -n 's/^Current: phase \([0-9][0-9]*\) *— *\([a-z-]*\)$/\1 \2/p' "$FILE_PHASES" | head -1)
-    if [ -n "$phase_current" ]; then
-        phase_num=${phase_current% *}
-        phase_state=${phase_current#* }
+    phase_line=$(grep -m1 '^Current: phase ' "$FILE_PHASES" || true)
+    phase_num=$(printf '%s' "$phase_line" | sed -n 's/^Current: phase \([0-9][0-9]*\).*/\1/p')
+    phase_state=$(printf '%s' "$phase_line" | awk -F'—' 'NF > 1 { state = $NF; gsub(/^[ \t]+|[ \t]+$/, "", state); print state }')
+    case "$phase_state" in
+        not-started | started | complete)
+            ;;
+        *)
+            phase_state=""
+            ;;
+    esac
+    if [ -n "$phase_num" ] && [ -n "$phase_state" ]; then
         {
             echo "PHASE=$phase_num"
             echo "PHASE_STATE=$phase_state"
         } > "$DIRECTORY_OUTPUT/phase.txt"
         echo "site-condense: wrote phase.txt (phase $phase_num, $phase_state)"
+    else
+        echo "site-condense: PHASES.md has no 'Current: phase N — state' line; phase.txt not written" >&2
     fi
 fi
 

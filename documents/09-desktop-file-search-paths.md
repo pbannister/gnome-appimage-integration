@@ -98,7 +98,7 @@ Verified 2026-09-21 on this Ubuntu 24.04 host running GNOME Shell 46.0.
 - `$XDG_DATA_DIRS` was:
 
 ```
-/usr/share/ubuntu:/usr/share/gnome:/home/preston/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop
+/usr/share/ubuntu:/usr/share/gnome:~/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop
 ```
 
 The resulting effective application search path and its observed state was:

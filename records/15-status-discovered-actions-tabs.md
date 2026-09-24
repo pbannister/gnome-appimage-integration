@@ -52,7 +52,7 @@ Launcher:  com.orcaslicer.OrcaSlicer.desktop
 ...
   origin:    this tool (this AppImage, and its launcher is broken)
   state:     the same AppImage, not where this launcher expects it
-  appimage:  /home/preston/Applications/OrcaSlicer_...AppImage  [MISSING]
+  appimage:  ~/Applications/OrcaSlicer_...AppImage  [MISSING]
 
 Replace existing repairs that launcher: the AppImage is not where the launcher expects it, so
 its Exec and TryExec are rewritten.
@@ -86,14 +86,14 @@ Status therefore reads, for the real FreeCAD 1.1.3 AppImage:
 ```
 State:     another launcher already represents this application
 Launcher:  org.freecad.FreeCAD.desktop
-File:      /home/preston/Downloads/Applications/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage
+File:      ~/Downloads/Applications/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage
 
 This application is already installed.
 Integrate will show details, then offer to replace or add alongside.
 
 2 existing launcher(s) already represent this application:
-  /home/preston/.local/share/applications/org.freecad.FreeCAD-2.desktop  (this tool)
-  /home/preston/.local/share/applications/org.freecad.FreeCAD.desktop  (this tool (a different AppImage for the same identifier))
+  ~/.local/share/applications/org.freecad.FreeCAD-2.desktop  (this tool)
+  ~/.local/share/applications/org.freecad.FreeCAD.desktop  (this tool (a different AppImage for the same identifier))
 choose --replace to back them up and install this version in their place, or --add to install alongside them
 ```
 

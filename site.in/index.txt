@@ -1,23 +1,82 @@
 <h1>Project status</h1>
 
 <p>
-Aim of this project is to provide a common project skeleton.
-Should capture best practice in working with an LLM (asked of an LLM).
-Also capture practice from personal experience.
-With each project derived from this skeleton, aim to incorporate lessons learned.
+This project reads AppImage files and their desktop entries, and gives an AppImage a proper
+place on a GNOME desktop: a launcher in the application menu, icons in the hicolor theme,
+MIME associations, a context menu, and a window the owner can drive.  It also keeps that
+integration honest afterwards — an AppImage can be inspected, refreshed, migrated from
+another tool, audited, and updated.
 </p>
+
 <p>
-The skeleton is aimed at projects as part of a larger <b>homelab</b> project.
-There is a website associated with the homelab.
-Projects pages are published to the common homelab website.
-</p>
-<p>
-There are still some rough spots.
-Have not <i>entirely</i> sorted records, episodes, phases, or tasks - but seems a good start.
-</p>
-<p>
-The set of prompts inform and constrain the LLM well enough to produce result that I find acceptable.
+It started as a replacement for AppImageLauncher, which had been removed from this host.
+Where that tool hid what it did, this one is built to be overt: <code>plan</code> prints
+every file an install would write, <code>explain</code> prints where each fact came from,
+and <code>audit</code> reports what disagrees with what.
 </p>
 
 <h2>Status</h2>
 
+<p>
+Phase 3 is complete.  The launchers AppImageLauncher had written are migrated or gone, and an
+AppImage can now be updated: <code>update --check</code> asks the update information embedded
+in the file what the vendor offers, <code>update</code> takes it, verifies the download, and
+keeps the file it replaced.  The same action is offered by the window's <b>Update</b> button
+and by the launcher's context menu.
+</p>
+
+<p>
+The work is published.  A GitHub release carries the built tools for Linux, and one script
+installs them into <code>~/.local</code>:
+</p>
+
+<pre><code>curl -fsSL https://raw.githubusercontent.com/pbannister/gnome-appimage-integration/master/scripts/install.sh | sh</code></pre>
+
+<p>
+The script checks the download against the release's <code>SHA256SUMS</code> before it
+installs anything, and it leaves the <code>*.AppImage</code> handler alone: claiming that is a
+deliberate second step, <code>appimage-integrate handler install</code>.
+</p>
+
+<h2>How it works</h2>
+
+<table>
+  <tr><th>Part</th><th>What it does</th></tr>
+  <tr>
+    <td><code>appimage-inspect</code></td>
+    <td>The container: the type 1 or type 2 layout, the ELF facts, the SquashFS payload, the
+        embedded desktop entry, the update information, and the <code>.sha256_sig</code>
+        signature.</td>
+  </tr>
+  <tr>
+    <td><code>desktop-inspect</code></td>
+    <td>The desktop: which entry wins an identifier, which icon a theme resolves, which
+        application a MIME type opens, and why.</td>
+  </tr>
+  <tr>
+    <td><code>appimage-integrate</code></td>
+    <td>The integration: <code>plan</code>, <code>install</code>, <code>uninstall</code>,
+        <code>list</code>, <code>refresh</code>, <code>migrate</code>, <code>update</code>,
+        <code>windows</code>, <code>audit</code>, and the <code>*.AppImage</code> handler.</td>
+  </tr>
+  <tr>
+    <td><code>appimage-activator</code></td>
+    <td>The window a launcher, the handler, or the context menu opens: what the file is, what
+        was discovered, what an action did, and the buttons that do it.</td>
+  </tr>
+</table>
+
+<h2>Where the truth lives</h2>
+
+<p>
+The <a href="documents.html">documents</a> record what was verified against the
+specifications; the <a href="records.html">records</a> record what each episode found,
+decided, and left open.  The <a href="dashboard.html">dashboard</a> shows the live state of
+the host this project runs on, and <a href="appimages.html">AppImages</a> lists what it has
+integrated there.
+</p>
+
+<p>
+Nothing is written to the desktop without being asked for: every install can be reversed with
+<code>uninstall</code>, which restores whatever launcher it displaced.
+</p>

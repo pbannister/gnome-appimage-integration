@@ -1,10 +1,34 @@
 <h1>Dashboard</h1>
 
 <p>
-Live state from the owning host, captured by a project-provided
-<code>scripts/site-state-fetch.sh</code> (see the homelab project pages
-conventions: standard page set). This skeleton ships a placeholder; a real
-project replaces this page with live values.
+Live state of the host that owns this project, captured when the pages were built by
+<code>scripts/site-state-fetch.sh</code>.  A value with no state behind it reads
+<code>unavailable</code>.
 </p>
 
-<p>Live state: not configured.</p>
+<table>
+  <tr><th>Fact</th><th>Value</th></tr>
+  <tr><td>Captured</td><td><code>__FETCHED__</code></td></tr>
+  <tr><td>Host</td><td><code>__HOST__</code></td></tr>
+  <tr><td>Version the tools report</td><td><code>__VERSION__</code></td></tr>
+  <tr><td>Latest release tag in the repository</td><td><code>__RELEASE__</code></td></tr>
+  <tr><td>AppImages integrated here</td>
+      <td>__INTEGRATED_COUNT__ — listed on the <a href="appimages.html">AppImages</a> page</td></tr>
+  <tr><td>Where they are kept</td><td><code>__MANAGED_DIR__</code></td></tr>
+  <tr><td><code>*.AppImage</code> handler</td><td>__HANDLER__</td></tr>
+  <tr><td>Audit findings on this desktop</td>
+      <td>__AUDIT_ERRORS__ error(s) and __AUDIT_WARNINGS__ warning(s)</td></tr>
+</table>
+
+<p>
+The audit covers the whole desktop, not only this project's launchers: a launcher written by
+another tool, a desktop entry that cannot be parsed, or an icon that no theme resolves is
+reported too.  It is a point-in-time snapshot, taken by the build, and it is meant to be
+re-run rather than trusted: <code>appimage-integrate audit</code>, and
+<code>audit --check</code> to ask the update information as well.
+</p>
+
+<p>
+This page is generated from the state file, so it cannot drift from the host: the version is
+the one the built tools report, and the counts come from the tool reading the real desktop.
+</p>

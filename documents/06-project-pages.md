@@ -100,6 +100,26 @@ homelab (`scripts/labs-deploy.sh`, `tests/03-labs-site.sh`,
    `curl https://labs.bannister.us/projects/<id>/` returns 200 and the
    content is sanitized.
 
+## How this project does it
+
+- `site.in/index.txt` — the status page, written for this project rather than
+  left as the skeleton placeholder.
+- `site.in/dashboard.txt` — the live state, as `__KEY__` placeholders.
+- `site.in/pages.nav` — the page set, with **AppImages** as an extra page.
+- `scripts/site-state-fetch.sh` (`make state`) — writes
+  `dataflow.out/site-state.txt`: `FETCHED`, `HOST`, `VERSION`, `RELEASE`,
+  `INTEGRATED_COUNT`, `MANAGED_DIR`, `HANDLER`, `AUDIT_ERRORS`,
+  `AUDIT_WARNINGS`.  Values are sanitized of home paths (the publishing gate
+  refuses them) and HTML-escaped, because they land in HTML.
+- `scripts/site-build.sh` — substitutes `__KEY__` from that file; a key with
+  no value becomes `unavailable`, so the pages build on a host where the tool
+  is not installed.
+- `scripts/site-condense.sh` — additionally generates `appimages.html`, the
+  live inventory of what this tool has integrated on the owning host, read
+  from the tool at build time so it cannot drift from the desktop.  It also
+  reads the phase from `PHASES.md` (the state is the last field of the
+  `Current:` line, so the line can carry a description as well).
+
 ## Live example
 
 - `amd-mi25-fan-service` (SSHFS at `~/remote/beast.lan/work/...`) and

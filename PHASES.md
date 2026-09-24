@@ -12,11 +12,12 @@ registry. The homelab reads it from the generated `site.out/phase.txt`
 shows it next to the activity status (active/planned/deferred/complete),
 which the human declares in the homelab registry.
 
-Current: phase 2 — desktop integration — complete
+Current: phase 4 — publishing — complete
 
 - Phase 1 — document the AppImage and desktop entry formats and implement both readers and the locator — complete
 - Phase 2 — document the integration best practice, make icon, MIME, and parameter provenance overt, and implement plan, install, uninstall, run, audit, and the double-click handler — complete
-- Phase 3 — migrate the remaining AppImageLauncher-created launchers and add an update path — not-started
+- Phase 3 — migrate the remaining AppImageLauncher-created launchers and add an update path — complete
+- Phase 4 — make the project installable by others: the project pages, a GitHub release, and a one-command install script — complete
 
 States: `not-started` | `started` | `complete`. Keep this file in sync
 with the episodes that advance each phase and with `TODO.md`.

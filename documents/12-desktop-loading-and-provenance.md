@@ -198,7 +198,7 @@ The OrcaSlicer application had two active launchers and two backup files:
 | File | `Exec` | `Icon` | `StartupWMClass` |
 | ---- | ------ | ------ | ---------------- |
 | `com.orcaslicer.OrcaSlicer.desktop` | `~/orca-config-backups/run-orcaslicer.sh %F` | `appimagekit_c39..._OrcaSlicer` | `OrcaSlicer` |
-| `appimagekit_c39...-OrcaSlicer.desktop` | `~/Applications/OrcaSlicer_...AppImage %F` | `/home/preston/Applications/OrcaSlicer.png` | `com.orcaslicer.OrcaSlicer` |
+| `appimagekit_c39...-OrcaSlicer.desktop` | `~/Applications/OrcaSlicer_...AppImage %F` | `~/Applications/OrcaSlicer.png` | `com.orcaslicer.OrcaSlicer` |
 | `com.orcaslicer.OrcaSlicer.desktop.bak2` | not loaded | | |
 | `com.orcaslicer.OrcaSlicer.desktop.bak-142214` | not loaded | | |
 
