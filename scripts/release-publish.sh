@@ -49,6 +49,15 @@ case "$VERSION" in
         exit 1
         ;;
 esac
+case "$VERSION" in
+    *-changes)
+        # The version carries -changes when the working tree was dirty at build time, and a
+        # release must be the commit it says it is.
+        echo "release-publish: the products were built from a dirty tree ($VERSION)" >&2
+        echo "release-publish: commit the changes first" >&2
+        exit 1
+        ;;
+esac
 
 sh "$DIRECTORY_SCRIPT/release-package.sh"
 
