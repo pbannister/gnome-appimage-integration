@@ -8,9 +8,9 @@ The project now publishes GitHub releases, and a user installs them with one com
 curl -fsSL https://raw.githubusercontent.com/pbannister/gnome-appimage-integration/master/scripts/install.sh | sh
 ```
 
-Three scripts do the work, and `make release-package`/`make release-publish` (or `make release`,
-`make release-publish`) drive them.  `TODO.md` lost its completed items and now holds only what is
-still open.
+Three scripts do the work, driven by `make release` (package the assets) and
+`make release-publish` (tag and publish them).  `TODO.md` lost its completed items and now holds
+only what is still open.
 
 ## The Pieces
 
@@ -84,4 +84,5 @@ and the package built from that clean tree was installed and run by the installe
 
 ## Commits
 
-- `TBD` Publish a release, with a script that installs it
+- `22f46ce` Publish a release, with a script that installs it
+- `757d174` Let make clean remove the release directory too
