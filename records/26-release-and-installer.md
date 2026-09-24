@@ -73,9 +73,13 @@ run covers the offline path.  No test uses the outside network.
 
 `scripts/release-publish.sh` refuses a dirty tree, requires `gh` to be authenticated, builds from
 the commit being released (and refuses a build whose version does not name that commit), packages
-the release, tags `v<version>` (overridable with `TAG`), pushes the commit and the tag to
+the release, tags `v<version>` (overridable with `TAG`), pushes the branch and the tag to
 `PUSH_REMOTE` (default `origin`), and creates the release with the tarball and `SHA256SUMS` as
-assets.  `TITLE` overrides the title.
+assets.  `TITLE` overrides the title.  An existing tag has to be on the commit being published, or
+the run stops: a release that does not match its tag is worse than no release.  A push is skipped
+when the remote already has the ref, which is safe because reading a public repository needs no
+credentials — and it is what lets the release be published on a checkout whose push credentials
+are not configured, once the commit and tag are there.
 
 ## The First Release
 

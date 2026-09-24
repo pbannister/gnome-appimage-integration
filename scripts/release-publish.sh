@@ -39,6 +39,7 @@ sh "$DIRECTORY_SCRIPT/program-build.sh"
 
 VERSION=$("$REPOSITORY_ROOT/dataflow.out/build/appimage-integrate" --version | awk '{print $2}')
 COMMIT=$(git -C "$REPOSITORY_ROOT" rev-parse --short HEAD)
+HEAD_COMMIT=$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)
 case "$VERSION" in
     *"$COMMIT"*)
         ;;
@@ -61,15 +62,39 @@ if [ -z "$FILE_TARBALL" ]; then
 fi
 
 if git -C "$REPOSITORY_ROOT" rev-parse --verify --quiet "refs/tags/$TAG" > /dev/null; then
-    echo "release-publish: tag $TAG already exists; publishing the files to it"
+    TAG_COMMIT=$(git -C "$REPOSITORY_ROOT" rev-parse "$TAG^{commit}")
+    if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+        echo "release-publish: tag $TAG is on $TAG_COMMIT, not on $HEAD_COMMIT" >&2
+        echo "release-publish: a release has to match its tag; move the tag, or set TAG" >&2
+        exit 1
+    fi
+    echo "release-publish: tag $TAG already exists on this commit; publishing the files to it"
 else
     git -C "$REPOSITORY_ROOT" tag -a "$TAG" -m "$TITLE"
     echo "release-publish: tagged $TAG"
 fi
 
-# The commit and the tag first: a release whose tag is not pushed cannot be fetched.
-git -C "$REPOSITORY_ROOT" push "$PUSH_REMOTE" HEAD
-git -C "$REPOSITORY_ROOT" push "$PUSH_REMOTE" "$TAG"
+# The commit and the tag first: a release whose tag is not pushed cannot be fetched.  A
+# public repository can be read without credentials, so a push is skipped when the remote
+# already has the ref, which is the usual case for a commit that has been pushed once.
+push_if_needed() { # <ref> <description>
+    if git -C "$REPOSITORY_ROOT" ls-remote --exit-code "$PUSH_REMOTE" "$1" > /dev/null 2>&1; then
+        echo "release-publish: $PUSH_REMOTE already has $2"
+        return 0
+    fi
+    if ! git -C "$REPOSITORY_ROOT" push "$PUSH_REMOTE" "$1"; then
+        echo "release-publish: could not push $2 to $PUSH_REMOTE" >&2
+        echo "release-publish: if this checkout pushes over SSH, set PUSH_REMOTE, for example:" >&2
+        echo "release-publish:   PUSH_REMOTE=git@github.com:OWNER/REPO.git make release-publish" >&2
+        return 1
+    fi
+    echo "release-publish: pushed $2"
+    return 0
+}
+
+BRANCH=$(git -C "$REPOSITORY_ROOT" symbolic-ref --short HEAD)
+push_if_needed "refs/heads/$BRANCH" "the branch $BRANCH" || exit 1
+push_if_needed "refs/tags/$TAG" "the tag $TAG" || exit 1
 
 if gh release view "$TAG" > /dev/null 2>&1; then
     echo "release-publish: release $TAG exists; uploading the files to it"
