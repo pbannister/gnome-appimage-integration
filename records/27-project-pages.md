@@ -56,12 +56,13 @@ machine where the tool is not installed.
 
 ## Sanitizing the Sources
 
-The gate refuses `preston`, `cainboy`, `/home/<letter>`, MAC addresses, private LAN IPs, and key
-material, and **the full text of every prompts, documents and records file is published**.  Seven
-files carried eleven `/home/preston/...` paths — in two documents, four records and a search-path
+The gate refuses a bare user name, absolute home paths, MAC addresses, private LAN addresses, and
+key material, and **the full text of every prompts, documents and records file is published**.
+Seven files carried eleven absolute home paths — in two documents, four records and a search-path
 example.  All were rewritten to `~`, which keeps the meaning and passes the gate.  Nothing else
 tripped it: no MAC addresses, no private addresses, no bare user name.  The gate now passes over
-all 84 generated pages.
+all 84 generated pages — including this record, whose first version the gate refused for naming
+the very patterns it describes.
 
 ## Registration and Publishing
 
@@ -81,7 +82,7 @@ The homelab entry:
     status: active
     visibility: public
     self_published: true
-    pages_source: /home/preston/work/gnome-appimage-integration/site.out/
+    pages_source: ~/work/gnome-appimage-integration/site.out/
 ```
 
 `repository` and `readme_source` were dropped after `tests/07-projects-registry.sh` pointed out
