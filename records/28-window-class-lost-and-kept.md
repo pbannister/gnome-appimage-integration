@@ -114,4 +114,4 @@ and the context menu.
 
 ## Commits
 
-- `TBD` Keep a window class this tool installed, and repair OrcaSlicer and Cura
+- `3baf79c` Keep a window class this tool installed, and repair two launchers
