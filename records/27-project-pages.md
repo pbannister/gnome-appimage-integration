@@ -105,4 +105,4 @@ Verified 2026-09-24:
 
 ## Commits
 
-- `PENDING` Publish the project pages: real status and dashboard, live state, and an AppImage inventory
+- `aab2901` Publish the project pages: real status, live state, and an inventory: real status and dashboard, live state, and an AppImage inventory
