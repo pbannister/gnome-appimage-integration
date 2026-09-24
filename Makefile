@@ -26,7 +26,7 @@ site:
 	sh scripts/site-condense.sh
 
 clean:
-	rm -rf dataflow.out/build
+	rm -rf dataflow.out/build dataflow.out/release dataflow.out/generated
 	rm -f dataflow.out/* site.out/* logs/*
 
 test:
