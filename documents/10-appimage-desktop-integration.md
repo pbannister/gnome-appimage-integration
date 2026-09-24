@@ -229,6 +229,25 @@ while the window's application id is `orca-slicer`, so only the explicit value k
 icon.  `explain --json` reports the choice as `startup_wm_class_source` (`explicit` or
 `embedded`), and `plan` marks an explicit class as kept over the embedded entry.
 
+The order the class is chosen in, because it is what makes a chosen class survive:
+
+| Source | Why it wins where it does |
+| ------ | ------------------------- |
+| `--wm-class` | the owner said so |
+| the running application (`--wm-class-from-window`) | a fact about the window now |
+| a remembered `override` in the manifest | a choice made earlier, and the only record of it |
+| **the launcher this tool already installed** | better evidence than the embedded entry: its class was chosen by hand or read from the window, and the embedded value is only the AppImage author's guess |
+| the embedded entry | the author's guess, used when nothing better exists |
+| a contradictory launcher, then a displaced launcher's backup | borrowed only when there is no class at all |
+
+The fourth line is the one that was missing, and losing it is how OrcaSlicer's dock icon went
+missing twice: a launcher carrying the guess again would have its class taken as the truth, and
+the good value could then be recorded over.  A hand-edited launcher now keeps its class, and
+`refresh` reads the manifest's remembered choice before the launcher's, so a launcher that has
+lost the class cannot overwrite the record with the guess.  Recovery, if a class is lost
+anyway, is always the same: start the application, run `appimage-integrate windows`, and
+install with the class it reports.
+
 On Wayland the shell matches on the window's **application id**, not on a WM class. GTK takes
 that id from the `Gtk.Application` id when one is set and from the program name otherwise
 (GTK 4.14, `gdk/wayland/gdktoplevel-wayland.c`). Whichever value is in play, it must equal the

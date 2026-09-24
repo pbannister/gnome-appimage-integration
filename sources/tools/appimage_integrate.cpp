@@ -1068,14 +1068,17 @@ bool build_refresh_plan_for(const appimage_integrator_c &o_integrator,
             s_class_source = "the running application, " + s_where;
         }
     }
-    if (s_class.empty() && !s_launcher_class.empty()) {
-        s_class = s_launcher_class;
-        s_class_source = "the launcher being replaced";
-    }
+    // The record's explicit choice comes before the launcher's class: a launcher can be
+    // holding the embedded entry's guess again (an install that lost the record, a hand
+    // edit), and letting it win here would quietly overwrite the choice with the guess.
     if (s_class.empty() && o_entry.startup_wm_class_is_explicit
         && !o_entry.startup_wm_class.empty()) {
         s_class = o_entry.startup_wm_class;
         s_class_source = "the record";
+    }
+    if (s_class.empty() && !s_launcher_class.empty()) {
+        s_class = s_launcher_class;
+        s_class_source = "the launcher being replaced";
     }
 
     integration_options_o o_options;

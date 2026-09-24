@@ -1040,6 +1040,31 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         };
         o_plan.conflicts = o_detect_conflicts();
 
+        // A class in the embedded entry is the AppImage author's guess, and it can be
+        // wrong: OrcaSlicer's says OrcaSlicer while the window's id is orca-slicer.  A
+        // launcher this tool already installed is better evidence, because its class was
+        // chosen by hand or read from the running window; keeping it is also what stops a
+        // re-integration from quietly losing a class that works.
+        if (!o_plan.startup_wm_class_is_explicit) {
+            for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
+                if (o_conflict.wm_class.empty()
+                    || o_conflict.wm_class == o_plan.startup_wm_class) {
+                    continue;
+                }
+                if (0 != o_conflict.origin.find("this tool")) {
+                    // A launcher from another tool is not evidence about this application.
+                    continue;
+                }
+                o_plan.notes.push_back(
+                    "kept StartupWMClass=" + o_conflict.wm_class + " from " + o_conflict.path
+                    + ", which this tool installed; the embedded entry says "
+                    + (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class));
+                o_plan.startup_wm_class = o_conflict.wm_class;
+                o_plan.startup_wm_class_is_explicit = true;
+                o_plan.conflicts = o_detect_conflicts();
+                break;
+            }
+        }
         if (o_plan.startup_wm_class.empty()) {
             // Borrow the class from a launcher that already represents this application:
             // it is the class the dock already matches on for this application.

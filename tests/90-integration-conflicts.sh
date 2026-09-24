@@ -472,4 +472,64 @@ grep -q '^StartupWMClass=AdoptClassFromOther$' \
     || fail_test "the adopted class did not reach the launcher"
 
 
+echo "=== a class this tool installed survives a re-install ==="
+# The embedded entry's class is the author's guess.  A launcher this tool wrote is better
+# evidence, because its class was chosen by hand or read from the running window; losing
+# it to the guess is how OrcaSlicer's dock icon went missing twice.
+DIRECTORY_PAYLOAD_KLASS="$DIRECTORY_TEMP/payload-klass"
+mkdir -p "$DIRECTORY_PAYLOAD_KLASS/usr/share/icons/hicolor/48x48/apps"
+printf 'fake-png-klass' > "$DIRECTORY_PAYLOAD_KLASS/usr/share/icons/hicolor/48x48/apps/klass.png"
+printf 'fake-diricon-klass' > "$DIRECTORY_PAYLOAD_KLASS/.DirIcon"
+cat > "$DIRECTORY_PAYLOAD_KLASS/org.example.Klass.desktop" <<'ENTRY'
+[Desktop Entry]
+Type=Application
+Name=Klass App
+Exec=klass %U
+Icon=klass
+Categories=Utility;
+StartupWMClass=EmbeddedClass
+X-AppImage-Version=1.0.0
+ENTRY
+build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD_KLASS" "$DIRECTORY_TEMP/Klass.AppImage" gzip
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/Klass.AppImage" > /dev/null 2>&1
+FILE_KLASS="$DIRECTORY_APPLICATIONS/org.example.Klass.desktop"
+grep -q '^StartupWMClass=EmbeddedClass$' "$FILE_KLASS" \
+    || fail_test "the embedded class was not used on a first install"
+# What an owner does after reading the running window: set the class by hand.
+sed 's/^StartupWMClass=EmbeddedClass$/StartupWMClass=HandSetClass/' "$FILE_KLASS" \
+    > "$FILE_KLASS.handset"
+mv "$FILE_KLASS.handset" "$FILE_KLASS"
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/Klass.AppImage" > "$DIRECTORY_TEMP/klass-install.txt" 2>&1
+grep -q '^StartupWMClass=HandSetClass$' "$FILE_KLASS" \
+    || fail_test "a re-install put the embedded class back"
+grep -q 'kept StartupWMClass=HandSetClass' "$DIRECTORY_TEMP/klass-install.txt" \
+    || fail_test "the kept class is not reported in the plan"
+FILE_KLASS_MANIFEST=$(grep -rl 'org.example.Klass.desktop' \
+    "$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration"/*.manifest | head -1)
+grep -q '^startup_wm_class_source=override$' "$FILE_KLASS_MANIFEST" \
+    || fail_test "the kept class was not recorded as the chosen one"
+# And it stays kept: a second re-install reads the record, not the guess.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    "$DIRECTORY_TEMP/Klass.AppImage" > /dev/null 2>&1
+grep -q '^StartupWMClass=HandSetClass$' "$FILE_KLASS" \
+    || fail_test "a second re-install lost the kept class"
+
+echo "=== refresh trusts the record's choice over a launcher that lost it ==="
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --no-move --yes \
+    --wm-class RecordedClass "$DIRECTORY_TEMP/Klass.AppImage" > /dev/null 2>&1
+grep -q '^StartupWMClass=RecordedClass$' "$FILE_KLASS" \
+    || fail_test "the chosen class was not installed"
+sed 's/^StartupWMClass=RecordedClass$/StartupWMClass=EmbeddedClass/' "$FILE_KLASS" \
+    > "$FILE_KLASS.lost"
+mv "$FILE_KLASS.lost" "$FILE_KLASS"
+# The sandbox also holds records whose AppImages this test removed, and refresh reports
+# those by exiting non-zero; only the class matters here.
+run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" refresh --yes \
+    > "$DIRECTORY_TEMP/klass-refresh.txt" 2>&1 || true
+grep -q '^StartupWMClass=RecordedClass$' "$FILE_KLASS" \
+    || fail_test "refresh let the launcher's class overwrite the record's choice"
+
+
 pass_test "integration conflicts"

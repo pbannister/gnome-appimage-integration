@@ -35,6 +35,7 @@ make every step printable, plannable, and reversible.
 - The integrator must expose a human-readable description of the AppImage and of a plan.
 - The integrator must recover a missing `StartupWMClass` from a previous manifest for the same AppImage, from a conflicting launcher, or from a launcher this tool displaced, and must persist the chosen class in the manifest.
 - A class set with `--wm-class`, or by an earlier install that used it, must be recorded as an explicit override in the manifest and must outrank the embedded entry on later installs.
+- A class the launcher already carries must outrank the embedded entry, because the embedded value is the AppImage author's guess; a launcher that lost the class must not let it win over the manifest's remembered choice.
 - The update information must be understood without a network: the transport, the repository, the release and the file-name pattern, resolved into the URL a check would fetch, with a value that is absent, unknown, or not implementable named as such rather than treated as an error.
 - A check must ask the named transport what it has and compare it with the installed version, without downloading anything; it must say when it cannot tell (a zsync file names a file, not a version), and it must not depend on the AppImage being integrated.
 - The launcher must offer an Update context item only when the AppImage carries usable update information, and that item must open the activator as if its Update button had been clicked rather than running the update behind the window's back.
