@@ -70,12 +70,35 @@ The format research that the readers implement is recorded in `documents/`.
 - `site.out/` contains generated static-site output (not version-controlled).
 - `Makefile` drives the build (`make build`), the tests (`make test`), the pages (`make site`), and cleanup (`make clean`).
 
+## Installing
+
+A release carries the built tools for Linux, and one script installs them:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pbannister/gnome-appimage-integration/master/scripts/install.sh | sh
+```
+
+The script fetches the release tarball for this machine, checks it against the release's
+`SHA256SUMS`, and installs into `$HOME/.local`. `PREFIX` installs elsewhere, `VERSION` pins a
+release tag, and where no prebuilt build exists for the machine it builds from the source archive
+instead. It installs the tools only: making this the `*.AppImage` handler stays a deliberate step,
+and the script prints it:
+
+```sh
+appimage-integrate handler install
+```
+
+`scripts/release-package.sh` makes the assets a release publishes, and `make release-publish` (with
+the GitHub CLI authenticated) tags the commit and publishes them.
+
 ## Building and Testing
 
 - `make build` configures and compiles the readers and command-line tools into `dataflow.out/build/`.
 - `make install` installs `appimage-inspect`, `desktop-inspect`, and `appimage-integrate` into `$HOME/.local/bin` (`PREFIX` overrides).
 - `make test` runs every test in `tests/` and writes a timestamped log to `logs/`.
 - `make site` builds the published page set.
+- `make release` builds the release assets into `dataflow.out/release/`.
+- `make release-publish` tags the commit and publishes a GitHub release (needs `gh`, authenticated).
 - `make clean` removes generated output.
 
 The C++ build uses CMake with the highest warning level and treats warnings as errors.

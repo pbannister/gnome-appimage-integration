@@ -14,6 +14,8 @@
 #		        documents/09-project-pages-conventions.md). This target
 #		        only reminds you of that; use the homelab's make deploy.
 #		install: sh scripts/program-install.sh (prefix defaults to $HOME/.local)
+#		release: sh scripts/release-package.sh (the files a GitHub release publishes)
+#		release-publish: sh scripts/release-publish.sh (needs the GitHub CLI)
 #
 
 build:
@@ -38,4 +40,10 @@ deploy:
 install:
 	sh scripts/program-install.sh
 
-.PHONY: build site clean test deploy install
+release:
+	sh scripts/release-package.sh
+
+release-publish:
+	sh scripts/release-publish.sh
+
+.PHONY: build site clean test deploy install release release-publish
