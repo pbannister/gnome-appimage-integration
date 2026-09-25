@@ -24,6 +24,8 @@ Everything done in the GUI (and more) is available on the command line.
 Aim is simple to use, and transparent in operation.
 Make it easy.
 
+**Status: complete** (owner declaration, 2026-09-25). All five phases in `PHASES.md` are done, the project is published as a GitHub release with a one-command install, and the pages are live at <https://labs.bannister.us/projects/gnome-appimage-integration/>. The open items in `TODO.md` are improvements to a finished project rather than planned work.
+
 ## Installing
 
 Easy to grab a release off Github with a one script install:

@@ -18,11 +18,26 @@ and <code>audit</code> reports what disagrees with what.
 <h2>Status</h2>
 
 <p>
-Phase 3 is complete.  The launchers AppImageLauncher had written are migrated or gone, and an
-AppImage can now be updated: <code>update --check</code> asks the update information embedded
-in the file what the vendor offers, <code>update</code> takes it, verifies the download, and
-keeps the file it replaced.  The same action is offered by the window's <b>Update</b> button
-and by the launcher's context menu.
+Complete.  All five phases are done: the two format readers and the desktop locator, the
+integration and the double-click handler, the migration of the launchers AppImageLauncher had
+written and the update path, the published pages with a GitHub release and a one-command
+install, and the prompt corpus re-synced with the project skeleton.  Every requirement in
+<code>prompts/features/</code> now carries a stable identifier and every task names the
+requirements it satisfies, checked by <code>tests/09-prompt-contract.sh</code>.
+</p>
+
+<p>
+The launchers AppImageLauncher had written are migrated or gone, and an AppImage can be
+updated: <code>update --check</code> asks the update information embedded in the file what the
+vendor offers, <code>update</code> takes it, verifies the download, and keeps the file it
+replaced.  The same action is offered by the window's <b>Update</b> button and by the
+launcher's context menu.
+</p>
+
+<p>
+What remains in <code>TODO.md</code> is improvement rather than planned work: a retention rule
+for the replaced file, a delta transfer when a zsync client is installed, and the version a
+file name states.  The integration itself is done and in daily use on this host.
 </p>
 
 <p>

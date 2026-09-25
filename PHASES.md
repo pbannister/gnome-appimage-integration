@@ -22,3 +22,11 @@ Current: phase 5 — prompt corpus in step with the skeleton — complete
 
 States: `not-started` | `started` | `complete`. Keep this file in sync
 with the episodes that advance each phase and with `TODO.md`.
+
+## Project Status
+
+The project is complete (owner declaration, 2026-09-25): every phase above is
+`complete`, and no further phase is planned. The activity status is declared
+in the homelab registry, which now reads `complete`. The open `TODO.md` items
+are improvements to a finished project, not work that a phase owes.
+
