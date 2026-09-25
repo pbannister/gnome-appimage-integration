@@ -13,12 +13,6 @@ The LLM does not load these files as project rules.
 - `04-lessons-from-homelab.md` — lessons from the first real application of the skeleton.
 - `05-lessons-from-MI25.md` — lessons from the MI25 fan-service project.
 - `06-project-pages.md` — project-pages publishing conventions (summary; canonical version in the homelab).
-- `07-appimage-format.md` — the AppImage specification, payload offset algorithm, and SquashFS superblock.
-- `08-desktop-entry-format.md` — the `*.desktop` format: groups, keys, values, locales, actions, and `Exec`.
-- `09-desktop-file-search-paths.md` — where GNOME looks for `*.desktop` files, and the observed host values.
-- `10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
-- `11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
-- `12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
 
 ## Canonical Files
 
@@ -31,9 +25,17 @@ The following filenames are canonical and must not be renamed or duplicated with
 - `04-lessons-from-homelab.md`
 - `05-lessons-from-MI25.md`
 - `06-project-pages.md`
-- `07-appimage-format.md`
-- `08-desktop-entry-format.md`
-- `09-desktop-file-search-paths.md`
-- `10-appimage-desktop-integration.md`
-- `11-desktop-entry-parameters.md`
-- `12-desktop-loading-and-provenance.md`
+
+## How this project does it
+
+This project adds these documents to the index above:
+
+- `07-appimage-format.md` — the AppImage specification, payload offset algorithm, and SquashFS superblock.
+- `08-desktop-entry-format.md` — the `*.desktop` format: groups, keys, values, locales, actions, and `Exec`.
+- `09-desktop-file-search-paths.md` — where GNOME looks for `*.desktop` files, and the observed host values.
+- `10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
+- `11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
+- `12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
+
+Their filenames are canonical here too, so the project's canonical set is
+`00` through `12` with the six names above appended.

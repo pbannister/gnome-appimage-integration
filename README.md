@@ -123,7 +123,7 @@ The launcher each integration writes carries **AppImage Activator**, which opens
 - `make build` configures and compiles the readers and command-line tools into `dataflow.out/build/`.
 - `make install` installs `appimage-inspect`, `desktop-inspect`, and `appimage-integrate` into `$HOME/.local/bin` (`PREFIX` overrides).
 - `make test` runs every test in `tests/` and writes a timestamped log to `logs/`.
-- `make site` builds the published page set.
+- `make site` builds the published page set, then runs the sanitization gate over `site.out/` (`make check` runs the gate alone).
 - `make release` builds the release assets into `dataflow.out/release/`.
 - `make release-publish` tags the commit and publishes a GitHub release (needs `gh`, authenticated).
 - `make clean` removes generated output.
@@ -156,6 +156,8 @@ Human contributors should begin by reading:
 
 - `prompts/README.md`
 - `documents/README.md`
+
+The prompt corpus is kept in step with the project skeleton: `prompts/`, `records/README.md`, `tests/README.md`, and the shared documents are copies of the skeleton's files, and a project customises one by appending a `## How this project does it` section rather than by editing the shared text. Run `sh scripts/skeleton-diff.sh ~/work/gnome-appimage-integration` from the skeleton to see any drift; `tests/09-prompt-contract.sh` validates the corpus itself.
 
 ## For the LLM
 

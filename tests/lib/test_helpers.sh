@@ -2,10 +2,24 @@
 #
 # test_helpers.sh: shared definitions for the tests in tests/.
 # This file is sourced, not executed; tests-run.sh only executes tests/*.sh.
+#
+# The standard tool-gated skip message is "SKIP: missing tool: <tool>", so a
+# skip is visible in the run transcript without being a failure.
 set -eu
 
 REPOSITORY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 DIRECTORY_BUILD="$REPOSITORY_ROOT/dataflow.out/build"
+
+# skip_test MESSAGE: report a clean skip and exit 0.
+skip_test() {
+    echo "SKIP: $1"
+    exit 0
+}
+
+# skip_unless_tool TOOL: skip cleanly when TOOL is not on PATH.
+skip_unless_tool() {
+    command -v "$1" >/dev/null 2>&1 || skip_test "missing tool: $1"
+}
 
 build_program() {
     sh "$REPOSITORY_ROOT/scripts/program-build.sh" >/dev/null

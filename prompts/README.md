@@ -6,6 +6,7 @@
 - `how-to-write-tasks.md` defines the format and rules for human-authored tasks.
 - `how-to-write-features.md` defines the format and rules for human-authored features.
 - `how-to-write-episodes.md` defines the format and rules for human-authored episodes.
+- `how-to-write-research.md` defines the format and rules for a research or study series and its decision records.
 - `common/00-overview.md` describes the purpose of shared prompt files.
 - `common/01-requirements.md` defines requirements that apply globally.
 - `common/02-universal-rules.md` defines scope, clarification, safety, anti-hallucination, privacy-boundary, risky-operations, and output rules.
@@ -32,6 +33,7 @@ The following filenames are canonical and must not be renamed or duplicated with
 - `how-to-write-tasks.md`
 - `how-to-write-features.md`
 - `how-to-write-episodes.md`
+- `how-to-write-research.md`
 - `common/00-overview.md`
 - `common/01-requirements.md`
 - `common/02-universal-rules.md`

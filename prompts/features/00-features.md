@@ -11,5 +11,6 @@
 - `09-appimage-integration.md` — AppImage Integration: plan, install, uninstall, run, and audit.
 - `10-appimage-handler.md` — AppImage Double-Click Handler: the opt-in `*.AppImage` handler.
 
-- `01-site-build.md` and `02-project-pages.md` are inherited from the skeleton; the project keeps them for the published page set.
+- `01-site-build.md` and `02-project-pages.md` are shared with the skeleton and extended here; the project keeps them for the published page set.
 - Features `03` through `10` implement this project's stated purpose.
+- Every top-level requirement carries a stable `<FEATURE-NAME>-R<NNN>` identifier, and the tasks in `prompts/tasks/` claim those identifiers in `TASK-ACCEPTANCE`.

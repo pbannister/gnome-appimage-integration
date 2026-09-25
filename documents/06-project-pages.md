@@ -42,6 +42,18 @@ Rules:
   completed items summarized as a count.
 - **Relative links only**, so the pages work at any depth under
   `/projects/<id>/`.
+- **A page below the project root climbs out with `../`** — one level per
+  directory. Apply the prefix to the nav block only, never to a page's own
+  relative links; a nav bug at depth is invisible at the root, so test both
+  shapes.
+- **Replace the skeleton's placeholder `index.txt`/`dashboard.txt`** before
+  registering: a published placeholder describes a project that does not
+  exist.
+- **Generate the dashboard from live state** (the state file, the tool's own
+  output, or the build manifest) rather than maintaining live values by hand.
+- A served asset that a page loads (script, style, image, model) carries a
+  content version in its URL, including transitive imports, so a long-cached
+  asset is re-requested when its bytes change.
 - **The homelab owns the one navigation bar.** The template marks where it
   belongs with `<!-- HOMELAB-NAV -->` and must not contain a `<nav>` of its
   own; the homelab injects the bar (graphic, breadcrumb, and the project's
@@ -79,6 +91,13 @@ Rules:
 - Live-state freshness: the project refreshes its own state (`make state`,
   run on the owning host for hardware/network values) before the homelab
   publishes.
+- **Live state is placeholders plus a fetched state file.** A page carries
+  `__UPPERCASE_KEY__` placeholders; `scripts/site-state-fetch.sh` writes
+  `dataflow.out/site-state.txt` as `KEY=value` lines (overridable with
+  `SITE_STATE_FILE`), and `scripts/site-build.sh` substitutes the values.
+  A placeholder with no value renders as `unavailable`, so the pages build
+  on a host that never ran the state fetch. Sanitize values at capture: the
+  publishing gate refuses absolute home paths, and the values land in HTML.
 
 ## Sanitization (non-negotiable)
 
@@ -86,6 +105,15 @@ Published pages must contain no MAC addresses, private LAN IPs, usernames,
 home paths, or private-key material. The exact gate patterns live in the
 homelab (`scripts/labs-deploy.sh`, `tests/03-labs-site.sh`,
 `tests/06-project-pages.sh`); the homelab re-runs the gate at publish time.
+
+The project runs its own gate first: `scripts/leak-gate.sh` over `site.out/`,
+reading the patterns from `scripts/sensitive-patterns.sh` — their single
+source. Do not inline the patterns in another script or test; a duplicated
+pattern has already drifted once. A record or document that describes the
+gate must not quote the refused patterns verbatim (that version refuses
+itself). Fix a false positive by tightening the pattern, not by suppressing
+the check: match private addresses only as dotted quads, so a numbered
+heading such as `## 10. Human Override` still passes.
 
 ## Conformance checklist
 
@@ -99,6 +127,12 @@ homelab (`scripts/labs-deploy.sh`, `tests/03-labs-site.sh`,
 5. After a homelab deploy, verify
    `curl https://labs.bannister.us/projects/<id>/` returns 200 and the
    content is sanitized.
+
+## Live example
+
+- `amd-mi25-fan-service` (SSHFS at `~/remote/beast.lan/work/...`) and
+  `model-elevation-earth` (`~/work/01-model-elevation-earth/`)
+  are live at `labs.bannister.us/projects/<id>/` using exactly this pattern.
 
 ## How this project does it
 
@@ -119,9 +153,7 @@ homelab (`scripts/labs-deploy.sh`, `tests/03-labs-site.sh`,
   from the tool at build time so it cannot drift from the desktop.  It also
   reads the phase from `PHASES.md` (the state is the last field of the
   `Current:` line, so the line can carry a description as well).
-
-## Live example
-
-- `amd-mi25-fan-service` (SSHFS at `~/remote/beast.lan/work/...`) and
-  `model-elevation-earth` (`~/work/01-model-elevation-earth/`)
-  are live at `labs.bannister.us/projects/<id>/` using exactly this pattern.
+- `scripts/leak-gate.sh` — the project-side sanitization check, reading its
+  patterns from `scripts/sensitive-patterns.sh` (their single source) and
+  running over `site.out/`.  `make site` runs it after the build, and `make
+  check` runs it alone; the homelab re-runs its own gate at publish time.

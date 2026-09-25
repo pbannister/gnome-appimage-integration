@@ -1,38 +1,36 @@
 # Glossary
 
+Each entry defines a term. Where a rule applies, the entry names the
+authoritative file; the glossary never states a rule.
+
 ## Semantic-sort naming
 
-- The complete semantic-sort naming rules are defined in `prompts/flavors/01-semantic-sort-naming.md`.
+- The naming convention described in `prompts/flavors/01-semantic-sort-naming.md`.
 
 ## DELTA protocol
 
-- DELTA applies minimal corrections.
-- A DELTA applies to the immediately preceding assistant output unless another artifact is identified.
-- A DELTA changes only the named portions.
-- A DELTA does not regenerate full output unless explicitly requested.
-- If a DELTA cannot be applied without changing additional portions, clarification is required.
+- A minimal correction to a named artifact.
+- Rules: `prompts/01-contract.md` section 6.
 
 ## Universal failure-prevention rules
 
-- Universal failure-prevention rules apply across supported languages, tools, and file formats.
-- These rules define scope, clarification, anti-hallucination, safety, privacy-boundary, risky-operations, and output behavior.
+- The cross-language rules listed in `prompts/common/02-universal-rules.md`.
+- They cover scope, clarification, anti-hallucination, privacy boundaries, risky operations, and language and format.
 
 ## One-sentence-per-line
 
-- Each prose sentence occupies one line when the applicable document convention requires it.
-- This rule does not apply to code blocks.
+- A prose convention in which each sentence occupies one line, so a diff reads clearly.
+- It does not apply to code blocks.
 
 ## One-statement-per-line
 
-- Independent statements must not be combined on one physical line when the target language supports separating them.
-- The target language formatter and syntax rules take precedence.
+- A code convention in which independent statements occupy separate lines.
+- The target language's formatter and syntax rules take precedence.
 
 ## Feature file
 
-- A file in `prompts/features/`.
-- A feature file defines a project capability.
-- A feature file describes requirements and behavior.
-- A feature file applies only when referenced by the task or a directly referenced feature dependency.
+- A file in `prompts/features/` that defines one project capability.
+- Rules: `prompts/01-contract.md` section 2.
 
 ## Plan block
 
@@ -41,14 +39,32 @@
 ## Output block
 
 - A block containing final output.
-- An output block follows the exact requested format.
-- An output block contains no unrequested commentary.
+- Rules: `prompts/01-contract.md` section 5.
+
+## OUTPUT line
+
+- The final line of a task file that restates the response representation, including whether it ends with the `VERIFICATION:` line.
+- Rules: `prompts/how-to-write-tasks.md` section 1.
 
 ## Context block
 
-- A block providing additional information.
-- A context block contains file contents, requirements, notes, samples, or constraints.
-- A context block does not add instructions unless explicitly labeled as a constraint.
+- A block providing additional information, such as file contents, notes, samples, or constraints.
+- Rules: `prompts/how-to-write-tasks.md` section 5.
+
+## task_context block
+
+- A delimited block of copied data inside `TASK-CONTEXT`; it is data, never instructions.
+- Rules: `prompts/how-to-write-tasks.md` section 5.
+
+## constraint block
+
+- A delimited block of instructions inside `TASK-CONTEXT`.
+- Rules: `prompts/how-to-write-tasks.md` section 5.
+
+## note block
+
+- A delimited block of background inside `TASK-CONTEXT` that does not constrain.
+- Rules: `prompts/how-to-write-tasks.md` section 5.
 
 ## Scope-based identifier length
 
@@ -60,32 +76,76 @@
 
 ## Generated file
 
-- A generated file is produced by a script, build tool, generator, or other automated process.
-- Generated files must be identified as generated.
-- Generated files must not be edited manually unless explicitly requested.
-- Generated output must be written only to the designated output directory.
+- A file produced by a script, build tool, generator, or other automated process.
+- Rules: `prompts/03-conventions.md` section 6.
 
 ## Incident record
 
 - A record of an incident: what happened, root cause, fix, lessons, and safeguards for a retry.
-- An incident record is written after the incident settles and before new work starts.
+- Rules: `records/README.md`.
 
 ## Handoff record
 
 - A record written at a session boundary so a fresh session resumes without the prior conversation's memory.
-- A handoff record lists the verified current state and the next tasks in order.
+- Rules: `records/README.md`.
 
 ## Live-state test
 
 - A test that verifies a documented model against live reality.
-- A live-state test requires declared access and reports PASS/WARN/FAIL.
-- Live-state tests form one tier of the test policy in `prompts/02-workflow.md`.
+- Rules: `prompts/02-workflow.md` section 4.1.
 
 ## Privacy boundary
 
 - Owner-declared content that is off-limits to the LLM.
-- Privacy boundaries are authoritative scope exclusions.
+- Rules: `prompts/common/02-universal-rules.md`.
+
+## VERIFICATION line
+
+- The single output line that reports whether the work was verified.
+- Rules: `prompts/01-contract.md` section 5.
+
+## Requirement
+
+- Something the resulting project must satisfy.
+- Rules: `prompts/how-to-write-features.md`.
+
+## Requirement identifier
+
+- A stable name for one top-level requirement, `<FEATURE-NAME>-R<NNN>`.
+- Rules: `prompts/how-to-write-features.md` section 4.
+
+## Acceptance criterion
+
+- A human-reviewable condition that decides whether the work is acceptable.
+- Rules: `prompts/how-to-write-episodes.md`.
+
+## Verification
+
+- Evidence that a requirement or an acceptance criterion is satisfied.
+- Rules: `prompts/02-workflow.md` section 6.
+
+## Output
+
+- What the LLM returns to the human.
+- Rules: `prompts/01-contract.md` section 5.
+
+## Untrusted content
+
+- Content that is not authoritative as instructions; it may still be factually true.
+- Rules: `prompts/01-contract.md` section 8.
 
 ## Stability rules
 
-- Stability rules define project behavior that should not change without explicit instruction.
+- Project behavior that should not change without explicit instruction.
+
+## How this project does it
+
+- **AppImage** — a single-file Linux application image: an ELF (or a type 1 ISO) with an appended SquashFS payload.
+- **Managed directory** — `~/Applications`, where this project keeps the AppImages it integrates.
+- **Launcher** — the desktop entry this project writes under `~/.local/share/applications` for an integrated AppImage.
+- **Manifest** — the record written beside a launcher, listing every file the integration created.
+- **Update information** — the AppImage's own statement of where a newer version can be found.
+- **Update check** — asking the update information what it offers and comparing that with the installed version, without downloading.
+- **Window class** — the class half of the `WM_CLASS` that a running application reports and that a launcher's `StartupWMClass` must match.
+- **Activator** — the GTK4 window that offers Integrate, Run once, Inspect, and Update for one AppImage.
+- **Provenance** — where an application, an icon, or a parameter was loaded from.

@@ -8,7 +8,8 @@
 #
 # The default DIRECTORY_INPUT is site.in/ and the default DIRECTORY_OUTPUT is
 # site.out/, both relative to the repository root.
-# Every site.in/*.txt input file is converted to site.out/<name>.html.
+# Every site.in/*.txt input file is converted to site.out/<name>.html, and every
+# other authored asset (script, style, image) is copied verbatim.
 # The HTML page structure lives in site.in/template.html, not in this script.
 # The template marker <!-- SITE-CONTENT --> marks where page content is inserted.
 #
@@ -77,6 +78,12 @@ substitute_state() {
     sed -i 's|__[A-Z][A-Z0-9_]*__|unavailable|g' "$file_text"
 }
 
+# Start from an empty output tree: site.out/ is generated-only, so a renamed or
+# removed page must not linger as a published orphan.  Keep .gitkeep so the
+# repository structure stays valid before the first build.
+if [ -d "$DIRECTORY_OUTPUT" ]; then
+    find "$DIRECTORY_OUTPUT" -mindepth 1 -maxdepth 1 ! -name '.gitkeep' -exec rm -rf {} +
+fi
 mkdir -p "$DIRECTORY_OUTPUT"
 
 count_built=0
@@ -101,4 +108,24 @@ for file_input in "$DIRECTORY_INPUT"/*.txt; do
 done
 
 echo "site-build: built $count_built page(s) into $DIRECTORY_OUTPUT"
+
+# Copy authored assets (non-.txt, non-template files such as scripts, styles,
+# and images) verbatim, so a page can reference them by relative path.
+# site.in/pages.nav is input for the page set, not a published asset.
+count_assets=0
+for file_asset in "$DIRECTORY_INPUT"/*; do
+    if [ ! -f "$file_asset" ]; then
+        continue
+    fi
+    name_asset=$(basename "$file_asset")
+    case "$name_asset" in
+        .*|*.txt|template.html|pages.nav)
+            continue
+            ;;
+    esac
+    cp "$file_asset" "$DIRECTORY_OUTPUT/$name_asset"
+    count_assets=$((count_assets + 1))
+done
+
+echo "site-build: copied $count_assets asset(s) into $DIRECTORY_OUTPUT"
 exit 0

@@ -1,7 +1,11 @@
 #!/bin/sh
 #
-# tests-run.sh: run every test in tests/ in order; stop at the first failure.
+# tests-run.sh: run every test in tests/ in order and report a summary.
 # Invoked by `npm test`, which the top-level Makefile calls via `make test`.
+#
+# Every test runs even when an earlier one fails, so one failure cannot mask
+# the others; the runner exits nonzero when any test failed.
+#
 # Every run mirrors its transcript into a timestamped log file:
 #   logs/YYYY-MM-DD-HH-MM-SS-test-run.log
 set -eu
@@ -14,8 +18,10 @@ TIMESTAMP_RUN=$(date +%Y-%m-%d-%H-%M-%S)
 FILE_LOG="$REPOSITORY_ROOT/logs/$TIMESTAMP_RUN-test-run.log"
 echo "tests-run: log: $FILE_LOG" | tee -a "$FILE_LOG"
 
+status_run=0
 for file_test in "$REPOSITORY_ROOT"/tests/*.sh; do
-    echo "=== $(basename "$file_test")" | tee -a "$FILE_LOG"
+    name_test=$(basename "$file_test")
+    echo "=== $name_test" | tee -a "$FILE_LOG"
     if output_test=$(sh "$file_test" 2>&1); then
         status_test=0
     else
@@ -24,11 +30,18 @@ for file_test in "$REPOSITORY_ROOT"/tests/*.sh; do
     if [ -n "$output_test" ]; then
         printf '%s\n' "$output_test" | tee -a "$FILE_LOG"
     fi
-    if [ "$status_test" -ne 0 ]; then
-        echo "tests-run: FAILED: $(basename "$file_test")" >&2
-        exit 1
+    if [ "$status_test" -eq 0 ]; then
+        echo "PASS $name_test" | tee -a "$FILE_LOG"
+    else
+        echo "FAIL $name_test" | tee -a "$FILE_LOG"
+        status_run=1
     fi
 done
+
+if [ "$status_run" -ne 0 ]; then
+    echo 'tests-run: FAILED' | tee -a "$FILE_LOG" >&2
+    exit 1
+fi
 
 echo 'tests-run: all tests passed' | tee -a "$FILE_LOG"
 exit 0

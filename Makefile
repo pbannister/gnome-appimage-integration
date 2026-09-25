@@ -7,7 +7,10 @@
 #		        The build tree is written to dataflow.out/build/.
 #		site:   sh scripts/site-state-fetch.sh (live state, owning host)
 #		        sh scripts/site-build.sh + sh scripts/site-condense.sh
+#		        then sh scripts/leak-gate.sh site.out (the project-side
+#		        sanitization check; the homelab re-runs its own at publish)
 #		        (the standard page set; see prompts/features/02-project-pages.md)
+#		check:  sh scripts/leak-gate.sh site.out (the gate alone)
 #		state:  sh scripts/site-state-fetch.sh (refresh the live-state file only)
 #		clean:  remove generated output, including the path-bound build tree
 #		test:   npm test
@@ -30,6 +33,10 @@ site:
 	sh scripts/site-state-fetch.sh
 	sh scripts/site-build.sh
 	sh scripts/site-condense.sh
+	sh scripts/leak-gate.sh site.out
+
+check:
+	sh scripts/leak-gate.sh site.out
 
 clean:
 	rm -rf dataflow.out/build dataflow.out/release dataflow.out/generated
@@ -52,4 +59,4 @@ release:
 release-publish:
 	sh scripts/release-publish.sh
 
-.PHONY: build site state clean test deploy install release release-publish
+.PHONY: build site state check clean test deploy install release release-publish

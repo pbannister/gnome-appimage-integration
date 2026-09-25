@@ -16,8 +16,8 @@ This document defines how a human must write episodes for the LLM.
 ## 2. Episode Granularity
 
 - Group strongly related items into one episode.
-- Do not group unrelated items.
 - Size an episode so one competent reviewer can review its complete diff in one sitting.
+- Prefer one feature or one work product per episode; that is the observable proxy for reviewable size.
 - A larger episode has vague acceptance and drifts.
 - A smaller episode pays overhead per item.
 
@@ -39,6 +39,7 @@ Every episode must contain these sections in order:
 - The EPISODE-GOAL section is the requested work, equivalent to TASK-DESCRIPTION in `prompts/how-to-write-tasks.md`.
 - The EPISODE-ACCEPTANCE and EPISODE-RISKS sections are constraints the model must verify.
 - The EPISODE-TASKS section is the execution plan.
+- An episode authorizes only the operations in its dispatched task definition. EPISODE-GOAL and EPISODE-ACCEPTANCE establish intent and acceptance; they do not authorize additional file operations.
 
 ## 5. Writing the EPISODE-ACCEPTANCE Section
 
@@ -67,6 +68,7 @@ Every episode must contain these sections in order:
 - Task files in `prompts/tasks/` may serve as sub-task definitions.
 - Feature files in `prompts/features/` define stable requirements.
 - An episode must reference applicable feature files explicitly.
+- An episode's goal does not widen the dispatched task's file scope (section 4).
 
 ## 9. Relationship to Phases
 
@@ -75,11 +77,14 @@ Every episode must contain these sections in order:
   goal and one acceptance and is reviewed in one sitting; a phase is
   complete when its episodes are done and its milestone is met.
 - Episodes may declare the phase they advance with an optional `EPISODE-PHASE`
-  line (e.g. `phase 2`). Do not invent phase numbers; use the project's
-  phase plan (its README, TODO, or registry entry).
+  line (e.g. `phase 2`). Use the project's phase plan for the phase number
+  (its `PHASES.md`, TODO, or registry entry).
 - Project status is tracked at phase granularity ("phase 1 complete",
   "phase 2 started") — see the homelab project-pages conventions
   (`documents/09-project-pages-conventions.md` §6).
+- The project's suggested breakdown lives in
+  `prompts/episodes/02-episode-plan.md`: a plan, not a queue, with episodes
+  named by phase and letter so renumbering at dispatch cannot invalidate it.
 
 ## 10. Relationship to the Queue
 
@@ -94,15 +99,14 @@ Every episode must contain these sections in order:
 - The record is the outcome.
 - After review, record the outcome in `records/` and reference the commit.
 
-## 12. Prohibited Episode Patterns
+## 12. Episode Patterns to Avoid
 
-- Do not phrase a goal as a vague wish.
-- Do not omit acceptance criteria.
-- Do not bury the riskiest item in the middle of the plan.
-- Do not create an episode so large that review requires multiple sittings.
-- Do not duplicate a task that already exists in `prompts/tasks/`.
+- State the goal as a concrete outcome, not a vague wish.
+- State at least one acceptance criterion.
+- Put the riskiest item first in the plan.
+- Split an episode whose review needs more than one sitting.
+- Reference the existing task instead of duplicating it.
 
 ## 13. Human Override
 
-- A human may explicitly override a rule in this document.
-- An override applies only to the explicitly identified rule or task.
+- The override rules are in `prompts/01-contract.md` section 10.

@@ -10,27 +10,27 @@ The search rules implemented here are recorded in `documents/09-desktop-file-sea
 
 ## Requirements
 
-- The locator must build the application search path from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
-- The locator must use `$HOME/.local/share` when `$XDG_DATA_HOME` is unset or empty.
-- The locator must use `/usr/local/share:/usr/share` when `$XDG_DATA_DIRS` is unset or empty.
-- The locator must ignore a relative path in either variable.
-- The locator must append the `applications` component to each data directory.
-- The locator must place the user data directory before every system data directory.
-- The locator must preserve the order of `$XDG_DATA_DIRS`.
-- The locator must skip a directory that does not exist and must not report it as an error.
-- The locator must build the autostart search path from `$XDG_CONFIG_HOME` and `$XDG_CONFIG_DIRS`.
-- The locator must use `$HOME/.config` when `$XDG_CONFIG_HOME` is unset or empty.
-- The locator must use `/etc/xdg` when `$XDG_CONFIG_DIRS` is unset or empty.
-- The locator must not append the `applications` component to an autostart directory.
-- The locator must expose the ordered list of directories it searched.
-- The locator must compute a desktop file identifier from a path relative to a data directory.
-- The locator must remove the `applications/` prefix and replace `/` with `-` when computing an identifier.
-- The locator must return no identifier for a file outside an `applications` component.
-- The locator must resolve an identifier by searching the path in order and returning the first match.
-- The locator must support the prefix-to-subdirectory mapping, so that an identifier `kde-foo.desktop` also matches `<dir>/applications/kde/foo.desktop`.
-- The locator must enumerate entries with a first-match-wins rule for duplicate identifiers.
-- The locator must not require any environment variable to be set.
-- The locator must be read-only and must not create, modify, or delete any file.
+- `DESKTOP-ENTRY-LOCATOR-R001` — The locator must build the application search path from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
+- `DESKTOP-ENTRY-LOCATOR-R002` — The locator must use `$HOME/.local/share` when `$XDG_DATA_HOME` is unset or empty.
+- `DESKTOP-ENTRY-LOCATOR-R003` — The locator must use `/usr/local/share:/usr/share` when `$XDG_DATA_DIRS` is unset or empty.
+- `DESKTOP-ENTRY-LOCATOR-R004` — The locator must ignore a relative path in either variable.
+- `DESKTOP-ENTRY-LOCATOR-R005` — The locator must append the `applications` component to each data directory.
+- `DESKTOP-ENTRY-LOCATOR-R006` — The locator must place the user data directory before every system data directory.
+- `DESKTOP-ENTRY-LOCATOR-R007` — The locator must preserve the order of `$XDG_DATA_DIRS`.
+- `DESKTOP-ENTRY-LOCATOR-R008` — The locator must skip a directory that does not exist and must not report it as an error.
+- `DESKTOP-ENTRY-LOCATOR-R009` — The locator must build the autostart search path from `$XDG_CONFIG_HOME` and `$XDG_CONFIG_DIRS`.
+- `DESKTOP-ENTRY-LOCATOR-R010` — The locator must use `$HOME/.config` when `$XDG_CONFIG_HOME` is unset or empty.
+- `DESKTOP-ENTRY-LOCATOR-R011` — The locator must use `/etc/xdg` when `$XDG_CONFIG_DIRS` is unset or empty.
+- `DESKTOP-ENTRY-LOCATOR-R012` — The locator must not append the `applications` component to an autostart directory.
+- `DESKTOP-ENTRY-LOCATOR-R013` — The locator must expose the ordered list of directories it searched.
+- `DESKTOP-ENTRY-LOCATOR-R014` — The locator must compute a desktop file identifier from a path relative to a data directory.
+- `DESKTOP-ENTRY-LOCATOR-R015` — The locator must remove the `applications/` prefix and replace `/` with `-` when computing an identifier.
+- `DESKTOP-ENTRY-LOCATOR-R016` — The locator must return no identifier for a file outside an `applications` component.
+- `DESKTOP-ENTRY-LOCATOR-R017` — The locator must resolve an identifier by searching the path in order and returning the first match.
+- `DESKTOP-ENTRY-LOCATOR-R018` — The locator must support the prefix-to-subdirectory mapping, so that an identifier `kde-foo.desktop` also matches `<dir>/applications/kde/foo.desktop`.
+- `DESKTOP-ENTRY-LOCATOR-R019` — The locator must enumerate entries with a first-match-wins rule for duplicate identifiers.
+- `DESKTOP-ENTRY-LOCATOR-R020` — The locator must not require any environment variable to be set.
+- `DESKTOP-ENTRY-LOCATOR-R021` — The locator must be read-only and must not create, modify, or delete any file.
 
 ## Behavior
 
