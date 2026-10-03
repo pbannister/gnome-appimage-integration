@@ -116,3 +116,20 @@ and the package built from that clean tree was installed and run by the installe
 - `5b4cf58` Skip a push the remote already has, and keep a release on its tag
 - `d18cdb1` Publish the tag a commit already carries instead of inventing one
 - `6171dd2` Record: the handover for the first release
+
+## Correction (2026-10-02)
+
+Two facts above are stale, and the episodes that replaced them are in
+`records/31-installer-handler-and-dock-icon.md`.
+
+The installer no longer prints the handler step and stops there.  It registers the handler, and
+`APPIMAGE_INTEGRATION_NO_HANDLER=1` is what declines it.  The reason is the report that produced
+record 31: a machine that had never run the second command had no handler, which is not what
+installing the tool was understood to mean.
+
+The push rule described above — "a push is skipped when the remote already has the ref" — was wrong
+whenever the remote's ref was *behind* the commit being released.  The release went out while
+`master`, which this record's own install instructions tell a user to fetch `scripts/install.sh`
+from, stayed old.  The refs are compared by commit now (`670864e`); `tests/05-release-publish.sh`
+holds it.
+
