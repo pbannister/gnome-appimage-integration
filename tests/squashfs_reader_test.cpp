@@ -107,26 +107,40 @@ int main(int i_argument_count, char **p_arguments) {
     compare_file(o_reader, "/.DirIcon", s_source + "/.DirIcon");
     compare_file(o_reader, "/usr/share/icons/hicolor/256x256/apps/fooview.png",
                  s_source + "/usr/share/icons/hicolor/256x256/apps/fooview.png");
+    // A link is followed when the path is read, and a path through a directory link
+    // resolves too: both shapes are ordinary in an AppImage payload.
+    compare_file(o_reader, "/link.desktop", s_source + "/test.desktop");
+    compare_file(o_reader, "/org.example.Symlinked.desktop",
+                 s_source + "/share/applications/org.example.Symlinked.desktop");
 
     std::vector<squashfs_entry_o> o_share_entries;
     CHECK(o_reader.list_directory("/usr/share", o_share_entries, s_error));
     CHECK(nullptr != find_entry(o_share_entries, "icons"));
+
+    std::vector<squashfs_entry_o> o_through_link;
+    CHECK(o_reader.list_directory("/sharealias/icons/hicolor", o_through_link, s_error));
+    CHECK(nullptr != find_entry(o_through_link, "256x256"));
 
     squashfs_stat_o o_stat;
     CHECK(o_reader.stat("/test.desktop", o_stat, s_error));
     CHECK(squashfs_node_type_e::regular_file == o_stat.type);
     CHECK(nullptr != find_entry(o_root_entries, "test.desktop"));
 
+    // stat reports the node the path names, so a link stays a link there.
     squashfs_stat_o o_link_stat;
     CHECK(o_reader.stat("/link.desktop", o_link_stat, s_error));
     CHECK(squashfs_node_type_e::symlink == o_link_stat.type);
 
+    // The root desktop listing takes real files first and follows a link when that is
+    // all there is, without listing the same file twice under two names.
     std::vector<squashfs_entry_o> o_desktop_entries;
     CHECK(o_reader.list_root_files_with_extension(".desktop", o_desktop_entries, s_error));
-    CHECK(1 == o_desktop_entries.size());
-    if (1 == o_desktop_entries.size()) {
+    CHECK(2 == o_desktop_entries.size());
+    if (2 == o_desktop_entries.size()) {
         CHECK("test.desktop" == o_desktop_entries[0].name);
+        CHECK("org.example.Symlinked.desktop" == o_desktop_entries[1].name);
     }
+    CHECK(nullptr == find_entry(o_desktop_entries, "link.desktop"));
 
     std::string s_data;
     CHECK(!o_reader.read_file("/does-not-exist", s_data, s_error));

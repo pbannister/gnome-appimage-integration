@@ -137,6 +137,10 @@ bool is_regular_inode(const inode_o &o_inode) {
     return INODE_REG == o_inode.type || INODE_LREG == o_inode.type;
 }
 
+bool is_symlink_inode(const inode_o &o_inode) {
+    return INODE_SYMLINK == o_inode.type || INODE_LSYMLINK == o_inode.type;
+}
+
 bool parse_superblock(const std::uint8_t *p_data,
                       squashfs_superblock_o &o_superblock,
                       std::string &s_error) {
@@ -569,14 +573,8 @@ bool list_entries(squashfs_reader_state_o &o_state,
     return true;
 }
 
-bool resolve_path(squashfs_reader_state_o &o_state,
-                  const std::string &s_path,
-                  inode_o &o_inode,
-                  std::string &s_error) {
-    if (!read_inode(o_state, o_state.o_superblock.root_inode, o_inode, s_error)) {
-        return false;
-    }
-
+// Split a slash-separated path into its components, ignoring separators and empties.
+std::vector<std::string> split_path_components(const std::string &s_path) {
     std::vector<std::string> o_components;
     std::size_t i_start = 0;
     while (i_start < s_path.size()) {
@@ -594,6 +592,18 @@ bool resolve_path(squashfs_reader_state_o &o_state,
         o_components.push_back(s_path.substr(i_start, i_end - i_start));
         i_start = i_end + 1;
     }
+    return o_components;
+}
+
+bool resolve_path(squashfs_reader_state_o &o_state,
+                  const std::string &s_path,
+                  inode_o &o_inode,
+                  std::string &s_error) {
+    if (!read_inode(o_state, o_state.o_superblock.root_inode, o_inode, s_error)) {
+        return false;
+    }
+
+    const std::vector<std::string> o_components = split_path_components(s_path);
 
     std::string s_current = "/";
     for (const std::string &s_component : o_components) {
@@ -623,6 +633,101 @@ bool resolve_path(squashfs_reader_state_o &o_state,
         }
         s_current = "/" == s_current ? "/" + s_component : s_current + "/" + s_component;
     }
+    return true;
+}
+
+// How many links one path may pass through before the reader calls it a loop.
+constexpr int MAX_SYMLINKS_FOLLOWED = 16;
+
+// Resolve a path the way the kernel does when it is asked for the file the path names:
+// a link in any position is followed, a relative target is relative to the directory
+// holding the link, and a chain is bounded so a loop cannot hang the reader.  AppImages
+// rely on this: a root desktop entry is very often a link into the payload's own
+// share/applications, and `usr -> .` is a common way to make one tree serve both layouts.
+//
+// `stat` deliberately keeps the unfollowing resolve_path above, because it reports the
+// node the path names -- a link stays a link there.
+bool resolve_path_following_symlinks(squashfs_reader_state_o &o_state,
+                                     const std::string &s_path,
+                                     inode_o &o_inode,
+                                     std::string &s_error) {
+    std::vector<std::string> o_pending = split_path_components(s_path);
+    std::reverse(o_pending.begin(), o_pending.end());
+    // The directories walked through, so ".." can step back out of one.  It is the
+    // logical path that matters: a link may have made the physical path differ.
+    std::vector<inode_o> o_ancestors;
+    inode_o o_current;
+    if (!read_inode(o_state, o_state.o_superblock.root_inode, o_current, s_error)) {
+        return false;
+    }
+    int i_followed = 0;
+    while (!o_pending.empty()) {
+        const std::string s_component = o_pending.back();
+        o_pending.pop_back();
+        if ("." == s_component) {
+            continue;
+        }
+        if (".." == s_component) {
+            if (!o_ancestors.empty()) {
+                o_current = o_ancestors.back();
+                o_ancestors.pop_back();
+            }
+            continue;
+        }
+        if (!is_directory_inode(o_current)) {
+            s_error = "not a directory in " + s_path;
+            return false;
+        }
+        std::vector<squashfs_entry_o> o_entries;
+        if (!list_entries(o_state, o_current, "/", o_entries, s_error)) {
+            return false;
+        }
+        bool b_found = false;
+        std::uint64_t u_inode_ref = 0;
+        for (const squashfs_entry_o &o_entry : o_entries) {
+            if (o_entry.name == s_component) {
+                u_inode_ref = o_entry.inode_ref;
+                b_found = true;
+                break;
+            }
+        }
+        if (!b_found) {
+            s_error = "no such path: " + s_path;
+            return false;
+        }
+        inode_o o_next;
+        if (!read_inode(o_state, u_inode_ref, o_next, s_error)) {
+            return false;
+        }
+        if (is_symlink_inode(o_next)) {
+            if (++i_followed > MAX_SYMLINKS_FOLLOWED) {
+                s_error = "too many levels of symbolic links: " + s_path;
+                return false;
+            }
+            const std::string &s_target = o_next.symlink_target;
+            if (s_target.empty()) {
+                s_error = "a symbolic link names nothing: " + s_path;
+                return false;
+            }
+            const std::vector<std::string> o_target = split_path_components(s_target);
+            if ('/' == s_target[0]) {
+                // An absolute target starts again at the root.
+                o_ancestors.clear();
+                if (!read_inode(o_state, o_state.o_superblock.root_inode, o_current, s_error)) {
+                    return false;
+                }
+            }
+            // A relative target resolves against the directory holding the link, which
+            // is still o_current: the components queued here are walked next.
+            for (auto it = o_target.rbegin(); it != o_target.rend(); ++it) {
+                o_pending.push_back(*it);
+            }
+            continue;
+        }
+        o_ancestors.push_back(o_current);
+        o_current = o_next;
+    }
+    o_inode = o_current;
     return true;
 }
 
@@ -954,7 +1059,7 @@ bool squashfs_reader_c::list_directory(const std::string &s_path,
         return false;
     }
     inode_o o_inode;
-    if (!resolve_path(*p_state_, s_path, o_inode, s_error)) {
+    if (!resolve_path_following_symlinks(*p_state_, s_path, o_inode, s_error)) {
         return false;
     }
     if (!is_directory_inode(o_inode)) {
@@ -1000,7 +1105,7 @@ bool squashfs_reader_c::read_file(const std::string &s_path,
         return false;
     }
     inode_o o_inode;
-    if (!resolve_path(*p_state_, s_path, o_inode, s_error)) {
+    if (!resolve_path_following_symlinks(*p_state_, s_path, o_inode, s_error)) {
         return false;
     }
     if (!is_regular_inode(o_inode)) {
@@ -1019,12 +1124,39 @@ bool squashfs_reader_c::list_root_files_with_extension(
         return false;
     }
     o_entries.clear();
-    for (squashfs_entry_o &o_entry : o_root_entries) {
-        if (squashfs_node_type_e::regular_file == o_entry.type
-            && name_ends_with(o_entry.name, s_extension)) {
-            o_entries.push_back(std::move(o_entry));
+    // A root desktop entry is very often a link into the payload's own
+    // share/applications -- Audacity 4.0.0 is one -- so a link is accepted when it is
+    // all there is.  Real files are taken first and a resolved inode is taken once, so
+    // a link that merely repeats a file already listed does not look like a second
+    // root entry and does not make the caller report a conflict with itself.
+    std::vector<std::uint32_t> o_taken_inodes;
+    for (int i_pass = 0; i_pass < 2; ++i_pass) {
+        const bool b_links_pass = 1 == i_pass;
+        for (const squashfs_entry_o &o_entry : o_root_entries) {
+            if (b_links_pass != (squashfs_node_type_e::symlink == o_entry.type)) {
+                continue;
+            }
+            if (!name_ends_with(o_entry.name, s_extension)) {
+                continue;
+            }
+            inode_o o_inode;
+            if (!resolve_path_following_symlinks(*p_state_, o_entry.path, o_inode, s_error)) {
+                // A link that names nothing is not a root entry; it is not an error
+                // either, because the caller is asking what is here.
+                continue;
+            }
+            if (!is_regular_inode(o_inode)) {
+                continue;
+            }
+            if (o_taken_inodes.end()
+                != std::find(o_taken_inodes.begin(), o_taken_inodes.end(), o_inode.number)) {
+                continue;
+            }
+            o_taken_inodes.push_back(o_inode.number);
+            o_entries.push_back(o_entry);
         }
     }
+    s_error.clear();
     return true;
 }
 

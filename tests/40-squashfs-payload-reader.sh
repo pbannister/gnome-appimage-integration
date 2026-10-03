@@ -23,6 +23,15 @@ printf 'icon-bytes-0123456789' > "$DIRECTORY_SOURCE/.DirIcon"
 printf 'png-bytes-0123456789' > "$DIRECTORY_SOURCE/usr/share/icons/hicolor/256x256/apps/fooview.png"
 yes 'pattern-0123456789' 2>/dev/null | head -c 192000 > "$DIRECTORY_SOURCE/large.bin"
 ln -s test.desktop "$DIRECTORY_SOURCE/link.desktop"
+# The Audacity 4.0.0 shape: the root desktop entry is only a link into the payload's
+# own share/applications, so a reader that ignores links sees no root entry at all.
+mkdir -p "$DIRECTORY_SOURCE/share/applications"
+printf '[Desktop Entry]\nType=Application\nName=Symlinked\nExec=linked %%F\nStartupWMClass=Symlinked\n' \
+    > "$DIRECTORY_SOURCE/share/applications/org.example.Symlinked.desktop"
+ln -s share/applications/org.example.Symlinked.desktop \
+    "$DIRECTORY_SOURCE/org.example.Symlinked.desktop"
+# And a directory link, the `usr -> .` shape, so a path through a link must resolve.
+ln -s usr/share "$DIRECTORY_SOURCE/sharealias"
 
 for compression_image in gzip xz zstd; do
     FILE_IMAGE="$DIRECTORY_TEMP/payload-$compression_image.squashfs"
