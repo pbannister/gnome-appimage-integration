@@ -9,5 +9,6 @@
 
 ## Open Questions
 
+* [ ] decide whether `make install` should register the handler the way the release installer now does. `scripts/install.sh` runs `handler install`; `scripts/program-install.sh` does not, so a developer's own desktop keeps whatever handler it had while a released install takes over. Either the two paths agree, or the difference is deliberate and written down.
 * [ ] improve the human-oriented documents in `documents/`.
 * [ ] read the tool-universe sources in `documents/02-tool-universe.md`.
