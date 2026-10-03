@@ -58,6 +58,57 @@ constexpr const char *HANDLER_LEGACY_NAME = "AppImage Handler";
 constexpr const char *HANDLER_LEGACY_DESKTOP_ID = "appimage-handler.desktop";
 constexpr const char *HANDLER_LEGACY_MANIFEST = "appimage-handler.manifest";
 constexpr const char *HANDLER_LEGACY_ICON_NAME = "appimage-handler";
+// The AppImage file-type definition installed when the machine has none.  Most
+// systems carry application/vnd.appimage and application/x-iso9660-appimage in
+// shared-mime-info, but nothing there points their generic icon at this tool -- and
+// on a system whose shared-mime-info predates the AppImage types, nothing defines
+// them at all.  A definition under XDG_DATA_HOME/mime outranks the system copy, so
+// installing this is what makes the handler reachable and the file icon right on a
+// machine -- like a fresh laptop -- that never had a definition of its own.
+std::string handler_mime_definition() {
+    const std::string s_icon_name = HANDLER_ICON_NAME;
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+           "\n"
+           "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n"
+           "\n"
+           "  <mime-type type=\"application/x-iso9660-appimage\">\n"
+           "    <comment>AppImage application bundle (Type 1)</comment>\n"
+           "    <sub-class-of type=\"application/x-executable\"/>\n"
+           "    <sub-class-of type=\"application/x-iso9660-image\"/>\n"
+           "    <generic-icon name=\"" + s_icon_name + "\"/>\n"
+           "    <magic priority=\"100\">\n"
+           "      <match value=\"ELF\" type=\"string\" offset=\"1\">\n"
+           "        <match value=\"0x41\" type=\"byte\" offset=\"8\">\n"
+           "          <match value=\"0x49\" type=\"byte\" offset=\"9\">\n"
+           "            <match value=\"0x01\" type=\"byte\" offset=\"10\"/>\n"
+           "          </match>\n"
+           "        </match>\n"
+           "      </match>\n"
+           "    </magic>\n"
+           "    <glob pattern=\"*.appimage\"/>\n"
+           "    <glob pattern=\"*.AppImage\"/>\n"
+           "  </mime-type>\n"
+           "\n"
+           "  <mime-type type=\"application/vnd.appimage\">\n"
+           "    <comment>AppImage application bundle (Type 2)</comment>\n"
+           "    <sub-class-of type=\"application/x-executable\"/>\n"
+           "    <sub-class-of type=\"application/vnd.squashfs\"/>\n"
+           "    <generic-icon name=\"" + s_icon_name + "\"/>\n"
+           "    <magic priority=\"100\">\n"
+           "      <match value=\"ELF\" type=\"string\" offset=\"1\">\n"
+           "        <match value=\"0x41\" type=\"byte\" offset=\"8\">\n"
+           "          <match value=\"0x49\" type=\"byte\" offset=\"9\">\n"
+           "            <match value=\"0x02\" type=\"byte\" offset=\"10\"/>\n"
+           "          </match>\n"
+           "        </match>\n"
+           "      </match>\n"
+           "    </magic>\n"
+           "    <glob pattern=\"*.appimage\"/>\n"
+           "    <glob pattern=\"*.AppImage\"/>\n"
+           "  </mime-type>\n"
+           "\n"
+           "</mime-info>\n";
+}
 // The length of ".AppImage", used to recognise an AppImage path in a command line.
 constexpr std::size_t APPIMAGE_SUFFIX_LENGTH = 9;
 
@@ -2619,12 +2670,17 @@ int command_run(const std::string &s_path,
     return EXIT_ERROR;
 }
 
-// Locate the handler icon next to the tool, or in the source tree.
+// Locate the handler icon next to the tool, in the prefix's icon theme, or in the
+// source tree.  The prefix's theme directory is what a release tarball carries: the
+// tarball holds share/icons/, not bin/icons/, so a lookup that stopped at bin/ found
+// nothing and installed no icon at all.
 std::string handler_icon_source(const std::string &s_tool) {
     const fs::path o_tool(s_tool);
     const std::vector<fs::path> o_candidates = {
         o_tool.parent_path() / "icons/appimage-activator.svg",
         o_tool.parent_path() / "appimage-activator.svg",
+        o_tool.parent_path().parent_path() / "share/icons/hicolor/scalable/apps"
+            / "appimage-activator.svg",
         o_tool.parent_path().parent_path().parent_path()
             / "sources/tools/icons/appimage-activator.svg",
     };
@@ -2724,7 +2780,16 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
               << "X-Integrated-By=gnome-appimage-integration\n"
               << "X-Integrated-At=" << gnome_appimage::version::version_string() << '\n';
     const std::string s_desktop = handler_desktop_path(o_integrator);
-    write_text_file(s_desktop, o_desktop.str());
+    // The applications directory must exist before the entry is written.  On a machine
+    // that has never had a user-installed launcher it does not, and the write below
+    // then failed silently: `handler install` recorded a default for an entry that was
+    // never there, which is what "the handler was not installed" looked like.  Say so
+    // and stop instead.
+    fs::create_directories(fs::path(s_desktop).parent_path(), o_error);
+    if (!write_text_file(s_desktop, o_desktop.str())) {
+        std::cerr << "error: cannot write the handler entry " << s_desktop << '\n';
+        return EXIT_ERROR;
+    }
 
     // Install the icon into the user's icon theme.
     std::string s_icon_installed;
@@ -2743,14 +2808,63 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         }
     }
 
+    // What an earlier install of this handler recorded.  It is read before the MIME
+    // definition below because that needs it: when this tool created the definition, a
+    // re-install finds it already correct and must still remember that it is ours, or
+    // the later uninstall would leave it behind.
+    std::map<std::string, std::string> o_previous_by_type;
+    bool b_mime_was_ours = false;
+    std::string s_mime_package_previous;
+    {
+        std::ifstream o_old_manifest((o_state_directory / HANDLER_MANIFEST).string());
+        if (!o_old_manifest) {
+            o_old_manifest.open((o_state_directory / HANDLER_LEGACY_MANIFEST).string());
+        }
+        std::string s_old_line;
+        while (std::getline(o_old_manifest, s_old_line)) {
+            if (0 == s_old_line.compare(0, 13, "mime_package=")) {
+                s_mime_package_previous = s_old_line.substr(13);
+                continue;
+            }
+            if (0 == s_old_line.compare(0, 13, "mime_created=")) {
+                b_mime_was_ours = "1" == s_old_line.substr(13);
+                continue;
+            }
+            const std::size_t i_old_tab = s_old_line.find('\t');
+            if (0 != s_old_line.compare(0, 17, "previous_default=")
+                || std::string::npos == i_old_tab) {
+                continue;
+            }
+            o_previous_by_type[s_old_line.substr(17, i_old_tab - 17)] =
+                s_old_line.substr(i_old_tab + 1);
+        }
+    }
+
     // Point the AppImage MIME types at the same icon, backing up the definition.
     // The rename means an existing definition may name either the original
-    // generic icon or this tool's pre-rename icon.
+    // generic icon or this tool's pre-rename icon.  When there is no definition at
+    // all the machine never had one, so install ours: without it a fresh machine has
+    // no icon of its own for AppImage files, and, on a system whose shared-mime-info
+    // is older than the AppImage types, no file type either.  The record says the
+    // definition was ours, so uninstall removes it instead of restoring a backup that
+    // does not exist.
     std::string s_mime_package;
     std::string s_mime_backup;
+    bool b_mime_created = false;
     const fs::path o_mime_package = o_data_home / "mime/packages/appimage.xml";
     std::error_code o_mime_error;
-    if (fs::exists(o_mime_package, o_mime_error)) {
+    if (!fs::exists(o_mime_package, o_mime_error)) {
+        fs::create_directories(o_mime_package.parent_path(), o_mime_error);
+        if (write_text_file(o_mime_package.string(), handler_mime_definition())) {
+            s_mime_package = o_mime_package.string();
+            b_mime_created = true;
+            if (command_exists("update-mime-database")) {
+                const std::string s_update =
+                    capture_command({"update-mime-database", (o_data_home / "mime").string()});
+                static_cast<void>(s_update);
+            }
+        }
+    } else {
         std::string s_content = read_text_file(o_mime_package.string());
         const std::vector<std::string> o_old_icons = {"application-x-executable",
                                                       HANDLER_LEGACY_ICON_NAME};
@@ -2786,6 +2900,14 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
                 }
             }
         }
+        // The definition on disk is already this tool's own from an earlier install, so
+        // there is nothing to rewrite; the fact still has to reach the new record, or
+        // the later uninstall would leave it behind.
+        if (s_mime_package.empty() && b_mime_was_ours
+            && s_mime_package_previous == o_mime_package.string()) {
+            s_mime_package = o_mime_package.string();
+            b_mime_created = true;
+        }
     }
 
     std::ostringstream o_manifest;
@@ -2796,26 +2918,12 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     if (!s_mime_package.empty()) {
         o_manifest << "mime_package=" << s_mime_package << '\n';
         o_manifest << "mime_backup=" << s_mime_backup << '\n';
+        if (b_mime_created) {
+            o_manifest << "mime_created=1\n";
+        }
     }
     // Preserve the real previous defaults when our own handler is re-installed,
     // including across the rename, when they live in the pre-rename manifest.
-    std::map<std::string, std::string> o_previous_by_type;
-    {
-        std::ifstream o_old_manifest((o_state_directory / HANDLER_MANIFEST).string());
-        if (!o_old_manifest) {
-            o_old_manifest.open((o_state_directory / HANDLER_LEGACY_MANIFEST).string());
-        }
-        std::string s_old_line;
-        while (std::getline(o_old_manifest, s_old_line)) {
-            const std::size_t i_old_tab = s_old_line.find('\t');
-            if (0 != s_old_line.compare(0, 17, "previous_default=")
-                || std::string::npos == i_old_tab) {
-                continue;
-            }
-            o_previous_by_type[s_old_line.substr(17, i_old_tab - 17)] =
-                s_old_line.substr(i_old_tab + 1);
-        }
-    }
     for (const std::string &s_type : o_types) {
         std::string s_previous = capture_command({"xdg-mime", "query", "default", s_type});
         if (HANDLER_DESKTOP_ID == s_previous || HANDLER_LEGACY_DESKTOP_ID == s_previous) {
@@ -2891,6 +2999,7 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     std::string s_line;
     std::string s_mime_package;
     std::string s_mime_backup;
+    bool b_mime_created = false;
     std::vector<std::string> o_icons;
     while (std::getline(o_input, s_line)) {
         if (0 == s_line.compare(0, 5, "icon=")) {
@@ -2903,6 +3012,10 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
         }
         if (0 == s_line.compare(0, 12, "mime_backup=")) {
             s_mime_backup = s_line.substr(12);
+            continue;
+        }
+        if (0 == s_line.compare(0, 13, "mime_created=")) {
+            b_mime_created = "1" == s_line.substr(13);
             continue;
         }
         const std::size_t i_tab = s_line.find('\t');
@@ -2945,6 +3058,17 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
         fs::copy_file(s_mime_backup, s_mime_package, fs::copy_options::overwrite_existing,
                       o_restore_error);
         if (!o_restore_error && command_exists("update-mime-database")) {
+            const std::string s_mime_directory =
+                fs::path(s_mime_package).parent_path().parent_path().string();
+            const std::string s_result = capture_command({"update-mime-database", s_mime_directory});
+            static_cast<void>(s_result);
+        }
+    } else if (b_mime_created && !s_mime_package.empty()) {
+        // The definition was this tool's own, so there is no earlier one to restore:
+        // removing it is what putting the machine back as it was means.
+        std::error_code o_remove_error;
+        if (fs::remove(s_mime_package, o_remove_error)
+            && command_exists("update-mime-database")) {
             const std::string s_mime_directory =
                 fs::path(s_mime_package).parent_path().parent_path().string();
             const std::string s_result = capture_command({"update-mime-database", s_mime_directory});

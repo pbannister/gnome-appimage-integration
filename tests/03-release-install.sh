@@ -56,6 +56,11 @@ for file_expected in ./bin/appimage-inspect ./bin/desktop-inspect ./bin/appimage
     grep -qxF "$file_expected" "$DIRECTORY_TEMP/listing.txt" \
         || fail_test "the tarball has no $file_expected: $(cat "$DIRECTORY_TEMP/listing.txt")"
 done
+# The icon beside the tool as well as in the theme: beside the tool is where
+# handler_icon_source looks first, and a tarball without it left `handler install`
+# unable to install the handler's own icon at all.
+grep -qxF './bin/icons/appimage-activator.svg' "$DIRECTORY_TEMP/listing.txt" \
+    || fail_test "the tarball has no ./bin/icons/appimage-activator.svg: $(cat "$DIRECTORY_TEMP/listing.txt")"
 if [ -x "$DIRECTORY_BUILD/appimage-activator" ]; then
     grep -qxF './bin/appimage-activator' "$DIRECTORY_TEMP/listing.txt" \
         || fail_test "the tarball has no activator although one was built"
@@ -67,9 +72,24 @@ python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY_RELEASE"
 PID_SERVER=$!
 sleep 1
 
+# The installer registers the handler, so it must not touch the real desktop: every
+# path it writes is under this sandbox.
+DIRECTORY_HOME="$DIRECTORY_TEMP/home"
+mkdir -p "$DIRECTORY_HOME/.config" "$DIRECTORY_TEMP/xdgshare"
+
+run_installer() { # <log-file> [VAR=VALUE ...]
+    file_log=$1
+    shift
+    env HOME="$DIRECTORY_HOME" \
+        XDG_DATA_HOME="$DIRECTORY_HOME/.local/share" \
+        XDG_CONFIG_HOME="$DIRECTORY_HOME/.config" \
+        XDG_DATA_DIRS="$DIRECTORY_TEMP/xdgshare" \
+        "$@" sh "$REPOSITORY_ROOT/scripts/install.sh" > "$file_log" 2>&1
+}
+
 DIRECTORY_PREFIX="$DIRECTORY_TEMP/prefix"
-env PREFIX="$DIRECTORY_PREFIX" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL" \
-    sh "$REPOSITORY_ROOT/scripts/install.sh" > "$DIRECTORY_TEMP/install.txt" 2>&1
+run_installer "$DIRECTORY_TEMP/install.txt" \
+    PREFIX="$DIRECTORY_PREFIX" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL"
 grep -q 'the download matches its published digest' "$DIRECTORY_TEMP/install.txt" \
     || fail_test "the installer did not verify the download: $(cat "$DIRECTORY_TEMP/install.txt")"
 for program_name in appimage-inspect desktop-inspect appimage-integrate; do
@@ -87,9 +107,31 @@ fi
     || fail_test "the installed tool does not run"
 grep -q 'appimage-integrate' "$DIRECTORY_TEMP/version.txt" \
     || fail_test "the installed tool reports no version: $(cat "$DIRECTORY_TEMP/version.txt")"
-# The installer must say how to opt into the handler rather than doing it.
-grep -q 'handler install' "$DIRECTORY_TEMP/install.txt" \
-    || fail_test "the installer does not mention the opt-in handler step"
+
+# The installer registers the handler rather than only saying how to.
+if command -v xdg-mime >/dev/null 2>&1; then
+    grep -qF 'the AppImage Activator is now the *.AppImage handler' "$DIRECTORY_TEMP/install.txt" \
+        || fail_test "the installer did not report registering the handler: $(cat "$DIRECTORY_TEMP/install.txt")"
+    FILE_HANDLER_ENTRY="$DIRECTORY_HOME/.local/share/applications/appimage-activator.desktop"
+    if [ ! -f "$FILE_HANDLER_ENTRY" ]; then
+        fail_test "the installer did not write the handler entry"
+    fi
+    # The handler's own icon, which needs the icon source the tarball must carry.
+    if [ ! -f "$DIRECTORY_HOME/.local/share/icons/hicolor/scalable/apps/appimage-activator.svg" ]; then
+        fail_test "the installer did not install the handler icon from the release layout"
+    fi
+    # A machine that never had an AppImage MIME definition gets one.
+    FILE_MIME_DEFINITION="$DIRECTORY_HOME/.local/share/mime/packages/appimage.xml"
+    if [ ! -f "$FILE_MIME_DEFINITION" ]; then
+        fail_test "the installer wrote no AppImage MIME definition on a machine with none"
+    fi
+    grep -q 'type="application/vnd.appimage"' "$FILE_MIME_DEFINITION" \
+        || fail_test "the MIME definition does not define the AppImage type"
+    grep -q 'generic-icon name="appimage-activator"' "$FILE_MIME_DEFINITION" \
+        || fail_test "the MIME definition does not point the file icon at the activator"
+else
+    echo "SKIP: xdg-mime is not available, so the handler step was not checked"
+fi
 
 echo "=== a download that does not match its digest is refused ==="
 DIRECTORY_TAMPERED="$DIRECTORY_TEMP/tampered"
@@ -104,8 +146,8 @@ python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY_TAMPERED
 PID_SERVER=$!
 sleep 1
 DIRECTORY_PREFIX_TWO="$DIRECTORY_TEMP/prefix-two"
-if env PREFIX="$DIRECTORY_PREFIX_TWO" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL" \
-        sh "$REPOSITORY_ROOT/scripts/install.sh" > "$DIRECTORY_TEMP/tampered.txt" 2>&1; then
+if run_installer "$DIRECTORY_TEMP/tampered.txt" \
+        PREFIX="$DIRECTORY_PREFIX_TWO" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL"; then
     fail_test "a download that does not match its digest was installed"
 fi
 grep -q 'does not match SHA256SUMS' "$DIRECTORY_TEMP/tampered.txt" \
@@ -125,9 +167,9 @@ python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIRECTORY_EMPTY" \
     > "$DIRECTORY_TEMP/server-empty.log" 2>&1 &
 PID_SERVER=$!
 sleep 1
-if env PREFIX="$DIRECTORY_TEMP/prefix-three" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL" \
-        APPIMAGE_INTEGRATION_NO_BUILD=1 \
-        sh "$REPOSITORY_ROOT/scripts/install.sh" > "$DIRECTORY_TEMP/empty.txt" 2>&1; then
+if run_installer "$DIRECTORY_TEMP/empty.txt" \
+        PREFIX="$DIRECTORY_TEMP/prefix-three" APPIMAGE_INTEGRATION_RELEASE_URL="$BASE_URL" \
+        APPIMAGE_INTEGRATION_NO_BUILD=1; then
     fail_test "the installer succeeded although there was nothing to install"
 fi
 grep -q "there is no $FILE_ASSET in latest" "$DIRECTORY_TEMP/empty.txt" \
@@ -135,10 +177,21 @@ grep -q "there is no $FILE_ASSET in latest" "$DIRECTORY_TEMP/empty.txt" \
 
 echo "=== a local tarball can be installed without a network ==="
 DIRECTORY_PREFIX_FOUR="$DIRECTORY_TEMP/prefix-four"
-env PREFIX="$DIRECTORY_PREFIX_FOUR" APPIMAGE_INTEGRATION_TARBALL="$FILE_TARBALL" \
+DIRECTORY_HOME_FOUR="$DIRECTORY_TEMP/home-four"
+mkdir -p "$DIRECTORY_HOME_FOUR/.config"
+env HOME="$DIRECTORY_HOME_FOUR" XDG_DATA_HOME="$DIRECTORY_HOME_FOUR/.local/share" \
+    XDG_CONFIG_HOME="$DIRECTORY_HOME_FOUR/.config" XDG_DATA_DIRS="$DIRECTORY_TEMP/xdgshare" \
+    PREFIX="$DIRECTORY_PREFIX_FOUR" APPIMAGE_INTEGRATION_TARBALL="$FILE_TARBALL" \
+    APPIMAGE_INTEGRATION_NO_HANDLER=1 \
     sh "$REPOSITORY_ROOT/scripts/install.sh" > "$DIRECTORY_TEMP/local.txt" 2>&1
 if [ ! -x "$DIRECTORY_PREFIX_FOUR/bin/appimage-inspect" ]; then
     fail_test "the local tarball was not installed: $(cat "$DIRECTORY_TEMP/local.txt")"
+fi
+# The tools are installed and nothing is registered when the handler is declined.
+grep -qF 'the *.AppImage handler was not registered, on request' "$DIRECTORY_TEMP/local.txt" \
+    || fail_test "the installer did not honour APPIMAGE_INTEGRATION_NO_HANDLER: $(cat "$DIRECTORY_TEMP/local.txt")"
+if [ -f "$DIRECTORY_HOME_FOUR/.local/share/applications/appimage-activator.desktop" ]; then
+    fail_test "the installer registered the handler although APPIMAGE_INTEGRATION_NO_HANDLER=1"
 fi
 
 pass_test "release package and installer"

@@ -6,9 +6,11 @@
 #
 # It fetches the release tarball for this machine, checks it against the release's
 # SHA256SUMS, and installs into $PREFIX (default $HOME/.local).  Where no prebuilt build
-# exists for this machine it builds from the source archive instead.  Nothing is
-# registered with the desktop: making the tool the *.AppImage handler stays a deliberate
-# step, and the script prints it.
+# exists for this machine it builds from the source archive instead.  It then registers
+# the *.AppImage handler, so double-clicking an AppImage opens the AppImage Activator;
+# that step rewrites the user's MIME defaults and records what they were, so it can be
+# declined with APPIMAGE_INTEGRATION_NO_HANDLER=1 and reversed with
+# "appimage-integrate handler uninstall".
 #
 # Environment:
 #   PREFIX                              where to install (default $HOME/.local)
@@ -18,6 +20,7 @@
 #   APPIMAGE_INTEGRATION_TARBALL        instal from this local tarball instead
 #   APPIMAGE_INTEGRATION_SKIP_VERIFY=1  install although SHA256SUMS is missing
 #   APPIMAGE_INTEGRATION_NO_BUILD=1     do not fall back to building from source
+#   APPIMAGE_INTEGRATION_NO_HANDLER=1   install the tools, register no handler
 #
 # This script is POSIX sh on purpose: it may be piped into any shell.
 set -eu
@@ -30,6 +33,7 @@ FILE_TARBALL_LOCAL=${APPIMAGE_INTEGRATION_TARBALL:-}
 BASE_URL=${APPIMAGE_INTEGRATION_RELEASE_URL:-}
 SKIP_VERIFY=${APPIMAGE_INTEGRATION_SKIP_VERIFY:-0}
 NO_BUILD=${APPIMAGE_INTEGRATION_NO_BUILD:-0}
+NO_HANDLER=${APPIMAGE_INTEGRATION_NO_HANDLER:-0}
 
 say() {
     echo "install: $1"
@@ -194,6 +198,28 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Register the handler
+#
+# The handler is what makes double-clicking an AppImage open the Activator, and what
+# gives AppImage files their icon.  It rewrites the user's MIME defaults and records
+# the previous ones, which is why it stays a step of its own -- but a user who has just
+# installed these tools has asked for the tool, so it runs here, says what it did, and
+# says how to undo it.  A failure is reported rather than fatal: the tools are
+# installed either way, and the command to finish the job is printed.
+
+if [ "1" = "$NO_HANDLER" ]; then
+    say "the *.AppImage handler was not registered, on request (APPIMAGE_INTEGRATION_NO_HANDLER=1)"
+elif [ -x "$PREFIX/bin/appimage-integrate" ]; then
+    if "$PREFIX/bin/appimage-integrate" handler install > "$DIRECTORY_WORK/handler.txt" 2>&1; then
+        say "the AppImage Activator is now the *.AppImage handler"
+    else
+        say "the *.AppImage handler could not be registered; the tool said:"
+        cat "$DIRECTORY_WORK/handler.txt" 2>/dev/null || true
+        say "run it yourself with: $PREFIX/bin/appimage-integrate handler install"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Report
 
 VERSION_INSTALLED="unknown"
@@ -223,7 +249,13 @@ case ":$PATH:" in
 esac
 
 echo
-say "to make the AppImage Activator the *.AppImage handler (opt-in):"
-echo "  $PREFIX/bin/appimage-integrate handler install"
+if [ "1" = "$NO_HANDLER" ]; then
+    say "to make the AppImage Activator the *.AppImage handler, which this run skipped:"
+    echo "  $PREFIX/bin/appimage-integrate handler install"
+else
+    say "to stop the AppImage Activator being the *.AppImage handler, and restore the"
+    say "handler that was there before:"
+    echo "  $PREFIX/bin/appimage-integrate handler uninstall"
+fi
 say "to integrate one AppImage:"
 echo "  $PREFIX/bin/appimage-integrate install ~/Downloads/Thing.AppImage"

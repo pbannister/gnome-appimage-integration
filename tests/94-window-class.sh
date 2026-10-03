@@ -90,6 +90,25 @@ mkdir -p "$DIRECTORY_MOUNT"
 cp "$FILE_SLEEP" "$DIRECTORY_MOUNT/orca-slicer"
 FILE_IN_MOUNT="$DIRECTORY_MOUNT/orca-slicer"
 
+echo "=== a class only the embedded entry names is warned about ==="
+# The embedded value is the AppImage author's guess and nothing can check it until the
+# window exists, so plan says so -- and names the way to read the real one.  This is
+# the OrcaSlicer case: the entry says OrcaSlicer, the window reports orca-slicer.
+"$DIRECTORY_BUILD/appimage-integrate" plan "$FILE_APPIMAGE" \
+    > "$DIRECTORY_TEMP/plan-embedded.txt" 2>&1
+grep -q 'warning: StartupWMClass=ProbeEmbedded is the value in the AppImage' \
+    "$DIRECTORY_TEMP/plan-embedded.txt" \
+    || fail_test "plan did not warn that the class came only from the embedded entry: $(cat "$DIRECTORY_TEMP/plan-embedded.txt")"
+grep -q -- '--wm-class-from-window' "$DIRECTORY_TEMP/plan-embedded.txt" \
+    || fail_test "the warning does not name the way to read the class the window reports"
+
+echo "=== a class chosen explicitly is not warned about ==="
+"$DIRECTORY_BUILD/appimage-integrate" plan --wm-class ProbeEmbedded "$FILE_APPIMAGE" \
+    > "$DIRECTORY_TEMP/plan-explicit.txt" 2>&1
+if grep -q 'warning: StartupWMClass=' "$DIRECTORY_TEMP/plan-explicit.txt"; then
+    fail_test "plan warned about a class that was chosen: $(cat "$DIRECTORY_TEMP/plan-explicit.txt")"
+fi
+
 echo "=== windows must always answer ==="
 "$DIRECTORY_BUILD/appimage-integrate" windows --json > "$DIRECTORY_TEMP/empty.json" 2>&1
 FIRST_CHARACTER=$(cut -c 1 "$DIRECTORY_TEMP/empty.json")

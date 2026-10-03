@@ -80,6 +80,12 @@ if [ ! -f "$FILE_ICON" ]; then
 fi
 if [ -f "$FILE_ICON" ]; then
     cp "$FILE_ICON" "$DIRECTORY_STAGE/share/icons/hicolor/scalable/apps/appimage-activator.svg"
+    # Next to the tool as well as in the prefix's icon theme, which is the layout
+    # `make install` produces.  `handler install` looks beside the tool first, and a
+    # tarball that shipped the icon only under share/ left it unable to install the
+    # handler's icon at all from a release.
+    mkdir -p "$DIRECTORY_STAGE/bin/icons"
+    cp "$FILE_ICON" "$DIRECTORY_STAGE/bin/icons/appimage-activator.svg"
 fi
 
 cp "$REPOSITORY_ROOT/README.md" "$DIRECTORY_STAGE/README.md"
@@ -120,11 +126,9 @@ curl -fsSL https://raw.githubusercontent.com/pbannister/gnome-appimage-integrati
 
 The script takes the tarball from this release, checks it against \`SHA256SUMS\`, and
 installs into \`\$HOME/.local\`.  Set \`PREFIX\` to install elsewhere, or \`VERSION\` to a tag
-to pin one.  Then, if you want \`*.AppImage\` files to open with the AppImage Activator:
-
-\`\`\`sh
-appimage-integrate handler install
-\`\`\`
+to pin one.  It then registers the AppImage Activator as the \`*.AppImage\` handler, so
+double-clicking an AppImage opens it; \`APPIMAGE_INTEGRATION_NO_HANDLER=1\` installs the
+tools without that step, and \`appimage-integrate handler uninstall\` reverses it.
 
 ## What is in the tarball
 
@@ -134,7 +138,8 @@ appimage-integrate handler install
 | \`bin/desktop-inspect\` | desktop entry facts, icon resolution, MIME ownership, and why |
 | \`bin/appimage-integrate\` | plan, install, uninstall, list, refresh, migrate, update, windows, audit |
 | \`bin/appimage-activator\` | the GTK4 window the launchers and the handler open |
-| \`share/icons/hicolor/scalable/apps/appimage-activator.svg\` | the activator icon |
+| \`bin/icons/appimage-activator.svg\` | the activator icon, beside the tool |
+| \`share/icons/hicolor/scalable/apps/appimage-activator.svg\` | the activator icon, in the prefix's icon theme |
 | \`VERSION\` | the version these binaries report |
 
 $ACTIVATOR_LINE

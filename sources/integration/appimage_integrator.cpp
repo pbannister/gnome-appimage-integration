@@ -967,6 +967,12 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         const bool b_remembered_explicit =
             "override" == manifest_get(o_installed_lines, "startup_wm_class_source");
 
+        // Whether the class below is still only the AppImage author's guess.  The
+        // warning at the end of this block turns on it: a class this tool did not
+        // choose and cannot check is exactly the OrcaSlicer case, where the entry
+        // says OrcaSlicer and the window reports orca-slicer.
+        bool b_class_from_embedded_entry = false;
+
         if (!o_options.startup_wm_class_override.empty()) {
             o_plan.startup_wm_class = o_options.startup_wm_class_override;
             o_plan.startup_wm_class_is_explicit = true;
@@ -978,6 +984,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         } else {
             o_plan.startup_wm_class =
                 o_entry.value("Desktop Entry", "StartupWMClass").value_or(std::string());
+            b_class_from_embedded_entry = !o_plan.startup_wm_class.empty();
         }
         if (o_plan.startup_wm_class.empty()) {
             o_plan.startup_wm_class = s_remembered_wm_class;
@@ -1016,6 +1023,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                             .value_or(std::string());
                     if (!s_class.empty()) {
                         o_plan.startup_wm_class = s_class;
+                        b_class_from_embedded_entry = false;
                         o_plan.notes.push_back("adopted StartupWMClass=" + s_class
                                                + " from the backed-up launcher " + s_backup);
                         break;
@@ -1061,6 +1069,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                     + (o_plan.startup_wm_class.empty() ? "(none)" : o_plan.startup_wm_class));
                 o_plan.startup_wm_class = o_conflict.wm_class;
                 o_plan.startup_wm_class_is_explicit = true;
+                b_class_from_embedded_entry = false;
                 o_plan.conflicts = o_detect_conflicts();
                 break;
             }
@@ -1071,6 +1080,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             for (const integration_conflict_o &o_conflict : o_plan.conflicts) {
                 if (!o_conflict.wm_class.empty()) {
                     o_plan.startup_wm_class = o_conflict.wm_class;
+                    b_class_from_embedded_entry = false;
                     o_plan.notes.push_back("adopted StartupWMClass=" + o_conflict.wm_class
                                            + " from " + o_conflict.path);
                     o_plan.conflicts = o_detect_conflicts();
@@ -1083,6 +1093,17 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                 "the embedded entry has no StartupWMClass and no earlier launcher supplied one; "
                 "the dock may show a generic icon until one is set (read the window app id with "
                 "'lg', then reinstall with --wm-class)");
+        } else if (b_class_from_embedded_entry && !o_plan.startup_wm_class_is_explicit) {
+            // The embedded value is the AppImage author's guess and nothing here can
+            // check it, so say so rather than let a wrong class fail silently at the
+            // dock.  OrcaSlicer is the case that cost us: its entry says OrcaSlicer
+            // and its window reports orca-slicer.
+            o_plan.warnings.push_back(
+                "StartupWMClass=" + o_plan.startup_wm_class
+                + " is the value in the AppImage's own desktop entry, which can name a class "
+                  "the window does not report; if the dock shows a generic icon, read the class "
+                  "while the application runs (appimage-integrate windows), then reinstall with "
+                  "--wm-class CLASS or --wm-class-from-window");
         }
 
         // How this file's version compares with what is already installed.  The

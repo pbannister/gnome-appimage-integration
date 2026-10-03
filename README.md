@@ -39,12 +39,20 @@ Run the script, and you are done.
 The script fetches the release tarball for this machine, checks it against the release's
 `SHA256SUMS`, and installs into `$HOME/.local`. `PREFIX` installs elsewhere, `VERSION` pins a
 release tag, and where no prebuilt build exists for the machine it builds from the source archive
-instead. It installs the tools only: making this the `*.AppImage` handler stays a deliberate step,
-and the script prints it:
+instead.
+
+It then registers the `*.AppImage` handler, so double-clicking an AppImage opens the AppImage
+Activator and AppImage files carry the activator's icon:
 
 ```sh
-appimage-integrate handler install
+appimage-integrate handler install     # what the installer runs
+appimage-integrate handler uninstall   # undo it, restoring the previous handler
 ```
+
+That step is the one part of the install that changes how the desktop behaves: it rewrites the
+user's MIME defaults for the AppImage types, records what they were, and installs a definition of
+those types when the machine has none. Set `APPIMAGE_INTEGRATION_NO_HANDLER=1` to install the tools
+and register nothing; `handler install` and `handler uninstall` remain available at any time.
 
 `scripts/release-package.sh` makes the assets a release publishes, and `make release-publish` (with
 the GitHub CLI authenticated) tags the commit and publishes them.
@@ -146,7 +154,7 @@ The graphical activator is C++ with GTK4. The build needs the GTK4 development f
 `appimage-activator --activate ACTION[,ACTION...]` and `--set-name TEXT` drive the window without a person, which is how `tests/95-activator-ui.sh` exercises it under Xvfb; the desktop entry never passes them.
 It is a single window: the application name, version, generic name, and comment, then File, Size, Integrate will, and Will install as, then the Name field and the action buttons, then a tabbed panel of three text logs. `Integrate will` and Status both read the tool's mode, so an AppImage that is already complete says `properly integrated` and nothing more to do. **Status** is the page shown first and holds the current state and any decision the window is waiting for; **Discovered** holds the evidence the state was deduced from, plus the raw report whenever Inspect runs, with `This run` and `Error` emphasised because they decide what happens; **Actions** is a timestamped log of every command that changed the system, with its output. Each action raises the page that answers it: Integrate the resulting Status, Inspect the Discovered report, Run once the Actions log. Buttons are ordered by how likely the owner is to use them — Integrate, Run once, Inspect, Close — and the likely one carries the GNOME HIG's suggested-action style (Integrate, then Run now after a successful integration, and Replace existing on the conflict choice).
 The handler extracts the application version from `X-AppImage-Version`, then from AppStream metadata, then from the file name.
-`handler install` gives the handler its own AppImage Activator icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the right-click item share one icon.
+`handler install` gives the handler its own AppImage Activator icon, installs it into the user icon theme, and points the AppImage MIME types at it, so AppImage files and the right-click item share one icon. A machine with no AppImage MIME definition of its own gets one — both types, with their globs and magic — because a definition under `$XDG_DATA_HOME/mime` outranks the system's and is the only way the file icon can name this tool; `handler uninstall` removes that definition again, and restores one that was already there instead.
 It sets its program name to `appimage-activator` and the entry sets `StartupWMClass=appimage-activator`, so the dock matches the running window to the entry instead of showing a generic icon.
 The window's application id is its program name, `appimage-activator`, because no `Gtk.Application` id is set: GTK uses the application id when there is one and the program name otherwise, and GNOME only matches a Wayland window to a launcher whose file name is that same id.
 The right-click "Open With" item is named `AppImage Activator`, because `AppImage Handler` is another project's name; `handler install` also removes the pre-rename `appimage-handler` entry, icon, and record, and carries their recorded previous defaults into the new record.
@@ -215,6 +223,15 @@ Position is saved and restored only through the XWayland path; on a Wayland sess
 The `.desktop` file is never installed as an icon, and a replaced launcher is backed up rather than deleted.
 Every icon write refreshes the icon theme cache with `gtk4-update-icon-cache`, because GTK trusts a cache that is not older than the theme directory and then never rescans it — a stale cache hides every newly installed icon.
 Re-running `install` for the same AppImage is harmless: it overwrites its own launcher, icons, and manifest, so it also repairs a faulty install. A missing `StartupWMClass` is recovered from a previous manifest, from a conflicting launcher, or from one this tool displaced, and the chosen class is remembered. Use `--wm-class` when the embedded entry does not name the class the dock matches on; a class chosen that way is recorded as an explicit override and survives later re-integrations that the embedded entry would otherwise win back. `windows` and `--wm-class-from-window` read the class from the running application instead: from the program inside the AppImage's mount, or from an X11 window's `WM_CLASS`. GNOME does not let another program list windows, so a native Wayland window has to be read in Looking Glass; `windows` says so when it finds nothing.
+
+The dock matches a launcher to a running window by `StartupWMClass`, and the class in an AppImage's embedded entry is the author's guess. **OrcaSlicer is the case that catches people**: its entry says `StartupWMClass=OrcaSlicer` while its window reports `orca-slicer`, and a case-mismatched class leaves the launcher running with no icon in the dock — and sometimes with the window grouped under a second, unnamed entry. The class a window really reports is only knowable while the application runs, so when a dock icon is wrong:
+
+```sh
+appimage-integrate windows                                          # the class each running AppImage reports
+appimage-integrate install --wm-class-from-window OrcaSlicer.AppImage
+```
+
+`--wm-class CLASS` sets it from the command line instead, and either way the class is recorded as an explicit override, so later re-integrations keep it. `install` and `plan` warn when the class they would write is the embedded entry's, precisely because that value cannot be checked until the application runs.
 
 A *different* AppImage that wants an identifier this tool already owns is never a silent takeover: `explain` and `plan` name it, and `install` refuses until `--replace` (the displaced launcher is backed up and restored by `uninstall`) or `--add` (the existing launcher, its record, and its icon are kept, and this AppImage is installed alongside as `<id>-2.desktop` with the record `<identifier>-2`) is chosen. `audit` reports any launcher whose record disagrees with the AppImage it actually runs.
 
