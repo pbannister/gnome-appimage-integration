@@ -1096,8 +1096,9 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         } else if (b_class_from_embedded_entry && !o_plan.startup_wm_class_is_explicit) {
             // The embedded value is the AppImage author's guess and nothing here can
             // check it, so say so rather than let a wrong class fail silently at the
-            // dock.  OrcaSlicer is the case that cost us: its entry says OrcaSlicer
-            // and its window reports orca-slicer.
+            // dock.  OrcaSlicer is the case that cost us: its window reports
+            // orca-slicer, and what the entry offers need not match it -- OrcaSlicer's
+            // own V2.4.2 entry names no class at all, which the warning above covers.
             o_plan.warnings.push_back(
                 "StartupWMClass=" + o_plan.startup_wm_class
                 + " is the value in the AppImage's own desktop entry, which can name a class "

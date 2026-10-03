@@ -113,3 +113,46 @@ appimage-integrate install --wm-class-from-window <AppImage>
 would write is the embedded entry's.  Check `handler status` before believing the handler was never
 installed: the entry, its icon, and the MIME definition are three separate things, and `handler
 install` now fails loudly rather than silently when it cannot write the entry.
+
+## Correction (2026-10-02)
+
+The OrcaSlicer attribution above was checked against the AppImage actually installed on this machine
+after the record was written, and it is wrong for that file.  Its embedded desktop entry names **no**
+`StartupWMClass` at all:
+
+```
+[Desktop Entry]
+Name=OrcaSlicer
+Exec=AppRun %F
+Icon=OrcaSlicer
+Type=Application
+PrefersNonDefaultGPU=true
+X-KDE-RunOnDiscreteGpu=true
+Categories=Utility;
+MimeType=model/stl;application/vnd.ms-3mfdocument;application/prs.wavefront-obj;application/x-amf;
+```
+
+So for that file the dock-icon failure is the *absent* class, not a wrong one, and the stale release
+is not what caused it: the published release and `master` behave identically there, and the older
+warning — "the embedded entry has no StartupWMClass and no earlier launcher supplied one" — already
+said so.  The `StartupWMClass=OrcaSlicer` value repeated above from record 28 came from a build whose
+entry named it, or from the launcher as it stood then; the V2.4.2 file does not name one.  What the
+new warning adds is the other case, an embedded class that does not match; both warn, and both point
+at the same recovery.
+
+Verified 2026-10-02 against the real file with `plan`, which writes nothing:
+
+```
+$ appimage-integrate plan ~/Applications/OrcaSlicer_..._V2.4.2_....AppImage
+startup-wm-class: (none)
+warning: the embedded entry has no StartupWMClass and no earlier launcher supplied one; ...
+
+$ appimage-integrate plan --wm-class orca-slicer ~/Applications/OrcaSlicer_..._V2.4.2_....AppImage
+startup-wm-class: orca-slicer  (set explicitly, kept over the embedded entry)
+```
+
+The published `v2026.10.02` tarball carries the README as it stood at `af16924`, whose OrcaSlicer
+paragraph says the entry names `OrcaSlicer`.  The wording on `master` is corrected; the artifact is
+not repackaged, because a rebuild from `af16924` now reports the tag inside its version and would no
+longer match the tag it is published under.
+
