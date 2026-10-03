@@ -88,11 +88,15 @@ else
     echo "release-publish: tagged $TAG"
 fi
 
-# The commit and the tag first: a release whose tag is not pushed cannot be fetched.  A
-# public repository can be read without credentials, so a push is skipped when the remote
-# already has the ref, which is the usual case for a commit that has been pushed once.
+# The commit and the tag first: a release whose tag is not pushed cannot be fetched.  The
+# remote having a ref is not the same as the remote having *this* commit, so the two are
+# compared: a branch that exists there but is behind still has to be pushed, or the
+# release goes out while the branch the install script is fetched from stays the old one.
 push_if_needed() { # <ref> <description>
-    if git -C "$REPOSITORY_ROOT" ls-remote --exit-code "$PUSH_REMOTE" "$1" > /dev/null 2>&1; then
+    ref_local=$(git -C "$REPOSITORY_ROOT" rev-parse "$1")
+    ref_remote=$(git -C "$REPOSITORY_ROOT" ls-remote --refs "$PUSH_REMOTE" "$1" 2>/dev/null \
+        | awk '{print $1}' | head -1)
+    if [ "$ref_local" = "$ref_remote" ]; then
         echo "release-publish: $PUSH_REMOTE already has $2"
         return 0
     fi
