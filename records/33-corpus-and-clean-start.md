@@ -132,6 +132,26 @@ The per-application raw output is beside it, in `<app>/inspect.txt`, `plan.txt`,
 `scripts/lib/corpus-paths.sh` prints both directories, or `APPIMAGE_CORPUS_DIR` and
 `APPIMAGE_SANDBOX_DIR` set them.
 
+## The Launcher Check
+
+An install that exits 0 is not evidence that the desktop has something to run, so the runner now
+checks the launcher each install wrote: that the file exists, that its `Exec` names the AppImage the
+install placed, that a `TryExec` target exists, and that the icon it names resolves through the
+theme.  The result is a column in the summary and a section of the catalogue, and a launcher that
+cannot be used becomes the application's outcome instead of hiding behind a successful command.
+
+The first version of that check was itself wrong, and the corpus caught it the moment it ran: it
+reported `NETGEAR-NSDT` as *Exec names a file that is not there*.  The tool was right and the check
+was wrong -- that AppImage's file name contains spaces, and the check took the first word of `Exec`
+by splitting on the first space, so it looked for a truncated path.  The tool writes
+`Exec=".../NETGEAR Discovery Tool-....AppImage" %U`, quoted as the desktop entry spec requires.
+
+That is worth recording because it is this episode's failure mode in miniature: something that looks
+like a fault in the tool until the reader is checked.  The same day produced the same shape twice
+more, in a GTK deprecation and in a swapped-out coreutils.  `tests/07-corpus-run.sh` now carries an
+AppImage whose file name has spaces, and a naive first-word test fails it.  With the check
+corrected, all 29 applications verify their launcher.
+
 Two environment changes cost time in this episode and are worth recognising: a newer GTK turns a
 deprecation into a build failure because the project builds with `-Werror`, and a swapped-out
 coreutils turns a copied binary into a program that refuses to run.  Neither is a fault in this
