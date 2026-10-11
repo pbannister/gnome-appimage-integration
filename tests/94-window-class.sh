@@ -33,11 +33,11 @@ if [ -z "$FILE_ELF" ] || [ "$(od -An -tu1 -j 4 -N 1 "$FILE_ELF" | tr -d ' \n')" 
     exit 0
 fi
 
-FILE_SLEEP=$(command -v sleep || true)
+FILE_COMPILER=$(command -v cc || command -v gcc || command -v c++ || true)
 FILE_BASH=$(command -v bash || true)
-if [ -z "$FILE_SLEEP" ] || [ -z "$FILE_BASH" ]; then
-    echo "SKIP: sleep or bash is not available"
-    pass_test "window class discovery (no sleep or bash)"
+if [ -z "$FILE_COMPILER" ] || [ -z "$FILE_BASH" ]; then
+    echo "SKIP: a C compiler or bash is not available"
+    pass_test "window class discovery (no C compiler or bash)"
     exit 0
 fi
 
@@ -85,9 +85,22 @@ build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD" "$FILE_APPIMAGE" gzip
 
 # A program inside a mounted AppImage: this is the layout a real AppImage has, and
 # the program name is what GTK falls back to as the window's application id.
+#
+# The program is compiled rather than copied from the host.  coreutils on a modern system
+# is one binary that decides what to do from the name it was invoked as, so a copied
+# `sleep` renamed to orca-slicer refuses to run at all; the tool reads the running
+# process's executable, so the fixture has to be a real program with that name.
 DIRECTORY_MOUNT="$DIRECTORY_TEMP/.mount_probeABC12/usr/bin"
 mkdir -p "$DIRECTORY_MOUNT"
-cp "$FILE_SLEEP" "$DIRECTORY_MOUNT/orca-slicer"
+cat > "$DIRECTORY_TEMP/probe.c" <<'PROGRAM'
+#include <unistd.h>
+int main(void) {
+    sleep(600);
+    return 0;
+}
+PROGRAM
+"$FILE_COMPILER" -o "$DIRECTORY_MOUNT/orca-slicer" "$DIRECTORY_TEMP/probe.c" \
+    || fail_test "the probe program could not be compiled"
 FILE_IN_MOUNT="$DIRECTORY_MOUNT/orca-slicer"
 
 echo "=== a class only the embedded entry names is warned about ==="
