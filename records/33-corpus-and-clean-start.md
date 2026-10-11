@@ -149,10 +149,10 @@ and size by size before the home copy was removed, and `/datasets/manifest.yml` 
 the other datasets.  The paths in this record are the ones to use; where it says
 `~/appimage-corpus`, read the corpus directory that the scripts choose.
 
-`/home/preston/work/datasets` is a symlink to `/datasets`, so the volume is reachable by a path
-inside the session workspace: `/home/preston/work/datasets/appimage-corpus`.  It is a convenience,
-not a permission -- the sandbox resolves the link to `/datasets` and treats a write through it
-exactly as it treats a write to the real path -- and the scripts keep using the real path, which is
-what the manifest records.  Verified afterwards end to end: `corpus-fetch.sh` reported all 29
-cached and downloaded nothing, and `corpus-run.sh` reproduced the catalogue (28 integrated, one
-conflict), with the per-application sandboxes made in `/tmp` and removed.
+`~/work/datasets` is a symlink to `/datasets`, so the volume is reachable from a path inside the
+session workspace: `~/work/datasets/appimage-corpus`.  It is a convenience, not a permission -- the
+sandbox resolves the link to `/datasets` and treats a write through it exactly as it treats a write
+to the real path -- and the scripts keep using the real path, which is what the manifest records.
+Verified afterwards end to end: `corpus-fetch.sh` reported all 29 cached and downloaded nothing, and
+`corpus-run.sh` reproduced the catalogue (28 integrated, one conflict), with the per-application
+sandboxes made in `/tmp` and removed.
