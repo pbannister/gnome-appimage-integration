@@ -59,7 +59,16 @@ while IFS="$(printf '\t')" read -r app url size note; do
         break
     fi
 
-    name_file=$(basename "${url%%\?*}")
+    case "$url" in
+        local:*)
+            file_source="$HOME/${url#local:}"
+            name_file=$(basename "$file_source")
+            ;;
+        *)
+            file_source=""
+            name_file=$(basename "${url%%\?*}")
+            ;;
+    esac
     file_target="$DIRECTORY_APPIMAGES/$name_file"
 
     # Already cached and the right size: nothing to do.
@@ -68,6 +77,22 @@ while IFS="$(printf '\t')" read -r app url size note; do
         printf '%s\t%s\t%s\t%s\t%s\n' "$app" "$file_target" "$size" \
             "$(sha256sum "$file_target" | cut -d' ' -f1)" "cache" >> "$FILE_FETCHED"
         say "cached: $app"
+        continue
+    fi
+
+    # A local: source is a file this machine already has, named relative to $HOME, so a
+    # corpus can include what is already installed without downloading it again.
+    if [ -n "$file_source" ]; then
+        if [ ! -f "$file_source" ]; then
+            count_failed=$((count_failed + 1))
+            echo "corpus-fetch: $app: $file_source is not there" >&2
+            continue
+        fi
+        cp "$file_source" "$file_target"
+        count_seeded=$((count_seeded + 1))
+        printf '%s\t%s\t%s\t%s\t%s\n' "$app" "$file_target" "$(size_of "$file_target")" \
+            "$(sha256sum "$file_target" | cut -d' ' -f1)" "local" >> "$FILE_FETCHED"
+        say "local: $app"
         continue
     fi
 
