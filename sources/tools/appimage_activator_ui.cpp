@@ -408,7 +408,14 @@ unsigned long x11_window_id(GtkWindow *p_window) {
     if (nullptr == p_surface || !GDK_IS_X11_SURFACE(p_surface)) {
         return 0;
     }
+    // GTK 4.18 deprecates gdk_x11_surface_get_xid and offers nothing in its place,
+    // while the id it returns is still exactly what an external tool needs to place the
+    // window -- the reason this function exists (see records/05 and records/07).  The
+    // deprecation is silenced for this call alone rather than for the file or the
+    // target, so any future deprecation in this file still fails the build.
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
     return gdk_x11_surface_get_xid(p_surface);
+    G_GNUC_END_IGNORE_DEPRECATIONS
 #else
     static_cast<void>(p_window);
     return 0;
