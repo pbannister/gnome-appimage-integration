@@ -72,6 +72,15 @@ printf '[Desktop Entry]\nType=Application\nName=NoRoot\nExec=noroot %%F\n' \
     > "$DIRECTORY_TEMP/p3/usr/share/applications/noroot.desktop"
 build_image NoRoot "$DIRECTORY_TEMP/p3"
 
+# A file name with spaces, which the launcher has to quote: this is what the NETGEAR
+# AppImage in the real corpus is, and a first-word check that ignores the quoting
+# reports its launcher as broken.
+mkdir -p "$DIRECTORY_TEMP/p4/usr/share/icons/hicolor/48x48/apps"
+printf 'png' > "$DIRECTORY_TEMP/p4/usr/share/icons/hicolor/48x48/apps/spaced.png"
+printf '[Desktop Entry]\nType=Application\nName=Spaced App\nExec=spaced %%F\nIcon=spaced\n' \
+    > "$DIRECTORY_TEMP/p4/spaced.desktop"
+build_image "Spaced Image" "$DIRECTORY_TEMP/p4"
+
 run_corpus() {
     env APPIMAGE_CORPUS_DIR="$DIRECTORY_CORPUS" \
         APPIMAGE_SANDBOX_DIR="$DIRECTORY_TEMP/sandbox" \
@@ -89,8 +98,8 @@ FILE_SUMMARY="$DIRECTORY_CORPUS/reports/summary.tsv"
 row_of() { # <app>
     awk -F"$(printf '\t')" -v a="$1" 'NR>1 && $1==a' "$FILE_SUMMARY"
 }
-if [ "$(grep -vc '^app' "$FILE_SUMMARY")" != "3" ]; then
-    fail_test "the summary does not have three rows: $(cat "$FILE_SUMMARY")"
+if [ "$(grep -vc '^app' "$FILE_SUMMARY")" != "4" ]; then
+    fail_test "the summary does not have four rows: $(cat "$FILE_SUMMARY")"
 fi
 printf '%s' "$(row_of Good)" | grep -q "file" \
     || fail_test "the clean AppImage was not recorded as a root file: $(row_of Good)"
@@ -104,9 +113,24 @@ fi
 if [ "$(row_of Good | awk -F"$(printf '\t')" '{print $16}')" = "failed" ]; then
     fail_test "the clean AppImage did not install"
 fi
+# The launcher each install wrote is checked, not just the install's exit status: the
+# file, its Exec target, and the icon it names.
+grep -q "verify$" "$FILE_SUMMARY" || fail_test "the summary has no verify column"
+if [ "$(row_of Good | awk -F"$(printf '\t')" '{print $17}')" != "verified" ]; then
+    fail_test "the clean AppImage's launcher was not verified: $(row_of Good)"
+fi
+if [ "$(row_of NoRoot | awk -F"$(printf '\t')" '{print $17}')" != "-" ]; then
+    fail_test "an AppImage that never installed was reported as verified: $(row_of NoRoot)"
+fi
+# A launcher for a file whose name has spaces must verify: its Exec is quoted, and a
+# check that splits on the first space would call it broken.
+if [ "$(row_of "Spaced Image" | awk -F"$(printf '\t')" '{print $17}')" != "verified" ]; then
+    fail_test "the launcher for a name with spaces was not verified: $(row_of "Spaced Image")"
+fi
 
 FILE_EDGES="$DIRECTORY_CORPUS/reports/edge-cases.txt"
-for text_expected in "the AppImage has no root desktop entry" "root_kind:" "symlink"; do
+for text_expected in "the AppImage has no root desktop entry" "root_kind:" "symlink" \
+    "== launcher verification =="; do
     grep -q "$text_expected" "$FILE_EDGES" \
         || fail_test "the edge-case catalogue does not mention '$text_expected'"
 done

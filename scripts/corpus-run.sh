@@ -63,8 +63,10 @@ resolve_tool() { # <name> <environment override>
 
 TOOL=$(resolve_tool appimage-integrate APPIMAGE_INTEGRATE)
 INSPECT=$(resolve_tool appimage-inspect APPIMAGE_INSPECT)
+DESKTOP_INSPECT=$(resolve_tool desktop-inspect APPIMAGE_DESKTOP_INSPECT)
 [ -n "$TOOL" ] || fail "appimage-integrate was not found; build it or set APPIMAGE_INTEGRATE"
 [ -n "$INSPECT" ] || fail "appimage-inspect was not found; build it or set APPIMAGE_INSPECT"
+[ -n "$DESKTOP_INSPECT" ] || fail "desktop-inspect was not found; build it or set APPIMAGE_DESKTOP_INSPECT"
 
 mkdir -p "$DIRECTORY_REPORTS"
 say "tool:    $TOOL"
@@ -112,9 +114,24 @@ count_matching() { # <file> <extended-regex>
     grep -cE "$2" "$1" 2>/dev/null || true
 }
 
+# The program an Exec value runs, which is its first word.  The desktop entry spec has a
+# path with spaces written in double quotes -- Exec="…/Some App.AppImage" %U -- so a
+# first-word test that splits on the first space gets a path that does not exist and
+# blames the launcher for the reader's mistake.
+exec_program() { # <Exec value>
+    case "$1" in
+        \"*)
+            printf '%s' "$1" | sed -n 's/^"\([^"]*\)".*$/\1/p'
+            ;;
+        *)
+            printf '%s' "${1%% *}"
+            ;;
+    esac
+}
+
 FILE_SUMMARY="$DIRECTORY_REPORTS/summary.tsv"
-printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes\n' \
-    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
+printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes%sverify\n' \
+    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
     > "$FILE_SUMMARY"
 rm -f "$DIRECTORY_REPORTS/.installs"
 
@@ -173,6 +190,35 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
         "$TOOL" list > "$DIRECTORY_APP_REPORT/list.txt" 2>&1 || true
     fi
 
+    # An install that exits 0 is not the same as a launcher the desktop can use, so the
+    # launcher it wrote is checked: the file is there, its Exec names the AppImage this
+    # install placed, a TryExec target exists, and the icon it names resolves in the
+    # theme.  This is the difference between "the tool said it worked" and "the desktop
+    # has something to run".
+    verify_note=
+    if [ "$status_install" = "ok" ]; then
+        file_launcher=$(awk -F"$TAB" 'NF>=3 {print $3; exit}' "$DIRECTORY_APP_REPORT/list.txt")
+        if [ -z "$file_launcher" ] || [ ! -f "$file_launcher" ]; then
+            verify_note="list names no launcher"
+        else
+            exec_line=$(sed -n 's/^Exec=//p' "$file_launcher" | head -1)
+            tryexec_line=$(sed -n 's/^TryExec=//p' "$file_launcher" | head -1)
+            icon_line=$(sed -n 's/^Icon=//p' "$file_launcher" | head -1)
+            file_exec=$(exec_program "$exec_line")
+            if [ ! -f "$file_exec" ]; then
+                verify_note="Exec names a file that is not there"
+            elif [ -n "$tryexec_line" ] && [ ! -e "$tryexec_line" ]; then
+                verify_note="TryExec names a file that is not there"
+            elif [ -n "$icon_line" ]; then
+                icon_best=$("$DESKTOP_INSPECT" --icon "$icon_line" 2>/dev/null \
+                    | sed -n 's/^best: //p' | head -1)
+                case "$icon_best" in
+                    '' | '(none)'*) verify_note="icon $icon_line does not resolve" ;;
+                esac
+            fi
+        fi
+    fi
+
     # ------------------------------------------------------------------
     # What the application is.
 
@@ -211,6 +257,15 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     elif [ "$status_inspect" -ne 0 ]; then
         outcome='error: inspect failed'
     fi
+    # A launcher that cannot be used is the finding, whatever the install command said.
+    if [ -n "$verify_note" ]; then
+        outcome="verify: $verify_note"
+    fi
+    verify_column=-
+    if [ "$status_install" = "ok" ]; then
+        verify_column=verified
+        [ -z "$verify_note" ] || verify_column="$verify_note"
+    fi
 
     icons=$(count_matching "$DIRECTORY_APP_REPORT/plan.txt" '^  ([0-9]+x[0-9]+|scalable) \.(png|svg|svgz|xpm) ')
     warnings=$(count_matching "$DIRECTORY_APP_REPORT/plan.txt" '^warning: ')
@@ -218,10 +273,10 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     wm_class=$(field "$DIRECTORY_APP_REPORT/plan.txt" 'startup-wm-class')
     mime_types=$(field "$DIRECTORY_APP_REPORT/plan.txt" 'mime-types')
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$name_app" "$bytes" "$detection" "$compression" "$root_entry" "$root_kind" \
         "$usr_link" "$terminal" "$icons" "$wm_class" "$mime_types" "$signature" \
-        "$update_info" "$outcome" "$warnings" "$notes" >> "$FILE_SUMMARY"
+        "$update_info" "$outcome" "$warnings" "$notes" "$verify_column" >> "$FILE_SUMMARY"
 
     if [ "$status_install" != "skip" ]; then
         printf '%s\tinstall=%s\n' "$name_app" "$status_install" >> "$DIRECTORY_REPORTS/.installs"
@@ -258,14 +313,20 @@ FILE_EDGES="$DIRECTORY_REPORTS/edge-cases.txt"
             NR==1 { for (i=1;i<=NF;i++) if ($i==c) k=i; next }
             { print $k }' "$FILE_SUMMARY" | sort | uniq -c
     done
-    printf 'no icons, among the applications that planned cleanly:\n'
-    awk -F"$TAB" 'NR>1 && $9==0 && $14=="ok" {print "  "$1}' "$FILE_SUMMARY"
+    printf 'no icons, among the applications whose plan succeeded:\n'
+    awk -F"$TAB" 'NR>1 && $9==0 && $14 !~ /^error:/ {print "  "$1}' "$FILE_SUMMARY"
     echo "== install stage =="
     if [ -f "$DIRECTORY_REPORTS/.installs" ]; then
         sort "$DIRECTORY_REPORTS/.installs"
     else
         echo "  (not run)"
     fi
+    echo
+    echo "== launcher verification =="
+    printf 'counts:\n'
+    awk -F"$TAB" 'NR>1 {print $17}' "$FILE_SUMMARY" | sort | uniq -c | sort -rn
+    printf 'not verified:\n'
+    awk -F"$TAB" 'NR>1 && $17!="verified" && $17!="-" {print "  "$1": "$17}' "$FILE_SUMMARY"
 } > "$FILE_EDGES"
 
 say "summary:    $FILE_SUMMARY"
