@@ -85,6 +85,14 @@ printf '[Desktop Entry]\nType=Application\nName=AppImage Activator\nExec=/bin/tr
 printf '<mime-info/>' > "$DIRECTORY_DATA/mime/packages/0123456789abcdef_orphan.xml"
 printf 'png' > "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_01234567_orphan.png"
 
+# The handler's record and the MIME definition it backed up.  Both belong to the handler,
+# which stays registered, so both must survive a reset -- removing the record while
+# leaving the registration is what makes `handler uninstall` fail.
+mkdir -p "$DIRECTORY_DATA/gnome-appimage-integration/backup"
+printf 'handler_desktop=%s\n' "$DIRECTORY_DATA/applications/appimage-activator.desktop" \
+    > "$DIRECTORY_DATA/gnome-appimage-integration/appimage-activator.manifest"
+printf '<mime-info/>' > "$DIRECTORY_DATA/gnome-appimage-integration/backup/appimage.xml"
+
 run_sandboxed() {
     env -u DISPLAY -u WAYLAND_DISPLAY \
         HOME="$DIRECTORY_XDG/home" \
@@ -147,7 +155,9 @@ for file_kept in "$DIRECTORY_DATA/applications/other-tool.desktop" \
     "$DIRECTORY_DATA/applications/appimage-activator.desktop" \
     "$DIRECTORY_DATA/mime/packages/appimage.xml" \
     "$DIRECTORY_DATA/mime/packages/appimagekit_deadbeef_other.xml" \
-    "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_other-tool.png"; do
+    "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_other-tool.png" \
+    "$DIRECTORY_DATA/gnome-appimage-integration/appimage-activator.manifest" \
+    "$DIRECTORY_DATA/gnome-appimage-integration/backup/appimage.xml"; do
     if [ ! -e "$file_kept" ]; then
         fail_test "the reset removed a file that is not this tool's: $file_kept"
     fi

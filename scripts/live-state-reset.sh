@@ -159,11 +159,16 @@ sweep "per-AppImage MIME definitions" "$DIRECTORY_MIME" -maxdepth 1 -type f \
 # Icons: appimage_<hex>_<name>.<ext>, the name every integration's icons carry.
 sweep "integration icons" "$DIRECTORY_ICONS" -type f -name 'appimage_[0-9a-f]*'
 
-# Records and the backup of launchers they displaced.  ui.json is the window's size and
-# position, which is not integration state, so it stays.
-sweep "records" "$DIRECTORY_STATE" -maxdepth 1 -type f -name '*.manifest'
+# Records and the backup of launchers they displaced.  Three kinds of file in here are
+# not integration state and stay: ui.json is the window's size and position, and the
+# handler's own record and the MIME definition it backed up belong to the handler, which
+# stays registered -- removing the record while leaving the registration made
+# `handler uninstall` fail with "no handler manifest".
+sweep "records" "$DIRECTORY_STATE" -maxdepth 1 -type f -name '*.manifest' \
+    ! -name 'appimage-activator.manifest' ! -name 'appimage-handler.manifest'
 if [ -d "$DIRECTORY_STATE/backup" ]; then
-    sweep "displaced-launcher backups" "$DIRECTORY_STATE/backup" -type f
+    sweep "displaced-launcher backups" "$DIRECTORY_STATE/backup" -type f \
+        ! -name 'appimage.xml'
 fi
 
 say "$count_swept leftover file(s)"
