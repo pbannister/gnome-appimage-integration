@@ -14,15 +14,20 @@
 #   sh scripts/live-state-snapshot.sh
 #
 # Environment:
-#   APPIMAGE_CORPUS_DIR   where corpus and live-state work lives (default ~/appimage-corpus)
+#   APPIMAGE_CORPUS_DIR   where the corpus and its restore points live (default:
+#                         /datasets/appimage-corpus when /datasets exists, else
+#                         ~/appimage-corpus)
 #   APPIMAGE_INTEGRATE    the tool to use (default: the installed one)
 #   XDG_DATA_HOME         where the desktop data lives (default ~/.local/share)
 set -eu
 
+DIRECTORY_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$DIRECTORY_SCRIPT/lib/corpus-paths.sh"
+
 DIRECTORY_DATA=${XDG_DATA_HOME:-$HOME/.local/share}
 DIRECTORY_STATE="$DIRECTORY_DATA/gnome-appimage-integration"
 DIRECTORY_APPLICATIONS="$DIRECTORY_DATA/applications"
-DIRECTORY_WORK=${APPIMAGE_CORPUS_DIR:-$HOME/appimage-corpus}
+DIRECTORY_WORK=$(corpus_directory)
 DIRECTORY_RESTORE="$DIRECTORY_WORK/live-state"
 
 say() {

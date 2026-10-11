@@ -74,6 +74,7 @@ build_image NoRoot "$DIRECTORY_TEMP/p3"
 
 run_corpus() {
     env APPIMAGE_CORPUS_DIR="$DIRECTORY_CORPUS" \
+        APPIMAGE_SANDBOX_DIR="$DIRECTORY_TEMP/sandbox" \
         APPIMAGE_INTEGRATE="$DIRECTORY_BUILD/appimage-integrate" \
         APPIMAGE_INSPECT="$DIRECTORY_BUILD/appimage-inspect" \
         sh "$REPOSITORY_ROOT/scripts/corpus-run.sh"
@@ -111,8 +112,8 @@ for text_expected in "the AppImage has no root desktop entry" "root_kind:" "syml
 done
 
 echo "=== each application was given its own sandbox, and it was cleaned up ==="
-if [ -d "$DIRECTORY_CORPUS/sandbox" ]; then
-    leftovers=$(find "$DIRECTORY_CORPUS/sandbox" -mindepth 1 -maxdepth 1 | wc -l)
+if [ -d "$DIRECTORY_TEMP/sandbox" ]; then
+    leftovers=$(find "$DIRECTORY_TEMP/sandbox" -mindepth 1 -maxdepth 1 | wc -l)
     if [ "$leftovers" != "0" ]; then
         fail_test "$leftovers sandbox directory(ies) were left behind"
     fi

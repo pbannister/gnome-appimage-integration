@@ -12,13 +12,15 @@
 #   sh scripts/corpus-fetch.sh
 #
 # Environment:
-#   APPIMAGE_CORPUS_DIR   where the corpus lives (default ~/appimage-corpus)
+#   APPIMAGE_CORPUS_DIR   where the corpus lives (default: /datasets/appimage-corpus
+#                         when /datasets exists, else ~/appimage-corpus)
 #   CORPUS_LIST           the list to fetch (default scripts/corpus-list.tsv)
 #   LIMIT                 fetch only the first N rows, for a quick pass
 set -eu
 
 DIRECTORY_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-DIRECTORY_WORK=${APPIMAGE_CORPUS_DIR:-$HOME/appimage-corpus}
+. "$DIRECTORY_SCRIPT/lib/corpus-paths.sh"
+DIRECTORY_WORK=$(corpus_directory)
 DIRECTORY_APPIMAGES="$DIRECTORY_WORK/appimages"
 DIRECTORY_RECORD="$DIRECTORY_WORK/corpus"
 FILE_LIST=${CORPUS_LIST:-$DIRECTORY_SCRIPT/corpus-list.tsv}

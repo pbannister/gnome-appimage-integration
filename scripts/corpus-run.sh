@@ -18,7 +18,9 @@
 #   sh scripts/corpus-run.sh [app ...]        (default: every fetched application)
 #
 # Environment:
-#   APPIMAGE_CORPUS_DIR   where the corpus lives (default ~/appimage-corpus)
+#   APPIMAGE_CORPUS_DIR   where the corpus lives (default: /datasets/appimage-corpus
+#                         when /datasets exists, else ~/appimage-corpus)
+#   APPIMAGE_SANDBOX_DIR  where the throwaway desktops go (default $TMPDIR/appimage-corpus-sandbox)
 #   APPIMAGE_INTEGRATE    the tool under test (default: the build tree, then the installed one)
 #   APPIMAGE_INSPECT      likewise for appimage-inspect
 #   KEEP_SANDBOX=1        keep each application's sandbox for inspection
@@ -27,7 +29,9 @@ set -eu
 
 DIRECTORY_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DIRECTORY_ROOT=$(CDPATH= cd -- "$DIRECTORY_SCRIPT/.." && pwd)
-DIRECTORY_WORK=${APPIMAGE_CORPUS_DIR:-$HOME/appimage-corpus}
+. "$DIRECTORY_SCRIPT/lib/corpus-paths.sh"
+DIRECTORY_WORK=$(corpus_directory)
+DIRECTORY_SANDBOXES=$(sandbox_directory)
 DIRECTORY_APPIMAGES="$DIRECTORY_WORK/appimages"
 DIRECTORY_REPORTS="$DIRECTORY_WORK/reports"
 FILE_FETCHED="$DIRECTORY_WORK/corpus/fetched.tsv"
@@ -123,7 +127,7 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     mkdir -p "$DIRECTORY_APP_REPORT"
 
     # A fresh tree for this application alone.
-    DIRECTORY_SANDBOX="$DIRECTORY_WORK/sandbox/$name_app"
+    DIRECTORY_SANDBOX="$DIRECTORY_SANDBOXES/$name_app"
     rm -rf "$DIRECTORY_SANDBOX"
     mkdir -p "$DIRECTORY_SANDBOX/home/.local/share" "$DIRECTORY_SANDBOX/home/.config" \
         "$DIRECTORY_SANDBOX/share" "$DIRECTORY_SANDBOX/etc"

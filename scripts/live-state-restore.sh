@@ -12,11 +12,16 @@
 #   sh scripts/live-state-restore.sh [restore-point.tsv]
 #
 # Environment:
-#   APPIMAGE_CORPUS_DIR   where corpus and live-state work lives (default ~/appimage-corpus)
+#   APPIMAGE_CORPUS_DIR   where the corpus and its restore points live (default:
+#                         /datasets/appimage-corpus when /datasets exists, else
+#                         ~/appimage-corpus)
 #   APPIMAGE_INTEGRATE    the tool to use (default: the installed one)
 set -eu
 
-DIRECTORY_WORK=${APPIMAGE_CORPUS_DIR:-$HOME/appimage-corpus}
+DIRECTORY_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$DIRECTORY_SCRIPT/lib/corpus-paths.sh"
+
+DIRECTORY_WORK=$(corpus_directory)
 DIRECTORY_RESTORE="$DIRECTORY_WORK/live-state"
 TAB=$(printf '\t')
 

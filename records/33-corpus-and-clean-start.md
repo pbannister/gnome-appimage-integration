@@ -19,7 +19,8 @@ and found four things worth fixing -- one of which had nothing to do with AppIma
 | File | Role |
 | ---- | ---- |
 | `scripts/corpus-list.tsv` | 29 applications, with a current download URL and size, or a `local:` source naming a file already on the machine |
-| `scripts/corpus-fetch.sh` | fetches the corpus into `~/appimage-corpus`, skipping what is cached and copying what is local |
+| `scripts/corpus-fetch.sh` | fetches the corpus, skipping what is cached and copying what is local |
+| `scripts/lib/corpus-paths.sh` | decides where the samples, reports, and per-application sandboxes go |
 | `scripts/corpus-run.sh` | runs the tools over the corpus and writes the catalogue |
 | `scripts/live-state-snapshot.sh` | writes a restore point: what `install` needs to reproduce each integration |
 | `scripts/live-state-reset.sh` | uninstalls everything recorded and sweeps what no record names, after writing a restore point |
@@ -122,15 +123,28 @@ To run the corpus again, from a clean start and back again:
 ```
 make build
 sh scripts/live-state-reset.sh          # writes a restore point, then resets
-sh scripts/corpus-run.sh                # catalogue in ~/appimage-corpus/reports
+sh scripts/corpus-run.sh                # catalogue under the corpus directory's reports/
 sh scripts/live-state-restore.sh        # puts the integrations back
 ```
 
-`~/appimage-corpus/reports/edge-cases.txt` is the summary to read first: outcomes, warnings by text,
-and the shapes.  The per-application raw output is beside it, in `<app>/inspect.txt`, `plan.txt`, and
-`install.txt`.
+`reports/edge-cases.txt` is the summary to read first: outcomes, warnings by text, and the shapes.
+The per-application raw output is beside it, in `<app>/inspect.txt`, `plan.txt`, and `install.txt`.
+`scripts/lib/corpus-paths.sh` prints both directories, or `APPIMAGE_CORPUS_DIR` and
+`APPIMAGE_SANDBOX_DIR` set them.
 
 Two environment changes cost time in this episode and are worth recognising: a newer GTK turns a
 deprecation into a build failure because the project builds with `-Werror`, and a swapped-out
 coreutils turns a copied binary into a program that refuses to run.  Neither is a fault in this
 project, and both look like faults in it until the environment is checked.
+
+## Amended 2026-10-10
+
+The collected samples now live on this machine's bulk storage, `/datasets/appimage-corpus`, rather
+than in the home directory: 5.2 GB of AppImages belongs on the 5 TB volume, not beside the operating
+system.  `scripts/lib/corpus-paths.sh` makes that decision in one place -- `/datasets` when it
+exists, `$HOME/appimage-corpus` otherwise -- and the per-application sandbox moved the other way, to
+`${TMPDIR:-/tmp}`, because a spinning disk should not be seeking through a throwaway desktop for
+every application while the run reads the samples.  The corpus was moved and checked path by path
+and size by size before the home copy was removed, and `/datasets/manifest.yml` records it beside
+the other datasets.  The paths in this record are the ones to use; where it says
+`~/appimage-corpus`, read the corpus directory that the scripts choose.
