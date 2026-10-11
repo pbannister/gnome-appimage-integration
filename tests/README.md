@@ -22,6 +22,9 @@
 - A test never touches the real system: sandbox `HOME` and XDG paths into a
   temporary directory, serve HTTP on `127.0.0.1`, and use no outside network.
 - A test that changes live state does not belong in `make test`.
+- `tests/06-live-state.sh` exercises the live-state scripts against a sandbox: `scripts/live-state-snapshot.sh` writes a restore point, `scripts/live-state-reset.sh` returns a desktop to a clean start, and `scripts/live-state-restore.sh` puts the integrations back.
+- `tests/07-corpus-run.sh` exercises `scripts/corpus-run.sh` against synthetic AppImages covering the three root-desktop-entry shapes, and asserts that a second run over the same corpus produces an identical catalogue -- the property that says nothing is inherited between runs.
+- The AppImage corpus itself is not part of `make test`: it is gigabytes and needs the network.  `scripts/corpus-list.tsv` names the applications (a `local:` source means a file already on the machine), `scripts/corpus-fetch.sh` fetches them into `~/appimage-corpus`, and `scripts/corpus-run.sh` runs the tools over them, giving each application its own throwaway `HOME` and XDG tree and writing a catalogue to `~/appimage-corpus/reports`.
 - `tests/09-prompt-contract.sh` validates the prompt corpus; `tests/10-prompt-validator.sh` is its adversarial corpus, injecting malformed fixtures and asserting each is rejected.
 - Keep spec-derived sample inputs in `dataflow.in/` and use them as fixtures.
 

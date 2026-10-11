@@ -59,6 +59,9 @@ build_probe() { # <stem> <name> <extra-desktop-line>
 
 build_probe probe-one "Probe One" "StartupWMClass=ProbeOne"
 build_probe probe-two "Probe Two" ""
+# No window class at all: the record then has two empty columns in a row, which is the
+# shape that made a tab-separated restore point mis-parse.
+build_probe probe-three "Probe Three" ""
 
 # ---------------------------------------------------------------------------
 # A sandbox desktop, with one file from another tool and one orphan from an earlier run
@@ -105,13 +108,15 @@ run_sandboxed() {
         "$@"
 }
 
-echo "=== two integrations, one with a chosen class and name ==="
+echo "=== three integrations, one with a chosen class and name, one with no class ==="
 run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" install --yes --no-move \
     "$DIRECTORY_TEMP/probe-one.AppImage" > /dev/null
 run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" install --yes --no-move \
     --wm-class Chosen --name "Renamed App" "$DIRECTORY_TEMP/probe-two.AppImage" > /dev/null
-if [ "$(run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" list | wc -l)" != "2" ]; then
-    fail_test "the two AppImages were not integrated"
+run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" install --yes --no-move \
+    "$DIRECTORY_TEMP/probe-three.AppImage" > /dev/null
+if [ "$(run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" list | wc -l)" != "3" ]; then
+    fail_test "the three AppImages were not integrated"
 fi
 
 echo "=== the snapshot records what a restore needs ==="
@@ -121,8 +126,8 @@ if [ -z "$FILE_RESTORE" ] || [ ! -f "$FILE_RESTORE" ]; then
     fail_test "no restore point was written: $(cat "$DIRECTORY_TEMP/snapshot.txt")"
 fi
 ROWS=$(grep -vc '^#' "$FILE_RESTORE" || true)
-if [ "$ROWS" != "2" ]; then
-    fail_test "the restore point has $ROWS rows, not 2: $(cat "$FILE_RESTORE")"
+if [ "$ROWS" != "3" ]; then
+    fail_test "the restore point has $ROWS rows, not 3: $(cat "$FILE_RESTORE")"
 fi
 grep -q 'Renamed App' "$FILE_RESTORE" || fail_test "the restore point lost the chosen Name"
 grep -q 'Chosen' "$FILE_RESTORE" || fail_test "the restore point lost the chosen class"
@@ -138,7 +143,8 @@ if [ -n "$(run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" list)" ]; then
     fail_test "the reset left an integration recorded: $(cat "$DIRECTORY_TEMP/reset.txt")"
 fi
 if [ -e "$DIRECTORY_DATA/applications/probe-one.desktop" ] \
-    || [ -e "$DIRECTORY_DATA/applications/probe-two.desktop" ]; then
+    || [ -e "$DIRECTORY_DATA/applications/probe-two.desktop" ] \
+    || [ -e "$DIRECTORY_DATA/applications/probe-three.desktop" ]; then
     fail_test "the reset left an integration launcher behind"
 fi
 if [ -e "$DIRECTORY_DATA/applications/orphan.desktop" ]; then
@@ -170,8 +176,8 @@ echo "=== the restore puts the integrations back as they were ==="
 run_sandboxed sh "$REPOSITORY_ROOT/scripts/live-state-restore.sh" "$FILE_RESTORE" \
     > "$DIRECTORY_TEMP/restore.txt" 2>&1 \
     || fail_test "the restore failed: $(cat "$DIRECTORY_TEMP/restore.txt")"
-if [ "$(run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" list | wc -l)" != "2" ]; then
-    fail_test "the restore did not put both integrations back"
+if [ "$(run_sandboxed "$DIRECTORY_BUILD/appimage-integrate" list | wc -l)" != "3" ]; then
+    fail_test "the restore did not put all three integrations back"
 fi
 for file_before in "$DIRECTORY_TEMP"/before-*.desktop; do
     file_entry="$DIRECTORY_DATA/applications/$(basename "$file_before" | sed 's/^before-//')"

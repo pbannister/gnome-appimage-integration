@@ -66,11 +66,24 @@ verify() { # <desktop-entry> <name> <icon-name> <wm-class> <appimage-path>
 
 count_restored=0
 count_failed=0
-while IFS="$TAB" read -r identifier appimage_path source_path desktop_id desktop_entry \
-    icon_name wm_class wm_source name install_dir; do
-    case "$identifier" in
+# The row is split with cut rather than `read`: a tab is IFS whitespace, so `read` treats a
+# run of tabs as one delimiter and swallows the empty fields between them, which shifts
+# every column after the first two empty ones -- exactly what an integration with no
+# window class records.
+while IFS= read -r line_row; do
+    case "$line_row" in
         '' | '#'*) continue ;;
     esac
+    identifier=$(printf '%s\n' "$line_row" | cut -f1)
+    appimage_path=$(printf '%s\n' "$line_row" | cut -f2)
+    source_path=$(printf '%s\n' "$line_row" | cut -f3)
+    desktop_id=$(printf '%s\n' "$line_row" | cut -f4)
+    desktop_entry=$(printf '%s\n' "$line_row" | cut -f5)
+    icon_name=$(printf '%s\n' "$line_row" | cut -f6)
+    wm_class=$(printf '%s\n' "$line_row" | cut -f7)
+    wm_source=$(printf '%s\n' "$line_row" | cut -f8)
+    name=$(printf '%s\n' "$line_row" | cut -f9)
+    install_dir=$(printf '%s\n' "$line_row" | cut -f10)
 
     if [ ! -f "$appimage_path" ]; then
         echo "  missing AppImage, skipped: $appimage_path" >&2
@@ -82,10 +95,14 @@ while IFS="$TAB" read -r identifier appimage_path source_path desktop_id desktop
         --desktop-file-name "$desktop_id" \
         --icon-name "$icon_name"
     [ -z "$name" ] || set -- "$@" --name "$name"
-    # A class that was chosen is passed back; one taken from the embedded entry is left
-    # to be taken from it again, which keeps the record's source honest.
-    if [ "$wm_source" = "override" ] && [ -n "$wm_class" ]; then
-        set -- "$@" --wm-class "$wm_class"
+    # A class that was chosen is passed back; one taken from the embedded entry is left to
+    # be taken from it again, which keeps the record's source honest.  A record that names
+    # a class without naming a source -- what an older version of this tool wrote -- would
+    # otherwise lose the class entirely, so that case passes it back too.
+    if [ -n "$wm_class" ]; then
+        if [ "$wm_source" = "override" ] || [ -z "$wm_source" ]; then
+            set -- "$@" --wm-class "$wm_class"
+        fi
     fi
     if [ "$install_dir" != "$HOME/Applications" ]; then
         set -- "$@" --install-dir "$install_dir"
