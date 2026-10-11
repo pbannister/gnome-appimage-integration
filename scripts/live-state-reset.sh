@@ -135,10 +135,15 @@ sweep() { # <description> <find-expression...>
 }
 
 # Launchers this tool wrote but no record claims (a run that was interrupted, or a
-# record that was replaced).
+# record that was replaced).  The handler's own entry carries the same marker and is not
+# an integration: it is left registered, as the header says.  These two names mirror
+# HANDLER_DESKTOP_ID and HANDLER_LEGACY_DESKTOP_ID in sources/tools/appimage_integrate.cpp.
 if [ -d "$DIRECTORY_APPLICATIONS" ]; then
     for file_launcher in "$DIRECTORY_APPLICATIONS"/*.desktop; do
         [ -f "$file_launcher" ] || continue
+        case "$(basename "$file_launcher")" in
+            appimage-activator.desktop | appimage-handler.desktop) continue ;;
+        esac
         if grep -q '^X-Integrated-By=gnome-appimage-integration$' "$file_launcher" 2>/dev/null; then
             count_swept=$((count_swept + 1))
             remove "$file_launcher"

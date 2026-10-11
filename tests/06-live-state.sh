@@ -78,6 +78,10 @@ printf '<mime-info/>' > "$DIRECTORY_DATA/mime/packages/appimagekit_deadbeef_othe
 printf 'png' > "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_other-tool.png"
 printf '[Desktop Entry]\nType=Application\nName=Orphan\nExec=/bin/true\nX-Integrated-By=gnome-appimage-integration\n' \
     > "$DIRECTORY_DATA/applications/orphan.desktop"
+# The handler's own entry carries the same marker but is not an integration: it is a
+# desktop registration the owner chose, and the reset must leave it registered.
+printf '[Desktop Entry]\nType=Application\nName=AppImage Activator\nExec=/bin/true handle %%f\nX-Integrated-By=gnome-appimage-integration\n' \
+    > "$DIRECTORY_DATA/applications/appimage-activator.desktop"
 printf '<mime-info/>' > "$DIRECTORY_DATA/mime/packages/0123456789abcdef_orphan.xml"
 printf 'png' > "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_01234567_orphan.png"
 
@@ -140,6 +144,7 @@ if [ -e "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_01234567_orphan.png" 
 fi
 # Another tool's files, and the shared definition, are not this tool's to remove.
 for file_kept in "$DIRECTORY_DATA/applications/other-tool.desktop" \
+    "$DIRECTORY_DATA/applications/appimage-activator.desktop" \
     "$DIRECTORY_DATA/mime/packages/appimage.xml" \
     "$DIRECTORY_DATA/mime/packages/appimagekit_deadbeef_other.xml" \
     "$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage_other-tool.png"; do
