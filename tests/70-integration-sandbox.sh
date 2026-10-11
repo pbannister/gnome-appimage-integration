@@ -149,4 +149,34 @@ fi
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" handler status | grep -q 'application/vnd.appimage' \
     || fail_test "handler status printed nothing useful"
 
+# An AppImage built for another machine integrates, because integration is only files, but
+# it cannot run here and the plan has to say so.  The ELF machine field is patched rather
+# than a foreign binary obtained, so the fixture stays hermetic.
+case "$(uname -m)" in
+    x86_64 | amd64)
+        BYTES_FOREIGN_MACHINE='\267\000'
+        NAME_FOREIGN_MACHINE=aarch64
+        ;;
+    aarch64 | arm64)
+        BYTES_FOREIGN_MACHINE='\076\000'
+        NAME_FOREIGN_MACHINE=x86-64
+        ;;
+    *)
+        BYTES_FOREIGN_MACHINE=''
+        ;;
+esac
+if [ -n "$BYTES_FOREIGN_MACHINE" ]; then
+    # Built fresh: the earlier parts of this test consumed both images they made.
+    build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD" \
+        "$DIRECTORY_TEMP/foreign.AppImage" gzip
+    printf "$BYTES_FOREIGN_MACHINE" | dd of="$DIRECTORY_TEMP/foreign.AppImage" bs=1 seek=18 \
+        conv=notrunc 2>/dev/null
+    run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" plan "$DIRECTORY_TEMP/foreign.AppImage" \
+        > "$DIRECTORY_TEMP/foreign.txt" 2>&1
+    grep -q "built for $NAME_FOREIGN_MACHINE and this machine is" "$DIRECTORY_TEMP/foreign.txt" \
+        || fail_test "plan did not warn that the AppImage is for another machine: $(cat "$DIRECTORY_TEMP/foreign.txt")"
+    grep -q 'cannot run here' "$DIRECTORY_TEMP/foreign.txt" \
+        || fail_test "the warning does not say the AppImage cannot run here"
+fi
+
 pass_test "integration sandbox"

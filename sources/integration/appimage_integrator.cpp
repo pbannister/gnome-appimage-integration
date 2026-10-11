@@ -808,6 +808,23 @@ void appimage_integrator_c::build() {
     }
 }
 
+// The machine this build runs on, named the way elf_machine_name names an ELF machine,
+// so the two can be compared.  "unknown" means this build does not know its own machine,
+// and nothing is then claimed about an AppImage's.
+std::string host_machine_name() {
+#if defined(__x86_64__) || defined(__amd64__)
+    return "x86-64";
+#elif defined(__aarch64__)
+    return "aarch64";
+#elif defined(__i386__)
+    return "x86";
+#elif defined(__arm__)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
 bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                                  const integration_options_o &o_options,
                                  integration_plan_o &o_plan) const {
@@ -826,6 +843,25 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         if (appimage_detection_e::type2 != o_info.detection || !o_info.has_squashfs) {
             o_plan.error = "only type 2 AppImages can be integrated";
             return false;
+        }
+
+        // An AppImage built for another machine integrates -- integration is only files --
+        // but it cannot run here, and taking the wrong asset is an easy download mistake.
+        // The file's own ELF header is the only place that says which machine it is for,
+        // so say it rather than let the launcher fail silently later.
+        const std::string s_host_machine = host_machine_name();
+        if ("unknown" != s_host_machine && "unknown" != o_info.elf.machine_name
+            && s_host_machine != o_info.elf.machine_name) {
+            if ("x86-64" == s_host_machine && "x86" == o_info.elf.machine_name) {
+                o_plan.notes.push_back(
+                    "the AppImage is a 32-bit x86 build; it runs here only if this kernel "
+                    "carries 32-bit support");
+            } else {
+                o_plan.warnings.push_back(
+                    "the AppImage is built for " + o_info.elf.machine_name
+                    + " and this machine is " + s_host_machine
+                    + "; the launcher will be written, but the AppImage cannot run here");
+            }
         }
 
         squashfs_reader_c o_reader;

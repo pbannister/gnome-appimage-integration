@@ -140,10 +140,28 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     status_plan=0
     "$TOOL" plan "$file_app" > "$DIRECTORY_APP_REPORT/plan.txt" 2>&1 || status_plan=$?
 
+    # An application that is also installed system-wide is refused by design: the tool
+    # will not shadow a launcher a package or another tool wrote.  That is a finding
+    # rather than a failure, so the corpus records it as one and takes the --add path,
+    # which installs alongside the existing launcher.
+    conflict=no
+    if [ "$status_plan" -ne 0 ] \
+        && grep -q 'existing launcher(s) already represent this application' \
+            "$DIRECTORY_APP_REPORT/plan.txt"; then
+        conflict=yes
+    fi
+
     status_install=skip
-    if [ "${SKIP_INSTALL:-0}" != "1" ] && [ "$status_plan" -eq 0 ]; then
-        if "$TOOL" install --yes --no-move "$file_app" \
-            > "$DIRECTORY_APP_REPORT/install.txt" 2>&1; then
+    if [ "${SKIP_INSTALL:-0}" != "1" ] && { [ "$status_plan" -eq 0 ] || [ "$conflict" = "yes" ]; }; then
+        status_one=0
+        if [ "$conflict" = "yes" ]; then
+            "$TOOL" install --yes --no-move --add "$file_app" \
+                > "$DIRECTORY_APP_REPORT/install.txt" 2>&1 || status_one=$?
+        else
+            "$TOOL" install --yes --no-move "$file_app" \
+                > "$DIRECTORY_APP_REPORT/install.txt" 2>&1 || status_one=$?
+        fi
+        if [ "$status_one" -eq 0 ]; then
             status_install=ok
         else
             status_install=failed
@@ -182,7 +200,9 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     # What the tools made of it.
 
     outcome=ok
-    if [ "$status_plan" -ne 0 ]; then
+    if [ "$conflict" = "yes" ] && [ "$status_install" = "ok" ]; then
+        outcome="conflict: installed alongside an existing launcher"
+    elif [ "$status_plan" -ne 0 ]; then
         outcome="error: $(sed -n 's/^error: //p' "$DIRECTORY_APP_REPORT/plan.txt" | head -1)"
     elif [ "$status_inspect" -ne 0 ]; then
         outcome='error: inspect failed'
@@ -203,9 +223,9 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
         printf '%s\tinstall=%s\n' "$name_app" "$status_install" >> "$DIRECTORY_REPORTS/.installs"
     fi
 
-    printf '%-22s %-8s %-16s root=%-7s usr=%-3s icons=%-3s warn=%-2s %s\n' \
-        "$name_app" "$detection" "$compression" "$root_kind" "$usr_link" "$icons" \
-        "$warnings" "$outcome"
+    printf '%-16s %-7s %-6s root=%-7s usr=%-3s term=%-3s icons=%-3s warn=%-2s %s\n' \
+        "$name_app" "$detection" "$compression" "$root_kind" "$usr_link" "$terminal" \
+        "$icons" "$warnings" "$outcome"
 
     [ "${KEEP_SANDBOX:-0}" = "1" ] || rm -rf "$DIRECTORY_SANDBOX"
 done
