@@ -58,6 +58,9 @@ trap cleanup EXIT
 DIRECTORY_HOME="$DIRECTORY_TEMP/home"
 mkdir -p "$DIRECTORY_HOME/.local/share/applications" "$DIRECTORY_TEMP/share" \
     "$DIRECTORY_HOME/.config" "$DIRECTORY_TEMP/etc"
+# An ambient DESKTOPINTEGRATION would add the specification's warning to
+# every plan, so the sandbox decides it.
+unset DESKTOPINTEGRATION
 export HOME="$DIRECTORY_HOME"
 export XDG_DATA_HOME="$DIRECTORY_HOME/.local/share"
 export XDG_DATA_DIRS="$DIRECTORY_TEMP/share:/usr/share"

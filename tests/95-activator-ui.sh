@@ -52,7 +52,7 @@ grep -q 'gtk_notebook_set_current_page(GTK_NOTEBOOK(p_notebook_), 0)' "$FILE_SOU
     || fail_test "the Status tab is not the page shown first"
 
 # With no display the handler must fall back to printed instructions, never hang.
-env -u DISPLAY -u WAYLAND_DISPLAY \
+env -u DISPLAY -u WAYLAND_DISPLAY -u DESKTOPINTEGRATION \
     "$DIRECTORY_BUILD/appimage-integrate" handle "$DIRECTORY_TEMP/Missing.AppImage" \
     > "$DIRECTORY_TEMP/handle.txt" 2>&1 || true
 grep -q 'appimage-integrate' "$DIRECTORY_TEMP/handle.txt" \
@@ -80,7 +80,7 @@ cat > "$DIRECTORY_DATA/mime/packages/appimage.xml" <<'XML'
 XML
 
 run_in_sandbox() {
-    env -u DISPLAY -u WAYLAND_DISPLAY \
+    env -u DISPLAY -u WAYLAND_DISPLAY -u DESKTOPINTEGRATION \
         HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_DATA" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
@@ -242,7 +242,15 @@ if [ "$1" = "explain" ]; then
             "$CONFLICT_INDEX" "$CONFLICT_INDEX" "${STUB_INSTALLED_VERSION:-9.9.9}"
         CONFLICT_INDEX=$((CONFLICT_INDEX + 1))
     done
-    printf ']}\n'
+    printf ']'
+    if [ -n "${STUB_OPTOUT:-}" ]; then
+        printf ',"desktop_integration_optout":[{"condition":"%s","consequence":"%s"}]' \
+            "${STUB_OPTOUT_CONDITION:-/etc/appimagekit/no_desktopintegration}" \
+            "${STUB_OPTOUT_CONSEQUENCE:-the AppImage specification says not to integrate on a machine that carries this file}"
+    else
+        printf ',"desktop_integration_optout":[]'
+    fi
+    printf ',"warnings":[]}\n'
     exit 0
 fi
 exit 0
@@ -267,6 +275,9 @@ run_driven() {
         STUB_UPDATE_USABLE="${STUB_UPDATE_USABLE:-false}" \
         STUB_UPDATE_DESCRIPTION="${STUB_UPDATE_DESCRIPTION:-}" \
         STUB_UPDATE_PROBLEM="${STUB_UPDATE_PROBLEM:-}" \
+        STUB_OPTOUT="${STUB_OPTOUT:-}" \
+        STUB_OPTOUT_CONDITION="${STUB_OPTOUT_CONDITION:-}" \
+        STUB_OPTOUT_CONSEQUENCE="${STUB_OPTOUT_CONSEQUENCE:-}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
@@ -582,5 +593,18 @@ if command -v Xvfb >/dev/null 2>&1 && command -v xprop >/dev/null 2>&1 \
     kill "$XVFB_PROCESS" 2>/dev/null || true
     wait "$XVFB_PROCESS" 2>/dev/null || true
 fi
+
+# The AppImage specification's conditions against integrating here are shown, and they
+# change nothing: the warning block is up, and Integrate is still the suggested action.
+if ! STUB_OPTOUT=1 run_driven --activate inspect > "$DIRECTORY_TEMP/optout.txt" 2>&1; then
+    cat "$DIRECTORY_TEMP/optout.txt" >&2
+    fail_test "the activator did not run with a condition set"
+fi
+grep -q '=== desktop integration warning: 1 shown ===' "$DIRECTORY_TEMP/optout.txt" \
+    || fail_test "the window did not show the specification's warning"
+grep -q 'opt-out: .*no_desktopintegration' "$DIRECTORY_TEMP/optout.txt" \
+    || fail_test "the warning block does not name the condition"
+grep -q '^=== buttons:.*Integrate\*' "$DIRECTORY_TEMP/optout.txt" \
+    || fail_test "the warning took Integrate away, but it is a warning and not a gate"
 
 pass_test "graphical activator"

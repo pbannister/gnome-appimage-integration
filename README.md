@@ -205,6 +205,35 @@ The format research that the readers implement is recorded in `documents/`.
 - `documents/10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
 - `documents/11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
 - `documents/12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
+- `documents/13-sandboxing-appimages.md` — running an AppImage under isolation, and why the container-shaped answers are the wrong shape for a launcher.
+
+## What Integration Writes, and What It Warns About
+
+`install` writes a launcher, an icon in the hicolor theme, any MIME definitions the payload
+carries, and any AppStream metadata it carries, then records all of it in a manifest so
+`uninstall` can reverse it.
+
+**AppStream metadata** is what makes an application visible in an application centre. It is
+installed to `$XDG_DATA_HOME/metainfo/<id>.xml`, named after the component's `<id>` element
+rather than the payload's file name, because AppStream requires it. Two integrations of one
+application therefore share one file: uninstall removes it only when no other manifest still
+claims it, and a file that belonged to no manifest of ours is copied aside and put back. When the
+metadata's `<launchable>` names a launcher this tool did not write, the plan warns, because the
+application would be listed in a catalogue and unable to start from it.
+
+**The AppImage specification's conditions against integrating** are detected and reported, never
+obeyed:
+
+| Condition | Why it matters here |
+| --------- | ------------------- |
+| `$XDG_DATA_HOME/appimagekit/no_desktopintegration`, `/usr/share/appimagekit/no_desktopintegration`, or `/etc/appimagekit/no_desktopintegration` exists | this machine has been told not to integrate AppImages |
+| an `appimaged` process is running | two integrators will write launchers for the same file |
+| `$DESKTOPINTEGRATION` is non-empty | another integration is already in progress in this environment |
+
+Each one is a `warning:` line in `plan`, `explain` and `install`, an entry in the JSON report,
+and a warning block at the top of the window. Integrate stays enabled: those conditions exist to
+stop unsolicited integration, and a person who clicks Integrate has given the permission the
+specification's own section asks for.
 
 ## Window Placement
 

@@ -47,6 +47,37 @@ struct integration_mime_package_o {
     std::string content;
 };
 
+// One AppStream metadata file copied out of the payload.  Unlike a MIME definition, the
+// name is the component id, because AppStream requires it to be, so two integrations of
+// the same application (two architectures, say) write the same file and it has to be
+// removed only when the last of them goes.
+struct integration_appstream_package_o {
+    std::string source_in_payload;
+    std::string component_id;
+    std::string installed_name;
+    std::string content;
+};
+
+// One reason the AppImage specification gives for not integrating on this machine.
+// The specification says integration SHOULD NOT happen when any of these holds; this
+// project reports them and lets the person decide, because it is an explicit request
+// that started the integration, which is the permission the same section asks for.
+struct integration_optout_o {
+    std::string condition;   // the file, the process, or the variable
+    std::string consequence; // what is different about integrating here
+};
+
+// A sentence naming the condition and what it means, for a warning line.
+std::string integration_optout_sentence(const integration_optout_o &o_optout);
+
+// Which of the specification's conditions hold, in specification order.  The sentinel
+// paths are parameters so that every one of them can be exercised without writing under
+// /usr or /etc; plan() passes the specification's own three paths.
+std::vector<integration_optout_o> desktop_integration_optouts(
+    const std::map<std::string, std::string> &o_environment,
+    const std::vector<std::string> &o_sentinel_paths,
+    bool b_appimaged_running);
+
 // An existing launcher that already represents the same application.
 struct integration_conflict_o {
     std::string desktop_id;
@@ -126,7 +157,11 @@ struct integration_plan_o {
     std::vector<integration_icon_o> icons;
     std::vector<std::string> mime_types;
     std::vector<integration_mime_package_o> mime_package_files;
+    std::vector<integration_appstream_package_o> appstream_package_files;
     std::vector<integration_conflict_o> conflicts;
+    // The AppImage specification's conditions against integrating on this machine, all
+    // of those that hold.  They are reported and nothing more: the person asked.
+    std::vector<integration_optout_o> optouts;
     std::vector<std::string> warnings;
     std::vector<std::string> notes;
     std::vector<integration_action_o> actions;
@@ -150,6 +185,9 @@ struct integration_options_o {
     bool update_caches = true;
     // Integrate a file whose payload does not match its recorded digest.
     bool ignore_signature = false;
+    // Whether a process named appimaged is running.  The process table is the command
+    // line tool's business, not this library's, so the answer is handed in.
+    bool appimaged_running = false;
     // Keep a recorded launcher's identity when rewriting it, so a second launcher for
     // one AppImage keeps its own suffixed identifier and its own record.
     std::string identifier_override;
@@ -238,6 +276,7 @@ private:
     std::string s_applications_directory_;
     std::string s_icon_directory_;
     std::string s_mime_packages_directory_;
+    std::string s_appstream_directory_;
     std::string s_state_directory_;
     std::string s_install_directory_;
     std::string s_tool_path_;

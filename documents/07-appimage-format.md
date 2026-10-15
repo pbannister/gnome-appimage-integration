@@ -209,6 +209,16 @@ Desktop integration should be skipped when any of these hold:
 - A process named `appimaged` is running.
 - The environment variable `$DESKTOPINTEGRATION` is non-empty.
 
+The specification's reason for these is unsolicited integration: a file that integrates itself
+into the desktop on first run, or a daemon that integrates everything it finds, is doing work
+nobody asked for. An integration that a person starts by clicking Integrate is the explicit
+permission the same section asks for, so this project **detects all five conditions and reports
+them as warnings** without refusing to work — see `13-sandboxing-appimages.md` for the related
+question of running the file under isolation. `integration_optout_o` and
+`desktop_integration_optouts()` in `sources/integration/` are the implementation, and
+`tests/desktop_integration_optout_test.cpp` exercises every condition including the two paths
+no test can create under `/usr` or `/etc`.
+
 A static runtime must support `TARGET_APPIMAGE`; when it names an existing path, the runtime uses that filesystem image instead of its own appended one.
 
 ## Consequences for the Reader

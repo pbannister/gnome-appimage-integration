@@ -41,7 +41,10 @@ using gnome_appimage::integration::integration_conflict_o;
 using gnome_appimage::integration::integration_conflict_policy_e;
 using gnome_appimage::integration::integration_icon_o;
 using gnome_appimage::appimage::understand_update_information;
+using gnome_appimage::integration::integration_appstream_package_o;
+using gnome_appimage::integration::integration_mime_package_o;
 using gnome_appimage::integration::integration_options_o;
+using gnome_appimage::integration::integration_optout_o;
 using gnome_appimage::integration::integration_plan_o;
 
 constexpr int EXIT_OK = 0;
@@ -351,6 +354,13 @@ void print_plan_text(const integration_plan_o &o_plan) {
                       << o_package.installed_name << '\n';
         }
     }
+    if (!o_plan.appstream_package_files.empty()) {
+        std::cout << "appstream:\n";
+        for (const auto &o_package : o_plan.appstream_package_files) {
+            std::cout << "  " << o_package.source_in_payload << " -> "
+                      << o_package.installed_name << "  (" << o_package.component_id << ")\n";
+        }
+    }
     for (const std::string &s_warning : o_plan.warnings) {
         std::cout << "warning: " << s_warning << '\n';
     }
@@ -400,6 +410,8 @@ void print_plan_json(const integration_plan_o &o_plan) {
     std::cout << "]}\n";
 }
 
+bool appimaged_is_running();
+
 integration_options_o options_from(const std::string &s_install_dir,
                                   const std::string &s_desktop_file_name,
                                   const std::string &s_exec_args,
@@ -421,6 +433,7 @@ integration_options_o options_from(const std::string &s_install_dir,
     o_options.move_appimage = b_move;
     o_options.write_icons = b_icons;
     o_options.conflict_policy = e_policy;
+    o_options.appimaged_running = appimaged_is_running();
     return o_options;
 }
 
@@ -506,6 +519,36 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
                   << ",\"upgrade\":" << (o_conflict.upgrade ? "true" : "false")
                   << ",\"repair\":" << (o_conflict.repair ? "true" : "false")
                   << ",\"exec_exists\":" << (o_conflict.exec_exists ? "true" : "false") << '}';
+    }
+    std::cout << "],\"warnings\":[";
+    b_first = true;
+    for (const std::string &s_warning : o_plan.warnings) {
+        if (!b_first) {
+            std::cout << ',';
+        }
+        b_first = false;
+        std::cout << '"' << json_escape(s_warning) << '"';
+    }
+    std::cout << "],\"desktop_integration_optout\":[";
+    b_first = true;
+    for (const integration_optout_o &o_optout : o_plan.optouts) {
+        if (!b_first) {
+            std::cout << ',';
+        }
+        b_first = false;
+        std::cout << "{\"condition\":\"" << json_escape(o_optout.condition)
+                  << "\",\"consequence\":\"" << json_escape(o_optout.consequence) << "\"}";
+    }
+    std::cout << "],\"appstream_components\":[";
+    b_first = true;
+    for (const integration_appstream_package_o &o_package : o_plan.appstream_package_files) {
+        if (!b_first) {
+            std::cout << ',';
+        }
+        b_first = false;
+        std::cout << "{\"id\":\"" << json_escape(o_package.component_id)
+                  << "\",\"source\":\"" << json_escape(o_package.source_in_payload)
+                  << "\",\"installed\":\"" << json_escape(o_package.installed_name) << "\"}";
     }
     std::cout << "]}\n";
     return b_valid ? EXIT_OK : EXIT_ERROR;
@@ -904,6 +947,41 @@ void attach_x11_windows(std::vector<running_appimage_o> &o_running) {
     }
 }
 
+// Whether a process with this name is running.  The executable the kernel reports is the
+// strongest evidence; the name in /proc/<pid>/comm is the fallback for a process whose
+// executable cannot be read.
+bool process_named_is_running(const std::string &s_name) {
+    std::error_code o_error;
+    for (const fs::directory_entry &o_entry : fs::directory_iterator("/proc", o_error)) {
+        const std::string s_entry = o_entry.path().filename().string();
+        if (s_entry.empty() || 0 == s_entry.find_first_not_of("0123456789")) {
+            continue;
+        }
+        const int i_pid = std::atoi(s_entry.c_str());
+        const std::string s_executable = process_executable(i_pid);
+        if (!s_executable.empty() && fs::path(s_executable).filename().string() == s_name) {
+            return true;
+        }
+        std::string s_comm = read_proc_text("/proc/" + s_entry + "/comm");
+        while (!s_comm.empty() && ('\n' == s_comm.back() || '\r' == s_comm.back())) {
+            s_comm.pop_back();
+        }
+        if (s_comm == s_name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whether an appimaged daemon is running.  The AppImage specification names one as a
+// reason not to integrate, because two integrators would write launchers for the same
+// files.  The answer is remembered for this run: it is asked while building every
+// command's options, and the process is short-lived, so one look is enough.
+bool appimaged_is_running() {
+    static const bool b_running = process_named_is_running("appimaged");
+    return b_running;
+}
+
 // The AppImages that are running now, from the processes that belong to them.
 std::vector<running_appimage_o> find_running_appimages() {
     std::vector<running_appimage_o> o_running;
@@ -1143,6 +1221,7 @@ bool build_refresh_plan_for(const appimage_integrator_c &o_integrator,
     o_options.refresh_own_launchers = true;
     o_options.identifier_override = o_entry.identifier;
     o_options.replaced_appimage_path = s_replaced_appimage_path;
+    o_options.appimaged_running = appimaged_is_running();
 
     if (!o_integrator.plan(s_appimage_path, o_options, o_plan)) {
         s_error = o_plan.error;
@@ -3253,6 +3332,7 @@ int command_handle(const std::string &s_path, bool b_update) {
         integration_options_o o_options;
         o_options.conflict_policy = integration_conflict_policy_e::fail;
         o_options.tool_path = tool_path(o_integrator);
+        o_options.appimaged_running = appimaged_is_running();
         show_text_info(s_label, o_integrator.describe(s_path, o_options));
         return EXIT_OK;
     }
@@ -3261,6 +3341,7 @@ int command_handle(const std::string &s_path, bool b_update) {
         const appimage_integrator_c o_integrator;
         integration_options_o o_options;
         o_options.tool_path = tool_path(o_integrator);
+        o_options.appimaged_running = appimaged_is_running();
         integration_plan_o o_plan;
         if (!o_integrator.plan(s_path, o_options, o_plan)) {
             if (o_plan.conflicts.empty()) {

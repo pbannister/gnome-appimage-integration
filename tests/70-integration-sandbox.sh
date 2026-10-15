@@ -66,7 +66,7 @@ DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
 mkdir -p "$DIRECTORY_XDG/home" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
 
 run_in_sandbox() {
-    env -u DISPLAY -u WAYLAND_DISPLAY \
+    env -u DISPLAY -u WAYLAND_DISPLAY -u DESKTOPINTEGRATION \
         HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \

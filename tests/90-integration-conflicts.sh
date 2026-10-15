@@ -54,7 +54,7 @@ mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
 cp "$DIRECTORY_TEMP/Probe.AppImage" "$DIRECTORY_TEMP/work.AppImage"
 
 run_in_sandbox() {
-    env HOME="$DIRECTORY_XDG/home" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
         XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \

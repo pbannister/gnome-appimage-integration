@@ -83,7 +83,7 @@ build_signed_appimage() { # <output> <digest-text-or-empty>
 DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
 mkdir -p "$DIRECTORY_XDG/home/.local/share/applications" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
 run_in_sandbox() {
-    env HOME="$DIRECTORY_XDG/home" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
         XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \

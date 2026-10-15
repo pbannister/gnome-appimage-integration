@@ -733,6 +733,19 @@ public:
                   << (gtk_widget_has_css_class(p_child, "suggested-action") ? "*" : "");
         }
         o_out << " ===\n";
+        // The specification's reasons for not integrating here, so a test can read both
+        // that the block is up and what it says.  It is a warning, never a gate, so the
+        // buttons above it are unchanged by it.
+        const std::vector<std::string> o_optouts = optout_sentences();
+        o_out << "=== desktop integration warning: "
+              << (o_optouts.empty() ? "(none)" : std::to_string(o_optouts.size()))
+              << (nullptr != p_optout_box_ && gtk_widget_get_visible(p_optout_box_)
+                      ? " shown"
+                      : " hidden")
+              << " ===\n";
+        for (const std::string &s_sentence : o_optouts) {
+            o_out << "  opt-out: " << s_sentence << "\n";
+        }
         // The Name field, so a test can read what an action prefilled.
         o_out << "=== name field: "
               << (gtk_widget_get_visible(p_name_box_)
@@ -918,6 +931,27 @@ private:
 
         gtk_box_append(GTK_BOX(p_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
+        // What the AppImage specification says about integrating on this machine.  It is
+        // a warning and not a gate: the button that did the asking still works, and the
+        // person is told what the machine and its neighbours say.  Styled the way the HIG
+        // marks a warning, and it carries an icon as well as the colour, because colour
+        // alone is not a message.
+        p_optout_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_add_css_class(p_optout_box_, "warning");
+        gtk_widget_set_margin_start(p_optout_box_, 6);
+        gtk_widget_set_margin_end(p_optout_box_, 6);
+        gtk_widget_set_margin_top(p_optout_box_, 6);
+        gtk_widget_set_margin_bottom(p_optout_box_, 6);
+        GtkWidget *p_optout_icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
+        gtk_widget_set_valign(p_optout_icon, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(p_optout_box_), p_optout_icon);
+        p_optout_label_ = make_label("", true);
+        gtk_label_set_wrap(GTK_LABEL(p_optout_label_), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(p_optout_label_), 0.0F);
+        gtk_box_append(GTK_BOX(p_optout_box_), p_optout_label_);
+        gtk_widget_set_visible(p_optout_box_, FALSE);
+        gtk_box_append(GTK_BOX(p_box), p_optout_box_);
+
         p_details_container_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         gtk_box_append(GTK_BOX(p_box), p_details_container_);
         update_details();
@@ -1018,10 +1052,47 @@ private:
         return o_rows;
     }
 
+    // What the AppImage specification says about integrating on this machine, as
+    // sentences.  Empty when nothing holds, which is the usual case.
+    std::vector<std::string> optout_sentences() const {
+        std::vector<std::string> o_sentences;
+        for (const value_c &o_item : o_data_.array_or_empty("desktop_integration_optout")) {
+            const std::string s_consequence = o_item.string_or("consequence");
+            const std::string s_condition = o_item.string_or("condition");
+            if (s_consequence.empty() && s_condition.empty()) {
+                continue;
+            }
+            o_sentences.push_back(s_condition.empty()
+                                      ? s_consequence
+                                      : s_consequence + " (" + s_condition + ")");
+        }
+        return o_sentences;
+    }
+
+    // The warning above the details: shown only when there is something to say, and it
+    // never disables a button.  The person asked; the specification is a comment.
+    void update_optout_warning() {
+        if (nullptr == p_optout_box_ || nullptr == p_optout_label_) {
+            return;
+        }
+        const std::vector<std::string> o_sentences = optout_sentences();
+        if (o_sentences.empty()) {
+            gtk_widget_set_visible(p_optout_box_, FALSE);
+            return;
+        }
+        std::string s_text = "The AppImage specification gives a reason not to integrate "
+                             "on this machine. Integrating anyway is your call.";
+        for (const std::string &s_sentence : o_sentences) {
+            s_text += "\n\u2022 " + s_sentence;
+        }
+        gtk_label_set_text(GTK_LABEL(p_optout_label_), s_text.c_str());
+        gtk_widget_set_visible(p_optout_box_, TRUE);
+    }
+
     void update_details() {
         clear_container(p_details_container_);
-        GtkWidget *p_grid = gtk_grid_new();
-        gtk_grid_set_column_spacing(GTK_GRID(p_grid), 12);
+        update_optout_warning();
+        GtkWidget *p_grid = gtk_grid_new();        gtk_grid_set_column_spacing(GTK_GRID(p_grid), 12);
         gtk_grid_set_row_spacing(GTK_GRID(p_grid), 4);
         int i_row = 0;
         for (const std::pair<std::string, std::string> &o_row : detail_rows()) {
@@ -1858,6 +1929,8 @@ private:
     geometry_c o_geometry_;
     GtkWidget *p_window_ = nullptr;
     GtkWidget *p_details_container_ = nullptr;
+    GtkWidget *p_optout_box_ = nullptr;
+    GtkWidget *p_optout_label_ = nullptr;
     GtkWidget *p_name_box_ = nullptr;
     GtkWidget *p_name_entry_ = nullptr;
     GtkWidget *p_button_box_ = nullptr;

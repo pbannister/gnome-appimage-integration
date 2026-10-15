@@ -26,7 +26,7 @@ ENTRY
 printf '[Default Applications]\napplication/x-probe=org.example.Probe.desktop;\n' > "$DIRECTORY_CONFIG/mimeapps.list"
 
 run_in_sandbox() {
-    env HOME="$DIRECTORY_HOME" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_HOME" \
         XDG_DATA_HOME="$DIRECTORY_DATA" \
         XDG_DATA_DIRS="$DIRECTORY_TEMP/share" \
         XDG_CONFIG_HOME="$DIRECTORY_CONFIG" \

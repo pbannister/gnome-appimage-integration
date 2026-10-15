@@ -36,6 +36,7 @@ This project adds these documents to the index above:
 - `10-appimage-desktop-integration.md` — best practice for using and integrating an AppImage, and what integration writes.
 - `11-desktop-entry-parameters.md` — every desktop entry parameter, what it does, and how to inspect it.
 - `12-desktop-loading-and-provenance.md` — how to discover where applications, icons, and parameters are loaded from.
+- `13-sandboxing-appimages.md` — running an AppImage under isolation: firejail, `systemd-run`, `nspawn`, and `bwrap` assessed against what a launcher needs.
 
 Their filenames are canonical here too, so the project's canonical set is
-`00` through `12` with the six names above appended.
+`00` through `13` with the six names above appended.

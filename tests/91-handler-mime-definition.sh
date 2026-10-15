@@ -27,7 +27,7 @@ DIRECTORY_DATA="$DIRECTORY_HOME/.local/share"
 mkdir -p "$DIRECTORY_HOME/.config" "$DIRECTORY_TEMP/share"
 
 run_in_sandbox() {
-    env -u DISPLAY -u WAYLAND_DISPLAY \
+    env -u DISPLAY -u WAYLAND_DISPLAY -u DESKTOPINTEGRATION \
         HOME="$DIRECTORY_HOME" \
         XDG_DATA_HOME="$DIRECTORY_DATA" \
         XDG_DATA_DIRS="$DIRECTORY_TEMP/share" \

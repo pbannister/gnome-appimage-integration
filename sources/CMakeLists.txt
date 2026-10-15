@@ -112,6 +112,12 @@ target_link_libraries(appimage-update-information-test PRIVATE appimage_reader)
 add_executable(version-compare-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/version_compare_test.cpp")
 target_link_libraries(version-compare-test PRIVATE version_info)
 
+# The AppImage specification's desktop-integration conditions are a pure function, so
+# every one of them, including the two system-wide paths, can be exercised without
+# writing under /usr or /etc.
+add_executable(desktop-integration-optout-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/desktop_integration_optout_test.cpp")
+target_link_libraries(desktop-integration-optout-test PRIVATE integration appimage_reader desktop_entry)
+
 add_executable(appimage-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_reader_test.cpp")
 target_link_libraries(appimage-reader-test PRIVATE appimage_reader)
 

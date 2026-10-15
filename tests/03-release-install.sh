@@ -80,7 +80,7 @@ mkdir -p "$DIRECTORY_HOME/.config" "$DIRECTORY_TEMP/xdgshare"
 run_installer() { # <log-file> [VAR=VALUE ...]
     file_log=$1
     shift
-    env HOME="$DIRECTORY_HOME" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_HOME" \
         XDG_DATA_HOME="$DIRECTORY_HOME/.local/share" \
         XDG_CONFIG_HOME="$DIRECTORY_HOME/.config" \
         XDG_DATA_DIRS="$DIRECTORY_TEMP/xdgshare" \
@@ -179,7 +179,7 @@ echo "=== a local tarball can be installed without a network ==="
 DIRECTORY_PREFIX_FOUR="$DIRECTORY_TEMP/prefix-four"
 DIRECTORY_HOME_FOUR="$DIRECTORY_TEMP/home-four"
 mkdir -p "$DIRECTORY_HOME_FOUR/.config"
-env HOME="$DIRECTORY_HOME_FOUR" XDG_DATA_HOME="$DIRECTORY_HOME_FOUR/.local/share" \
+env -u DESKTOPINTEGRATION HOME="$DIRECTORY_HOME_FOUR" XDG_DATA_HOME="$DIRECTORY_HOME_FOUR/.local/share" \
     XDG_CONFIG_HOME="$DIRECTORY_HOME_FOUR/.config" XDG_DATA_DIRS="$DIRECTORY_TEMP/xdgshare" \
     PREFIX="$DIRECTORY_PREFIX_FOUR" APPIMAGE_INTEGRATION_TARBALL="$FILE_TARBALL" \
     APPIMAGE_INTEGRATION_NO_HANDLER=1 \

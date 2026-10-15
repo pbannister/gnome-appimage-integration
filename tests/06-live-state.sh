@@ -97,7 +97,7 @@ printf 'handler_desktop=%s\n' "$DIRECTORY_DATA/applications/appimage-activator.d
 printf '<mime-info/>' > "$DIRECTORY_DATA/gnome-appimage-integration/backup/appimage.xml"
 
 run_sandboxed() {
-    env -u DISPLAY -u WAYLAND_DISPLAY \
+    env -u DISPLAY -u WAYLAND_DISPLAY -u DESKTOPINTEGRATION \
         HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_DATA" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \

@@ -64,6 +64,9 @@ using gnome_appimage::version::compare_versions;
 
 constexpr const char *VARIABLE_HOME = "HOME";
 constexpr const char *VARIABLE_DATA_HOME = "XDG_DATA_HOME";
+// One of the conditions the AppImage specification gives against integrating: a
+// non-empty value means an integration is already in progress in this environment.
+constexpr const char *VARIABLE_DESKTOP_INTEGRATION = "DESKTOPINTEGRATION";
 
 bool is_space_character(char c_character) {
     return ' ' == c_character || '\t' == c_character;
@@ -254,6 +257,23 @@ void refresh_icon_cache(const std::string &s_theme_directory) {
     run_command({s_tool, "-f", "-t", s_theme_directory}, i_exit_code);
 }
 
+// Rebuild the AppStream catalogue cache, which is what makes a newly installed component
+// visible to application centres.  AppStream renamed the command: 1.0 spells it
+// "refresh --cache" and earlier releases "refresh-cache", so both are tried and whichever
+// this machine does not have fails quietly.  A cache that was not rebuilt is not a reason
+// to fail an integration -- the next catalogue refresh picks the file up anyway -- so
+// nothing is reported either way.
+void refresh_appstream_cache() {
+    if (!command_exists("appstreamcli")) {
+        return;
+    }
+    int i_exit_code = 0;
+    run_command({"appstreamcli", "refresh", "--cache"}, i_exit_code);
+    if (0 != i_exit_code) {
+        run_command({"appstreamcli", "refresh-cache"}, i_exit_code);
+    }
+}
+
 // True when a payload size directory is one the icon theme actually lists.
 bool is_valid_icon_size_directory(const std::string &s_name) {
     if ("scalable" == s_name) {
@@ -442,8 +462,48 @@ std::string version_from_filename(const std::string &s_filename) {
 }
 
 // Read the first <release version="..."> from AppStream metadata.
-std::string version_from_appstream_text(const std::string &s_text) {
-    std::size_t i_release = s_text.find("<release");
+// The text between <tag ...> and </tag>, or empty.  These files are read with simple
+// scanning rather than an XML parser, like the version above: the payload is untrusted
+// and a text scan cannot be talked into expanding an entity.
+std::string appstream_element_text(const std::string &s_text,
+                                   const std::string &s_tag) {
+    const std::string s_open = "<" + s_tag;
+    std::size_t i_open = s_text.find(s_open);
+    while (std::string::npos != i_open) {
+        const std::size_t i_tag_end = s_text.find('>', i_open);
+        if (std::string::npos == i_tag_end) {
+            return {};
+        }
+        const std::string s_close = "</" + s_tag + ">";
+        const std::size_t i_close = s_text.find(s_close, i_tag_end);
+        if (std::string::npos == i_close) {
+            return {};
+        }
+        return s_text.substr(i_tag_end + 1, i_close - i_tag_end - 1);
+    }
+    return {};
+}
+
+// The AppStream component id.  This is the identity, not the file name: one payload in
+// the corpus names its file subsurface.metainfo.xml and declares
+// org.subsurface_divelog.Subsurface inside it.
+std::string appstream_id_from_text(const std::string &s_text) {
+    return appstream_element_text(s_text, "id");
+}
+
+// The desktop id an AppStream component says it launches.  Application centres use it to
+// connect the component to a launcher, so a value that names a launcher nobody wrote
+// leaves the application listed and unable to start.
+std::string appstream_launchable_from_text(const std::string &s_text) {
+    return appstream_element_text(s_text, "launchable");
+}
+
+bool text_ends_with(const std::string &s_text, const std::string &s_suffix) {
+    return s_text.size() >= s_suffix.size()
+           && 0 == s_text.compare(s_text.size() - s_suffix.size(), s_suffix.size(), s_suffix);
+}
+
+std::string version_from_appstream_text(const std::string &s_text) {    std::size_t i_release = s_text.find("<release");
     while (std::string::npos != i_release) {
         const std::size_t i_version = s_text.find("version=\"", i_release);
         const std::size_t i_tag_end = s_text.find('>', i_release);
@@ -709,8 +769,7 @@ std::vector<std::string> manifest_get_all(
 }
 
 // Restore "original|backup" recorded when a conflicting launcher was replaced.
-bool restore_backup_pair(const std::string &s_pair, std::string &s_error) {
-    const std::size_t i_bar = s_pair.find('|');
+bool restore_backup_pair(const std::string &s_pair, std::string &s_error) {    const std::size_t i_bar = s_pair.find('|');
     if (std::string::npos == i_bar) {
         return false;
     }
@@ -748,7 +807,75 @@ std::vector<std::pair<std::string, std::string>> read_manifest(const std::string
     return o_lines;
 }
 
+// True when a record other than the one being removed still names this AppStream file.
+// AppStream metadata is named after the component, so two integrations of one application
+// -- two architectures, two copies of a file -- write the same path, and the first to be
+// removed must not take it away from the other.
+bool another_record_names_appstream(const std::string &s_state_directory,
+                                    const std::string &s_manifest_removed,
+                                    const std::string &s_path) {
+    std::error_code o_error;
+    const fs::path o_directory(s_state_directory);
+    if (!fs::is_directory(o_directory, o_error)) {
+        return false;
+    }
+    for (const fs::directory_entry &o_entry : fs::directory_iterator(o_directory, o_error)) {
+        if (!o_entry.is_regular_file(o_error)
+            || ".manifest" != o_entry.path().extension().string()
+            || o_entry.path().string() == s_manifest_removed) {
+            continue;
+        }
+        for (const std::string &s_pair : manifest_get_all(
+                 read_manifest(o_entry.path().string()), "appstream_package")) {
+            const std::size_t i_bar = s_pair.find('|');
+            const std::string s_target =
+                std::string::npos == i_bar ? s_pair : s_pair.substr(0, i_bar);
+            if (s_target == s_path) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 }  // namespace
+
+std::string integration_optout_sentence(const integration_optout_o &o_optout) {
+    return o_optout.consequence + " (" + o_optout.condition + ")";
+}
+
+std::vector<integration_optout_o> desktop_integration_optouts(
+    const std::map<std::string, std::string> &o_environment,
+    const std::vector<std::string> &o_sentinel_paths,
+    bool b_appimaged_running) {
+    std::vector<integration_optout_o> o_optouts;
+    for (const std::string &s_path : o_sentinel_paths) {
+        if (s_path.empty()) {
+            continue;
+        }
+        std::error_code o_error;
+        if (fs::exists(s_path, o_error)) {
+            o_optouts.push_back(
+                {s_path,
+                 "the AppImage specification says not to integrate on a machine that "
+                 "carries this file"});
+        }
+    }
+    if (b_appimaged_running) {
+        o_optouts.push_back(
+            {"a process named appimaged is running",
+             "another integrator is at work on this machine, so two launchers may be "
+             "written for the same file"});
+    }
+    const std::optional<std::string> s_desktop_integration =
+        environment_value(o_environment, VARIABLE_DESKTOP_INTEGRATION);
+    if (s_desktop_integration.has_value() && !s_desktop_integration->empty()) {
+        o_optouts.push_back(
+            {"DESKTOPINTEGRATION is set to " + *s_desktop_integration,
+             "an integration is already in progress in this environment"});
+    }
+    return o_optouts;
+}
 
 std::string integration_identifier(const std::string &s_content_probe) {
     return hex16(fnv1a_64(s_content_probe));
@@ -770,7 +897,9 @@ std::string integration_sanitize_token(const std::string &s_text) {
 }
 
 appimage_integrator_c::appimage_integrator_c() {
-    for (const char *s_name : {VARIABLE_HOME, VARIABLE_DATA_HOME}) {
+    // DESKTOPINTEGRATION is carried too: the AppImage specification names a non-empty one
+    // as a reason not to integrate, because another integration is already in progress.
+    for (const char *s_name : {VARIABLE_HOME, VARIABLE_DATA_HOME, VARIABLE_DESKTOP_INTEGRATION}) {
         const char *s_value = std::getenv(s_name);
         if (nullptr != s_value) {
             o_environment_[s_name] = s_value;
@@ -796,6 +925,9 @@ void appimage_integrator_c::build() {
     s_applications_directory_ = join_path(s_data_home_, "applications");
     s_icon_directory_ = join_path(s_data_home_, "icons/hicolor");
     s_mime_packages_directory_ = join_path(s_data_home_, "mime/packages");
+    // Where AppStream keeps per-application metadata for this user.  The system-wide
+    // counterpart is /usr/share/metainfo, which a user-level integration cannot write.
+    s_appstream_directory_ = join_path(s_data_home_, "metainfo");
     s_state_directory_ = join_path(s_data_home_, "gnome-appimage-integration");
     s_install_directory_ = s_home.has_value() ? join_path(*s_home, "Applications")
                                               : std::string("Applications");
@@ -862,6 +994,23 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                     + " and this machine is " + s_host_machine
                     + "; the launcher will be written, but the AppImage cannot run here");
             }
+        }
+
+        // The AppImage specification's conditions against integrating on this machine.
+        // They are reported, never obeyed: an integration started by a person clicking
+        // Integrate is the explicit permission the same section of the specification
+        // asks for, so the person is told what the file says and decides.
+        const std::vector<std::string> o_sentinel_paths = {
+            join_path(s_data_home_, "appimagekit/no_desktopintegration"),
+            "/usr/share/appimagekit/no_desktopintegration",
+            "/etc/appimagekit/no_desktopintegration",
+        };
+        o_plan.optouts =
+            desktop_integration_optouts(o_environment_, o_sentinel_paths,
+                                        o_options.appimaged_running);
+        for (const integration_optout_o &o_optout : o_plan.optouts) {
+            o_plan.warnings.push_back("desktop integration: "
+                                      + integration_optout_sentence(o_optout));
         }
 
         squashfs_reader_c o_reader;
@@ -1410,6 +1559,65 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         }
         o_plan.mime_types = o_entry.list_value("Desktop Entry", "MimeType");
 
+        // AppStream metadata shipped by the AppImage.  AppStream requires the file to be
+        // named after the component id, so unlike a MIME definition the name cannot be
+        // made unique per integration: two architectures of one application write the
+        // same file, which is why uninstall checks who else still claims it.
+        //
+        // A payload may ship one component twice, as .appdata.xml and .metainfo.xml, and
+        // one in the corpus has a .gitkeep in the directory as well.  The modern suffix
+        // wins, one file per component id is taken, and anything that is not metadata or
+        // names no component is left where it is.
+        std::vector<squashfs_entry_o> o_metainfo_entries;
+        if (o_reader.list_directory("/usr/share/metainfo", o_metainfo_entries, s_error)) {
+            std::set<std::string> o_components_taken;
+            for (int i_pass = 0; i_pass < 2; ++i_pass) {
+                const bool b_modern_pass = 0 == i_pass;
+                for (const squashfs_entry_o &o_file : o_metainfo_entries) {
+                    const bool b_modern = text_ends_with(o_file.name, ".metainfo.xml");
+                    const bool b_legacy = text_ends_with(o_file.name, ".appdata.xml");
+                    if (!b_modern && !b_legacy) {
+                        continue;
+                    }
+                    if (b_modern != b_modern_pass) {
+                        continue;
+                    }
+                    std::string s_data;
+                    if (!o_reader.read_file(o_file.path, s_data, s_error)) {
+                        continue;
+                    }
+                    const std::string s_id = appstream_id_from_text(s_data);
+                    if (s_id.empty()) {
+                        o_plan.warnings.push_back("AppStream metadata names no component, so "
+                                                  "it is not installed: "
+                                                  + o_file.name);
+                        continue;
+                    }
+                    if (0 != o_components_taken.count(s_id)) {
+                        continue;
+                    }
+                    o_components_taken.insert(s_id);
+                    integration_appstream_package_o o_package;
+                    o_package.source_in_payload = o_file.path;
+                    o_package.component_id = s_id;
+                    o_package.installed_name = integration_sanitize_token(s_id) + ".xml";
+                    o_package.content = s_data;
+                    o_plan.appstream_package_files.push_back(std::move(o_package));
+                }
+            }
+            for (const integration_appstream_package_o &o_package :
+                 o_plan.appstream_package_files) {
+                const std::string s_launchable =
+                    appstream_launchable_from_text(o_package.content);
+                if (!s_launchable.empty() && s_launchable != o_plan.desktop_id) {
+                    o_plan.warnings.push_back(
+                        "the AppStream metadata says it launches " + s_launchable
+                        + ", but the launcher written here is " + o_plan.desktop_id
+                        + "; application centres connect the two by that name");
+                }
+            }
+        }
+
         o_plan.desktop_entry_path = join_path(s_applications_directory_, o_plan.desktop_id);
         o_plan.manifest_path = join_path(s_state_directory_, o_plan.identifier + ".manifest");
 
@@ -1696,6 +1904,48 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
             o_written_mime.push_back(s_target);
         }
 
+        // AppStream metadata.  A file already there is not necessarily ours: the payload
+        // may name a component the distribution also ships, or another AppImage may have
+        // put it there.  It is copied aside first, the way a MIME definition this tool
+        // rewrites is, so uninstall can put it back rather than delete someone else's.
+        // Each target travels with its own backup path (empty when there was nothing to
+        // keep), because only some of them need one.
+        std::vector<std::pair<std::string, std::string>> o_written_appstream;
+        for (const integration_appstream_package_o &o_package :
+             o_plan.appstream_package_files) {
+            const std::string s_target =
+                join_path(s_appstream_directory_, o_package.installed_name);
+            std::string s_backup;
+            std::error_code o_exists_error;
+            if (fs::exists(s_target, o_exists_error)) {
+                // A file another record already names belongs to that integration: ours to
+                // overwrite, but not ours to keep a copy of, because that record puts its
+                // own file back when it goes.  A file no record names is someone else's --
+                // the distribution's, or a leftover -- so it is kept and restored rather
+                // than deleted on uninstall.
+                s_backup = join_path(join_path(s_state_directory_, "backup"),
+                                     "appstream-" + o_package.installed_name);
+                std::error_code o_directory_error;
+                fs::create_directories(fs::path(s_backup).parent_path(), o_directory_error);
+                std::error_code o_backup_error;
+                if (fs::exists(s_backup, o_backup_error)) {
+                    // Already kept from an earlier install of this same integration.
+                } else if (another_record_names_appstream(s_state_directory_,
+                                                          o_plan.manifest_path, s_target)) {
+                    s_backup.clear();
+                } else if (!fs::copy_file(s_target, s_backup,
+                                          fs::copy_options::overwrite_existing,
+                                          o_backup_error)
+                           || o_backup_error) {
+                    s_backup.clear();
+                }
+            }
+            if (!write_file_bytes(s_target, o_package.content, s_error)) {
+                return false;
+            }
+            o_written_appstream.emplace_back(s_target, s_backup);
+        }
+
         // Write the desktop entry.
         if (!write_file_bytes(o_plan.desktop_entry_path, o_plan.desktop_entry_text, s_error)) {
             return false;
@@ -1720,6 +1970,12 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
         for (const std::string &s_path : o_written_mime) {
             o_manifest << "mime_package=" << s_path << '\n';
         }
+        for (const std::pair<std::string, std::string> &o_pair : o_written_appstream) {
+            // target|backup, the same shape removed_conflict and removed_manifest use, so
+            // an empty backup is written as an empty second field rather than left out.
+            o_manifest << "appstream_package=" << o_pair.first << '|' << o_pair.second
+                       << '\n';
+        }
         for (const std::pair<std::string, std::string> &o_pair : o_removed_conflicts) {
             o_manifest << "removed_conflict=" << o_pair.first << '|' << o_pair.second << '\n';
         }
@@ -1740,6 +1996,12 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
         if (!o_written_mime.empty() && command_exists("update-mime-database")) {
             int i_exit_code = 0;
             run_command({"update-mime-database", join_path(s_data_home_, "mime")}, i_exit_code);
+        }
+        // The AppStream catalogue cache is the counterpart of the icon theme cache: a
+        // software centre reads a cache that is not older than the metadata and then does
+        // not rescan it, so a component installed without this stays invisible.
+        if (!o_written_appstream.empty()) {
+            refresh_appstream_cache();
         }
         return true;
     } catch (const std::exception &o_exception) {
@@ -1770,6 +2032,34 @@ bool appimage_integrator_c::uninstall(const std::string &s_identifier,
             o_error.clear();
             fs::remove(s_path, o_error);
         }
+        // AppStream metadata: put back whatever was there before, or remove it -- but only
+        // when no other record still names it, because the file is named after the
+        // component and two integrations can share it.
+        bool b_appstream_changed = false;
+        for (const std::string &s_pair : manifest_get_all(o_lines, "appstream_package")) {
+            const std::size_t i_bar = s_pair.find('|');
+            const std::string s_target =
+                std::string::npos == i_bar ? s_pair : s_pair.substr(0, i_bar);
+            const std::string s_backup =
+                std::string::npos == i_bar ? std::string() : s_pair.substr(i_bar + 1);
+            if (s_target.empty()) {
+                continue;
+            }
+            if (!s_backup.empty()) {
+                std::string s_restore_error;
+                if (restore_backup_pair(s_target + "|" + s_backup, s_restore_error)) {
+                    b_appstream_changed = true;
+                }
+                continue;
+            }
+            if (another_record_names_appstream(s_state_directory_, s_manifest, s_target)) {
+                continue;
+            }
+            o_error.clear();
+            if (fs::remove(s_target, o_error)) {
+                b_appstream_changed = true;
+            }
+        }
         for (const std::string &s_pair : manifest_get_all(o_lines, "removed_conflict")) {
             std::string s_restore_error;
             restore_backup_pair(s_pair, s_restore_error);
@@ -1788,6 +2078,9 @@ bool appimage_integrator_c::uninstall(const std::string &s_identifier,
         if (command_exists("update-desktop-database")) {
             int i_exit_code = 0;
             run_command({"update-desktop-database", s_applications_directory_}, i_exit_code);
+        }
+        if (b_appstream_changed) {
+            refresh_appstream_cache();
         }
         return true;
     } catch (const std::exception &o_exception) {
@@ -1977,6 +2270,14 @@ std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_pla
         for (const integration_icon_o &o_icon : o_plan.icons) {
             o_out << "  " << o_icon.size_directory << " " << o_icon.extension << "  "
                   << o_icon.source_in_payload << "\n";
+        }
+    }
+    if (!o_plan.appstream_package_files.empty()) {
+        o_out << "\nAppStream metadata:\n";
+        for (const integration_appstream_package_o &o_package :
+             o_plan.appstream_package_files) {
+            o_out << "  " << o_package.source_in_payload << " -> "
+                  << o_package.installed_name << "  (" << o_package.component_id << ")\n";
         }
     }
     for (const std::string &s_warning : o_plan.warnings) {

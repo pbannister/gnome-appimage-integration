@@ -58,7 +58,7 @@ DIRECTORY_STATE="$DIRECTORY_XDG/home/.local/share/gnome-appimage-integration"
 mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
 
 run_in_sandbox() {
-    env HOME="$DIRECTORY_XDG/home" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_XDG/home" \
         XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
         XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \

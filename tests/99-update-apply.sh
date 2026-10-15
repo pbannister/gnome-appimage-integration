@@ -164,7 +164,7 @@ mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_TEMP/share" "$DIRECTORY_TEMP/etc"
     "$DIRECTORY_HOME/Applications"
 
 run_in_sandbox() {
-    env HOME="$DIRECTORY_HOME" \
+    env -u DESKTOPINTEGRATION HOME="$DIRECTORY_HOME" \
         XDG_DATA_HOME="$DIRECTORY_HOME/.local/share" \
         XDG_DATA_DIRS="$DIRECTORY_TEMP/share" \
         XDG_CONFIG_HOME="$DIRECTORY_HOME/.config" \

@@ -208,7 +208,7 @@ echo "=== the launcher gets an Update item, because the file carries update info
 DIRECTORY_XDG="$DIRECTORY_TEMP/xdg"
 DIRECTORY_APPLICATIONS="$DIRECTORY_XDG/home/.local/share/applications"
 mkdir -p "$DIRECTORY_APPLICATIONS" "$DIRECTORY_XDG/share" "$DIRECTORY_XDG/etc"
-env HOME="$DIRECTORY_XDG/home" \
+env -u DESKTOPINTEGRATION HOME="$DIRECTORY_XDG/home" \
     XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
     XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
     XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \
@@ -227,7 +227,7 @@ grep -q ' handle --update ' "$DIRECTORY_APPLICATIONS/org.example.Probe.desktop" 
     || fail_test "the update item does not open the activator's Update action"
 
 echo "=== audit reports the update information of what it manages ==="
-env HOME="$DIRECTORY_XDG/home" \
+env -u DESKTOPINTEGRATION HOME="$DIRECTORY_XDG/home" \
     XDG_DATA_HOME="$DIRECTORY_XDG/home/.local/share" \
     XDG_DATA_DIRS="$DIRECTORY_XDG/share" \
     XDG_CONFIG_HOME="$DIRECTORY_XDG/home/.config" \

@@ -386,8 +386,23 @@ They are slower and use more temporary disk, so they are a fallback, not the def
 
 - An AppImage is executable code from the internet; integrate only sources you trust.
 - The AppImage specification defines sentinels that suppress self-integration: `$XDG_DATA_HOME/appimagekit/no_desktopintegration`, `/usr/share/appimagekit/no_desktopintegration`, `/etc/appimagekit/no_desktopintegration`, a running `appimaged` process, or a non-empty `$DESKTOPINTEGRATION`.
+- This project reads all five and reports each one that holds as a warning in the plan, in the JSON report, and in a warning block at the top of the window. It does not refuse: the sentinels exist to stop unsolicited integration, and a person who clicks Integrate has given the permission the specification asks for. The warning is worth showing because each condition has a real consequence — a running `appimaged` will write its own launcher for the same file, and a set `$DESKTOPINTEGRATION` means another integration is in flight.
 - A background daemon that integrates everything it finds, such as `appimaged`, has been criticised for the file I/O, the lack of consent, and the attack surface it creates.
 - Integration written by a user-level tool needs no root privileges; nothing here should require `sudo`.
+- Running the file under isolation is a separate question from integrating it, and the options for a desktop launcher are narrower than they look: see `13-sandboxing-appimages.md`.
+
+## AppStream Metadata
+
+The specification ships AppStream metadata, so an application can be discovered in an application centre, and this project installs it:
+
+- The file lives at `usr/share/metainfo/<id>.appdata.xml` or `<id>.metainfo.xml` in the payload. When both are present for one component, the modern `.metainfo.xml` wins and one file is installed.
+- The identity is the `<id>` element, never the file name: one payload in the corpus ships `subsurface.metainfo.xml` declaring `org.subsurface_divelog.Subsurface`.
+- It is installed to `$XDG_DATA_HOME/metainfo/<id>.xml`, which is where AppStream keeps per-application metadata for a user — the system-wide counterpart is `/usr/share/metainfo`, which a user-level integration must not write.
+- Because the name is the component id and not something this tool chooses, two integrations of one application (two architectures, say) write the same file. The record for each names it; uninstall removes it only when no other record still claims it, and restores an earlier file it displaced.
+- A file that was already there and belongs to no record of ours — the distribution's, say — is copied aside at install and put back at uninstall rather than deleted.
+- `<launchable type="desktop-id">` is what connects the component to a launcher in an application centre. When it names a launcher this tool did not write, the plan warns, because the application would then be listed and unable to start.
+  - The corpus shows the warning earning its place: OpenSCAD's metadata launches `openscad.desktop`, and integrating alongside the distribution's existing launcher writes `openscad-2.desktop`, so the component and the launcher this tool wrote are not connected. This is inherent to installing alongside rather than replacing: the metadata names the identification the payload was built with, and a suffixed launcher is a different identity. Nothing is rewritten, because rewriting the payload's own metadata to point at a launcher the next distribution update may take away would be worse than the mismatch.
+- The catalogue cache is the counterpart of the icon theme cache: `appstreamcli refresh --cache` on AppStream 1.0 and `appstreamcli refresh-cache` on earlier releases, whichever the machine has, and a failure is not reported because the next refresh picks the file up anyway.
 
 ## The Tool Landscape
 

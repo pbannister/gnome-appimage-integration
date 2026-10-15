@@ -130,8 +130,10 @@ exec_program() { # <Exec value>
 }
 
 FILE_SUMMARY="$DIRECTORY_REPORTS/summary.tsv"
-printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes%sverify\n' \
-    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
+# The AppStream and opt-out columns were added after verify rather than beside the columns
+# they belong to, because the tests read the summary by position.
+printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes%sverify%sappstream%soptout\n' \
+    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
     > "$FILE_SUMMARY"
 rm -f "$DIRECTORY_REPORTS/.installs"
 
@@ -272,11 +274,26 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     notes=$(sed -n 's/^warning: //p' "$DIRECTORY_APP_REPORT/plan.txt" | head -2 | tr '\n' ';' | tr -d '\t')
     wm_class=$(field "$DIRECTORY_APP_REPORT/plan.txt" 'startup-wm-class')
     mime_types=$(field "$DIRECTORY_APP_REPORT/plan.txt" 'mime-types')
+    # AppStream metadata the payload ships, one plan line per component that would be
+    # installed; and the specification's conditions against integrating here, which are
+    # warnings rather than a refusal and should be none in a sandbox that sets its own
+    # environment.
+    #
+    # The install's output is read when there is one, because `plan` stops at a conflict
+    # before it reaches the payload, and the install that resolved the conflict is the run
+    # that says what the integration contains.
+    FILE_PLAN_REPORT="$DIRECTORY_APP_REPORT/plan.txt"
+    if [ -f "$DIRECTORY_APP_REPORT/install.txt" ]; then
+        FILE_PLAN_REPORT="$DIRECTORY_APP_REPORT/install.txt"
+    fi
+    appstream=$(count_matching "$FILE_PLAN_REPORT" '^  /usr/share/metainfo/.* -> ')
+    optout=$(count_matching "$FILE_PLAN_REPORT" '^warning: desktop integration: ')
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$name_app" "$bytes" "$detection" "$compression" "$root_entry" "$root_kind" \
         "$usr_link" "$terminal" "$icons" "$wm_class" "$mime_types" "$signature" \
-        "$update_info" "$outcome" "$warnings" "$notes" "$verify_column" >> "$FILE_SUMMARY"
+        "$update_info" "$outcome" "$warnings" "$notes" "$verify_column" \
+        "$appstream" "$optout" >> "$FILE_SUMMARY"
 
     if [ "$status_install" != "skip" ]; then
         printf '%s\tinstall=%s\n' "$name_app" "$status_install" >> "$DIRECTORY_REPORTS/.installs"
