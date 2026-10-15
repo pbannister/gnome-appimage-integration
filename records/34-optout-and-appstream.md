@@ -102,6 +102,7 @@ any of it is written, are in `documents/13-sandboxing-appimages.md`.
 
 ## Verification
 
+- The work and its tests are committed as `4fff2a7`, and everything below was run on that tree.
 - `make test` passes, including the two new tests.
 - Each new test was written to fail against the code before the fix: the opt-out test found the
   uncaptured `$DESKTOPINTEGRATION`, and the AppStream test found the orphaned backup.
