@@ -39,8 +39,15 @@ using gnome_appimage::integration::installed_appimage_o;
 using gnome_appimage::integration::integration_action_o;
 using gnome_appimage::integration::integration_conflict_o;
 using gnome_appimage::integration::integration_conflict_policy_e;
+using gnome_appimage::integration::integration_sandbox_e;
+using gnome_appimage::integration::integration_sandbox_from_name;
+using gnome_appimage::integration::integration_sandbox_is_available;
+using gnome_appimage::integration::integration_sandbox_name;
 using gnome_appimage::integration::integration_icon_o;
 using gnome_appimage::appimage::understand_update_information;
+using gnome_appimage::integration::appimage_mount_needs_o;
+using gnome_appimage::integration::appimage_mount_reasons;
+using gnome_appimage::integration::library_is_available;
 using gnome_appimage::integration::integration_appstream_package_o;
 using gnome_appimage::integration::integration_mime_package_o;
 using gnome_appimage::integration::integration_options_o;
@@ -149,6 +156,7 @@ void print_usage(std::ostream &o_out) {
           << "  --ignore-signature        integrate although .sha256_sig does not match\n"
           << "  --no-move                 copy instead of move\n"
           << "  --no-icons                do not install icons\n"
+          << "  --sandbox firejail        start it under firejail, if firejail is installed\n"
           << "  --replace                 replace an existing launcher for this application\n"
           << "  --add                     install alongside an existing launcher\n"
           << "  --extract-and-run         for run: force APPIMAGE_EXTRACT_AND_RUN=1\n"
@@ -334,6 +342,21 @@ void print_plan_text(const integration_plan_o &o_plan) {
               << '\n';
     std::cout << "signature: " << (o_plan.signature.empty() ? "(absent)" : o_plan.signature)
               << '\n';
+    if (integration_sandbox_e::none != o_plan.sandbox) {
+        std::cout << "sandbox: " << integration_sandbox_name(o_plan.sandbox) << '\n';
+    }
+    // How the runtime starts, which is what decides whether the click works on a machine
+    // that has no FUSE device or no libfuse2.
+    if (o_plan.mounts_with_fuse) {
+        std::string s_needs;
+        for (const std::string &s_library : o_plan.fuse_libraries) {
+            s_needs += s_needs.empty() ? s_library : ", " + s_library;
+        }
+        std::cout << "runtime-mount: FUSE"
+                  << (s_needs.empty() ? " (the runtime links it itself)"
+                                      : " (needs " + s_needs + ")")
+                  << '\n';
+    }
     std::cout << "mime-types:";
     for (const std::string &s_type : o_plan.mime_types) {
         std::cout << ' ' << s_type;
@@ -421,7 +444,9 @@ integration_options_o options_from(const std::string &s_install_dir,
                                   bool b_ignore_signature,
                                   bool b_move,
                                   bool b_icons,
-                                  integration_conflict_policy_e e_policy) {
+                                  integration_conflict_policy_e e_policy,
+                                  integration_sandbox_e e_sandbox
+                                  = integration_sandbox_e::none) {
     integration_options_o o_options;
     o_options.install_directory = s_install_dir;
     o_options.desktop_file_name = s_desktop_file_name;
@@ -433,6 +458,7 @@ integration_options_o options_from(const std::string &s_install_dir,
     o_options.move_appimage = b_move;
     o_options.write_icons = b_icons;
     o_options.conflict_policy = e_policy;
+    o_options.sandbox = e_sandbox;
     o_options.appimaged_running = appimaged_is_running();
     return o_options;
 }
@@ -484,6 +510,22 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"signature_stored\":\"" << json_escape(o_plan.signature_stored) << "\""
               << ",\"signature_computed\":\"" << json_escape(o_plan.signature_computed) << "\""
               << ",\"signature_mismatch\":" << (o_plan.signature_mismatch ? "true" : "false")
+              << ",\"sandbox\":\"" << json_escape(integration_sandbox_name(o_plan.sandbox)) << "\""
+              << ",\"sandbox_available\":" << (integration_sandbox_is_available(o_plan.sandbox) ? "true" : "false")
+              << ",\"firejail_available\":" << (command_exists("firejail") ? "true" : "false")
+              << ",\"mounts_with_fuse\":" << (o_plan.mounts_with_fuse ? "true" : "false")
+              << ",\"fuse_libraries\":[";
+    {
+        bool b_first_library = true;
+        for (const std::string &s_library : o_plan.fuse_libraries) {
+            if (!b_first_library) {
+                std::cout << ',';
+            }
+            b_first_library = false;
+            std::cout << '"' << json_escape(s_library) << '"';
+        }
+    }
+    std::cout << "]" 
               << ",\"compression\":\"" << json_escape(o_plan.compression_name) << "\""
               << ",\"update_information\":\"" << json_escape(o_plan.update_information) << "\""
               << ",\"update_usable\":" << (o_update.usable ? "true" : "false")
@@ -1221,6 +1263,10 @@ bool build_refresh_plan_for(const appimage_integrator_c &o_integrator,
     o_options.refresh_own_launchers = true;
     o_options.identifier_override = o_entry.identifier;
     o_options.replaced_appimage_path = s_replaced_appimage_path;
+    // A launcher that runs under a sandbox keeps running under it: the choice is part of
+    // what the record describes, and a rewrite that dropped it would change how the
+    // application starts behind the owner's back.
+    o_options.sandbox = o_entry.sandbox;
     o_options.appimaged_running = appimaged_is_running();
 
     if (!o_integrator.plan(s_appimage_path, o_options, o_plan)) {
@@ -2724,12 +2770,35 @@ int command_run(const std::string &s_path,
         std::cout << "note: made " << s_path << " executable\n";
     }
 
-    const bool b_fuse_available = 0 == access("/dev/fuse", R_OK | W_OK)
-                                  && (command_exists("fusermount3")
-                                      || command_exists("fusermount"));
-    if (b_extract_and_run || !b_fuse_available) {
+    // Whether this file can mount here at all.  The device and the helper were the whole
+    // question until the older runtimes were considered: one that loads libfuse.so.2 by
+    // name fails on a machine whose /dev/fuse is perfectly usable, so the runtime's own
+    // libraries are part of whether mounting will work.
+    appimage_mount_needs_o o_mount_needs;
+    std::vector<std::string> o_missing_libraries;
+    gnome_appimage::appimage::appimage_info_o o_mount_info;
+    if (gnome_appimage::appimage::appimage_reader_c::read(s_path, o_mount_info)
+        && gnome_appimage::appimage::appimage_detection_e::type2 == o_mount_info.detection
+        && o_mount_info.has_squashfs) {
+        o_mount_needs.mounts = true;
+        o_mount_needs.libraries = o_mount_info.fuse_libraries;
+        for (const std::string &s_library : o_mount_info.fuse_libraries) {
+            if (!library_is_available(s_library)) {
+                o_missing_libraries.push_back(s_library);
+            }
+        }
+    }
+    const std::vector<std::string> o_mount_reasons = appimage_mount_reasons(
+        o_mount_needs, o_missing_libraries, 0 == access("/dev/fuse", R_OK | W_OK),
+        command_exists("fusermount3") || command_exists("fusermount"));
+    if (b_extract_and_run || !o_mount_reasons.empty()) {
         if (!b_extract_and_run) {
-            std::cout << "note: FUSE is unavailable; using APPIMAGE_EXTRACT_AND_RUN=1\n";
+            std::string s_reasons;
+            for (const std::string &s_reason : o_mount_reasons) {
+                s_reasons += s_reasons.empty() ? s_reason : ", " + s_reason;
+            }
+            std::cout << "note: FUSE is unavailable (" << s_reasons
+                      << "); using APPIMAGE_EXTRACT_AND_RUN=1\n";
         }
         setenv("APPIMAGE_EXTRACT_AND_RUN", "1", 1);
     }
@@ -3421,6 +3490,7 @@ int main(int i_argument_count, char **p_arguments) {
     bool b_move = true;
     bool b_icons = true;
     integration_conflict_policy_e e_conflict_policy = integration_conflict_policy_e::fail;
+    integration_sandbox_e e_sandbox = integration_sandbox_e::none;
     bool b_extract_and_run = false;
     bool b_detached = false;
     bool b_json = false;
@@ -3448,7 +3518,7 @@ int main(int i_argument_count, char **p_arguments) {
             "--install-dir" == s_argument || "--desktop-file-name" == s_argument
             || "--exec-args" == s_argument || "--wm-class" == s_argument
             || "--icon-name" == s_argument || "--identifier" == s_argument
-            || "--name" == s_argument;
+            || "--name" == s_argument || "--sandbox" == s_argument;
         if (b_needs_value && i_argument_count > i_index + 1) {
             const std::string s_value = p_arguments[++i_index];
             if ("--install-dir" == s_argument) {
@@ -3463,6 +3533,12 @@ int main(int i_argument_count, char **p_arguments) {
                 s_icon_name = s_value;
             } else if ("--name" == s_argument) {
                 s_name = s_value;
+            } else if ("--sandbox" == s_argument) {
+                if (!integration_sandbox_from_name(s_value, e_sandbox)) {
+                    std::cerr << "error: --sandbox takes none or firejail, not " << s_value
+                              << '\n';
+                    return EXIT_USAGE;
+                }
             } else {
                 s_identifier = s_value;
             }
@@ -3556,13 +3632,13 @@ int main(int i_argument_count, char **p_arguments) {
                 s_path,
                 options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class,
                               s_icon_name, s_name, b_ignore_signature, b_move, b_icons,
-                              e_conflict_policy));
+                              e_conflict_policy, e_sandbox));
         }
         return command_explain(
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
                           s_name, b_ignore_signature,
-                          b_move, b_icons, e_conflict_policy));
+                          b_move, b_icons, e_conflict_policy, e_sandbox));
     }
     if ("install" == s_command) {
         if (s_path.empty()) {
@@ -3573,7 +3649,7 @@ int main(int i_argument_count, char **p_arguments) {
             s_path,
             options_from(s_install_dir, s_desktop_file_name, s_exec_args, s_wm_class, s_icon_name,
                           s_name, b_ignore_signature,
-                          b_move, b_icons, e_conflict_policy),
+                          b_move, b_icons, e_conflict_policy, e_sandbox),
             b_assume_yes);
     }
     if ("uninstall" == s_command) {

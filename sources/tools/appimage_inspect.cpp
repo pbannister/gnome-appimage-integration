@@ -95,6 +95,17 @@ void print_summary(const appimage_info_o &o_info,
     std::cout << "entry-point: 0x" << std::hex << o_info.elf.entry_point << std::dec << '\n';
     std::cout << "payload-offset: " << o_info.payload_offset << '\n';
     std::cout << "payload-size: " << o_info.payload_size << '\n';
+    // A runtime that dlopens a FUSE library cannot start where that library is absent,
+    // and a runtime that links one statically can.
+    if (o_info.fuse_libraries.empty()) {
+        std::cout << "fuse-library: (none: the runtime links FUSE itself)\n";
+    } else {
+        std::string s_list;
+        for (const std::string &s_library : o_info.fuse_libraries) {
+            s_list += s_list.empty() ? s_library : ", " + s_library;
+        }
+        std::cout << "fuse-library: " << s_list << '\n';
+    }
 
     if (o_info.update_information_section.present) {
         std::cout << "update-information: " << o_info.update_information << '\n';

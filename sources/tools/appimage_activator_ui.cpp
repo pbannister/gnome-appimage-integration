@@ -713,6 +713,14 @@ public:
         }
     }
 
+    // The other driven-run hook: the checkbox is offered only when firejail is present,
+    // so a test ticks it the way a person would.
+    void set_sandbox_requested() {
+        if (nullptr != p_sandbox_check_) {
+            gtk_check_button_set_active(GTK_CHECK_BUTTON(p_sandbox_check_), TRUE);
+        }
+    }
+
     void set_name_text(const std::string &s_text) {
         gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_text.c_str());
     }
@@ -736,6 +744,10 @@ public:
         // The specification's reasons for not integrating here, so a test can read both
         // that the block is up and what it says.  It is a warning, never a gate, so the
         // buttons above it are unchanged by it.
+        o_out << "=== sandbox offer: "
+              << (firejail_offered() ? "firejail" : "(none)")
+              << (sandbox_requested() ? " requested" : "")
+              << " ===\n";
         const std::vector<std::string> o_optouts = optout_sentences();
         o_out << "=== desktop integration warning: "
               << (o_optouts.empty() ? "(none)" : std::to_string(o_optouts.size()))
@@ -961,6 +973,17 @@ private:
         // The name the launcher will carry sits to the left of the buttons, and is
         // only shown when a choice is offered, because it only matters when another
         // launcher for the same application already exists.
+        // The sandbox is offered only where it can be honoured: a checkbox that asked for
+        // something absent would be a button that fails.  It sits with the name field,
+        // which is the other thing that changes what Integrate writes.
+        p_sandbox_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        p_sandbox_check_ = gtk_check_button_new_with_label("Run in firejail");
+        gtk_widget_set_tooltip_text(
+            p_sandbox_check_,
+            "start the application under firejail, if firejail is installed");
+        gtk_box_append(GTK_BOX(p_sandbox_box_), p_sandbox_check_);
+        gtk_widget_set_visible(p_sandbox_box_, FALSE);
+
         p_name_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         gtk_box_append(GTK_BOX(p_name_box_), gtk_label_new("Name:"));
         p_name_entry_ = gtk_entry_new();
@@ -974,6 +997,7 @@ private:
         GtkWidget *p_spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_widget_set_hexpand(p_spacer, TRUE);
         GtkWidget *p_action_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_box_append(GTK_BOX(p_action_row), p_sandbox_box_);
         gtk_box_append(GTK_BOX(p_action_row), p_name_box_);
         gtk_box_append(GTK_BOX(p_action_row), p_spacer);
         gtk_box_append(GTK_BOX(p_action_row), p_button_box_);
@@ -1089,9 +1113,24 @@ private:
         gtk_widget_set_visible(p_optout_box_, TRUE);
     }
 
+    // Whether the tool said firejail is installed.  It is the tool's answer, not the
+    // window's guess, so the offer and the install agree.
+    bool firejail_offered() const {
+        const value_c *p_available = o_data_.member("firejail_available");
+        return nullptr != p_available && p_available->is_boolean() && p_available->as_boolean();
+    }
+
+    void update_sandbox_offer() {
+        if (nullptr == p_sandbox_box_) {
+            return;
+        }
+        gtk_widget_set_visible(p_sandbox_box_, firejail_offered() ? TRUE : FALSE);
+    }
+
     void update_details() {
         clear_container(p_details_container_);
         update_optout_warning();
+        update_sandbox_offer();
         GtkWidget *p_grid = gtk_grid_new();        gtk_grid_set_column_spacing(GTK_GRID(p_grid), 12);
         gtk_grid_set_row_spacing(GTK_GRID(p_grid), 4);
         int i_row = 0;
@@ -1294,6 +1333,13 @@ private:
 
     void hide_name_field() {
         gtk_widget_set_visible(p_name_box_, FALSE);
+    }
+
+    // The checkbox is offered only when firejail is present, so a driven run sets it the
+    // way it sets the name: the window decides whether the offer exists at all.
+    bool sandbox_requested() const {
+        return nullptr != p_sandbox_check_
+               && gtk_check_button_get_active(GTK_CHECK_BUTTON(p_sandbox_check_));
     }
 
     std::string typed_name() const {
@@ -1891,6 +1937,10 @@ private:
             o_arguments.push_back("--name");
             o_arguments.push_back(s_typed);
         }
+        if (sandbox_requested()) {
+            o_arguments.push_back("--sandbox");
+            o_arguments.push_back("firejail");
+        }
         o_arguments.push_back(s_path_);
         hide_name_field();
         const process_result_o o_result = run_tool(s_tool_, o_arguments);
@@ -1929,6 +1979,8 @@ private:
     geometry_c o_geometry_;
     GtkWidget *p_window_ = nullptr;
     GtkWidget *p_details_container_ = nullptr;
+    GtkWidget *p_sandbox_box_ = nullptr;
+    GtkWidget *p_sandbox_check_ = nullptr;
     GtkWidget *p_optout_box_ = nullptr;
     GtkWidget *p_optout_label_ = nullptr;
     GtkWidget *p_name_box_ = nullptr;
@@ -1970,6 +2022,7 @@ struct context_o {
     std::string s_tool;
     std::string s_path;
     std::string s_set_name;
+    bool b_set_sandbox = false;
     std::vector<action_e> o_actions;
     // Actions to perform as the window opens, leaving it open for the person who asked;
     // --activate is the driven form, which reports and quits.
@@ -1995,6 +2048,9 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
         if (!p_context->s_set_name.empty()) {
             p_context->p_activator->set_name_text(p_context->s_set_name);
         }
+        if (p_context->b_set_sandbox) {
+            p_context->p_activator->set_sandbox_requested();
+        }
     }
     if (!p_context->o_actions.empty()) {
         // A driven run is a test: report what the window holds, then quit rather than
@@ -2007,7 +2063,8 @@ void on_activate(GtkApplication *p_application, gpointer p_data) {
 }
 
 void print_usage(std::ostream &o_out) {
-    o_out << "usage: appimage-activator [--set-name TEXT] [--activate ACTION[,ACTION...]]\n"
+    o_out << "usage: appimage-activator [--set-name TEXT] [--set-sandbox]\n"
+          << "                           [--activate ACTION[,ACTION...]]\n"
           << "                           [--start ACTION[,ACTION...]]\n"
           << "                           --tool <appimage-integrate> <AppImage>\n"
           << "\n"
@@ -2021,6 +2078,7 @@ int main(int i_argument_count, char **p_arguments) {
     std::string s_tool;
     std::string s_path;
     std::string s_set_name;
+    bool b_set_sandbox = false;
     std::string s_activate;
     std::string s_start;
     for (int i_index = 1; i_index < i_argument_count; i_index++) {
@@ -2031,6 +2089,10 @@ int main(int i_argument_count, char **p_arguments) {
         }
         if ("--set-name" == s_argument && i_argument_count > i_index + 1) {
             s_set_name = p_arguments[++i_index];
+            continue;
+        }
+        if ("--set-sandbox" == s_argument) {
+            b_set_sandbox = true;
             continue;
         }
         if ("--activate" == s_argument && i_argument_count > i_index + 1) {
@@ -2064,6 +2126,7 @@ int main(int i_argument_count, char **p_arguments) {
     o_context.s_tool = s_tool;
     o_context.s_path = s_path;
     o_context.s_set_name = s_set_name;
+    o_context.b_set_sandbox = b_set_sandbox;
     // A list of actions, comma-separated, in the form the buttons use.
     const auto parse_actions = [](const std::string &s_list,
                                   std::vector<action_e> &o_actions) -> bool {

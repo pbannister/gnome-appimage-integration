@@ -391,6 +391,35 @@ They are slower and use more temporary disk, so they are a fallback, not the def
 - Integration written by a user-level tool needs no root privileges; nothing here should require `sudo`.
 - Running the file under isolation is a separate question from integrating it, and the options for a desktop launcher are narrower than they look: see `13-sandboxing-appimages.md`.
 
+## libfuse2, and Whether a Mount Can Happen
+
+The older AppImage runtimes load `libfuse.so.2` by name at run time, which is why an AppImage
+built years ago fails on a distribution that has dropped libfuse2 with `dlopen(): error loading
+libfuse.so.2`. It is worth knowing that this dependency is not visible in the usual place:
+`readelf -d` on such an AppImage lists `libdl`, `libpthread`, `libz` and `libc`, and no FUSE
+library at all, because the runtime calls `dlopen` rather than linking against it. What the file
+does contain is the string, in the runtime's own bytes, alongside the message it prints when the
+call fails.
+
+So the dependency can be detected, and this project detects it:
+
+| Question | How it is answered |
+| -------- | ------------------ |
+| Does the runtime load a FUSE library by name? | the string `libfuse.so.2` (or `libfuse3.so.3`, or `libfuse.so.3`) in the runtime's bytes, reported by `appimage-inspect` as `fuse-library:` |
+| Can this machine satisfy it? | `dlopen` of that name, which is the same call the runtime will make, so the loader path and the cache are accounted for without knowing either |
+| Is there a FUSE device? | opening `/dev/fuse` for reading and writing |
+| Is there something to mount with? | `fusermount3` or `fusermount` on `PATH` |
+
+In the corpus of 29 images, 15 load `libfuse.so.2` by name and 14 are built with the newer static
+runtime, which carries no such string and runs where libfuse2 was never installed. The
+distinction is worth stating because a runtime that links FUSE statically still mounts: it needs
+`/dev/fuse` and a `fusermount` just the same, so the device is the first question and the library
+is the second.
+
+The runtime's own way round both is `APPIMAGE_EXTRACT_AND_RUN=1`, which extracts the payload to a
+temporary directory instead of mounting it. `run` sets it automatically when the mount cannot
+work, and says which piece was missing.
+
 ## AppStream Metadata
 
 The specification ships AppStream metadata, so an application can be discovered in an application centre, and this project installs it:

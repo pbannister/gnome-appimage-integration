@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <dlfcn.h>
+#include <fcntl.h>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -844,6 +846,115 @@ std::string integration_optout_sentence(const integration_optout_o &o_optout) {
     return o_optout.consequence + " (" + o_optout.condition + ")";
 }
 
+std::vector<std::string> appimage_mount_reasons(
+    const appimage_mount_needs_o &o_needs,
+    const std::vector<std::string> &o_missing_libraries,
+    bool b_fuse_device_available,
+    bool b_mount_helper_available) {
+    std::vector<std::string> o_reasons;
+    if (!o_needs.mounts) {
+        return o_reasons;
+    }
+    if (!b_fuse_device_available) {
+        o_reasons.emplace_back("/dev/fuse is not present");
+    }
+    for (const std::string &s_library : o_missing_libraries) {
+        o_reasons.emplace_back(s_library + " is not installed, and the runtime loads it "
+                                            "by name");
+    }
+    if (!b_mount_helper_available) {
+        o_reasons.emplace_back("no fusermount or fusermount3 is on PATH");
+    }
+    return o_reasons;
+}
+
+std::string integration_sandbox_name(integration_sandbox_e e_sandbox) {
+    switch (e_sandbox) {
+        case integration_sandbox_e::firejail:
+            return "firejail";
+        case integration_sandbox_e::none:
+            break;
+    }
+    return "none";
+}
+
+bool integration_sandbox_from_name(const std::string &s_name,
+                                   integration_sandbox_e &e_sandbox) {
+    if ("none" == s_name) {
+        e_sandbox = integration_sandbox_e::none;
+        return true;
+    }
+    if ("firejail" == s_name) {
+        e_sandbox = integration_sandbox_e::firejail;
+        return true;
+    }
+    return false;
+}
+
+bool integration_sandbox_is_available(integration_sandbox_e e_sandbox) {
+    switch (e_sandbox) {
+        case integration_sandbox_e::firejail:
+            // firejail's --appimage mode is what makes this worth doing: it mounts for the
+            // application and keeps private-bin and private-lib out of the way, which is
+            // exactly what an AppImage needs.
+            return command_exists("firejail");
+        case integration_sandbox_e::none:
+            break;
+    }
+    return true;
+}
+
+std::string appimage_mount_problem(const appimage_mount_needs_o &o_needs,
+                                   const std::vector<std::string> &o_missing_libraries,
+                                   bool b_fuse_device_available,
+                                   bool b_mount_helper_available) {
+    const std::vector<std::string> o_reasons =
+        appimage_mount_reasons(o_needs, o_missing_libraries, b_fuse_device_available,
+                               b_mount_helper_available);
+    if (o_reasons.empty()) {
+        return {};
+    }
+    std::string s_reasons;
+    for (std::size_t i_index = 0; i_index < o_reasons.size(); ++i_index) {
+        if (0 != i_index) {
+            s_reasons += 1 + i_index == o_reasons.size() ? " and " : ", ";
+        }
+        s_reasons += o_reasons[i_index];
+    }
+    return "this AppImage mounts its payload with FUSE, and " + s_reasons
+           + ", so it will not start here; the launcher is still written, and a run with "
+             "APPIMAGE_EXTRACT_AND_RUN=1 extracts the payload instead of mounting it";
+}
+
+bool fuse_device_is_available() {
+    // Opening it is what the runtime does; a device that is present but not usable by this
+    // user fails in the same place, so it is asked the same way.
+    const int i_descriptor = ::open("/dev/fuse", O_RDWR | O_CLOEXEC);
+    if (0 > i_descriptor) {
+        return false;
+    }
+    ::close(i_descriptor);
+    return true;
+}
+
+bool mount_helper_is_available() {
+    return command_exists("fusermount3") || command_exists("fusermount");
+}
+
+bool library_is_available(const std::string &s_library) {
+    if (s_library.empty()) {
+        return true;
+    }
+    // Loading it is exactly what the runtime will do, and it answers for the loader
+    // search path and the cache without this code having to know either.
+    void *p_handle = ::dlopen(s_library.c_str(), RTLD_LAZY);
+    if (nullptr == p_handle) {
+        return false;
+    }
+    ::dlclose(p_handle);
+    return true;
+}
+
 std::vector<integration_optout_o> desktop_integration_optouts(
     const std::map<std::string, std::string> &o_environment,
     const std::vector<std::string> &o_sentinel_paths,
@@ -1013,6 +1124,31 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                                       + integration_optout_sentence(o_optout));
         }
 
+        // Whether the file can start here: a runtime mounts its payload with FUSE, and an
+        // older one loads the library by name.  Integration writes files and works either
+        // way, so this is a warning about the click rather than a reason to refuse.
+        o_plan.mounts_with_fuse =
+            appimage_detection_e::type2 == o_info.detection && o_info.has_squashfs;
+        o_plan.fuse_libraries = o_info.fuse_libraries;
+        if (o_plan.mounts_with_fuse) {
+            std::vector<std::string> o_missing_libraries;
+            for (const std::string &s_library : o_plan.fuse_libraries) {
+                if (!library_is_available(s_library)) {
+                    o_missing_libraries.push_back(s_library);
+                }
+            }
+            appimage_mount_needs_o o_needs;
+            o_needs.mounts = true;
+            o_needs.libraries = o_plan.fuse_libraries;
+            const std::string s_problem =
+                appimage_mount_problem(o_needs, o_missing_libraries,
+                                       fuse_device_is_available(),
+                                       mount_helper_is_available());
+            if (!s_problem.empty()) {
+                o_plan.warnings.push_back(s_problem);
+            }
+        }
+
         squashfs_reader_c o_reader;
         std::string s_error;
         if (!o_reader.open(o_plan.appimage_path, o_info.payload_offset, s_error)) {
@@ -1135,7 +1271,27 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
 
         o_plan.field_code = exec_field_code(o_entry.value("Desktop Entry", "Exec").value_or(""));
         o_plan.extra_exec_arguments = o_options.extra_exec_arguments;
+        o_plan.sandbox = o_options.sandbox;
+
+        // A sandbox that is not installed is refused rather than quietly dropped: the
+        // person asked to run this application under it, and a launcher that silently did
+        // something else would be worse than one that was never written.
+        if (integration_sandbox_e::none != o_plan.sandbox
+            && !integration_sandbox_is_available(o_plan.sandbox)) {
+            o_plan.error = integration_sandbox_name(o_plan.sandbox)
+                           + " is not installed, so --sandbox "
+                           + integration_sandbox_name(o_plan.sandbox)
+                           + " cannot be honoured; install it, or install without --sandbox";
+            return false;
+        }
+
         o_plan.exec_command = exec_quote(o_plan.installed_path);
+        if (integration_sandbox_e::firejail == o_plan.sandbox) {
+            // firejail [OPTIONS] --appimage [OPTIONS] [appimage-file and arguments]: the
+            // file and its arguments stay after --appimage, and firejail takes care of the
+            // FUSE mount the runtime would otherwise do itself.
+            o_plan.exec_command = "firejail --appimage " + o_plan.exec_command;
+        }
         if (!o_plan.extra_exec_arguments.empty()) {
             o_plan.exec_command += " " + o_plan.extra_exec_arguments;
         }
@@ -1959,6 +2115,9 @@ bool appimage_integrator_c::install(const integration_plan_o &o_plan,
                    << "desktop_id=" << o_plan.desktop_id << '\n'
                    << "desktop_entry=" << o_plan.desktop_entry_path << '\n'
                    << "icon_name=" << o_plan.icon_name << '\n';
+        if (integration_sandbox_e::none != o_plan.sandbox) {
+            o_manifest << "sandbox=" << integration_sandbox_name(o_plan.sandbox) << '\n';
+        }
         if (!o_plan.startup_wm_class.empty()) {
             o_manifest << "startup_wm_class=" << o_plan.startup_wm_class << '\n'
                        << "startup_wm_class_source="
@@ -2125,6 +2284,12 @@ std::vector<installed_appimage_o> appimage_integrator_c::list_installed() const 
             o_installed.desktop_id = manifest_get(o_lines, "desktop_id");
             o_installed.icon_name = manifest_get(o_lines, "icon_name");
             o_installed.manifest_path = s_manifest;
+            o_installed.sandbox = integration_sandbox_e::none;
+            integration_sandbox_e e_recorded_sandbox = integration_sandbox_e::none;
+            if (integration_sandbox_from_name(manifest_get(o_lines, "sandbox"),
+                                              e_recorded_sandbox)) {
+                o_installed.sandbox = e_recorded_sandbox;
+            }
             o_installed.startup_wm_class = manifest_get(o_lines, "startup_wm_class");
             o_installed.startup_wm_class_is_explicit =
                 "override" == manifest_get(o_lines, "startup_wm_class_source");
@@ -2271,6 +2436,16 @@ std::string appimage_integrator_c::describe_plan(const integration_plan_o &o_pla
             o_out << "  " << o_icon.size_directory << " " << o_icon.extension << "  "
                   << o_icon.source_in_payload << "\n";
         }
+    }
+    if (o_plan.mounts_with_fuse) {
+        std::string s_needs;
+        for (const std::string &s_library : o_plan.fuse_libraries) {
+            s_needs += s_needs.empty() ? s_library : ", " + s_library;
+        }
+        o_out << "runtime mount: FUSE"
+              << (s_needs.empty() ? " (the runtime links it itself)"
+                                  : " (needs " + s_needs + ")")
+              << "\n";
     }
     if (!o_plan.appstream_package_files.empty()) {
         o_out << "\nAppStream metadata:\n";
@@ -2478,6 +2653,22 @@ std::vector<audit_finding_o> appimage_integrator_c::audit() const {
                      "the update information cannot be used: " + o_update.problem,
                      "run: appimage-inspect --update-url " + o_entry.appimage_path});
             }
+        }
+
+        // A launcher whose Exec runs through a sandbox that is no longer installed cannot
+        // start, and the failure would look like the application's rather than this tool's.
+        for (const installed_appimage_o &o_entry : o_installed) {
+            if (integration_sandbox_e::none == o_entry.sandbox
+                || integration_sandbox_is_available(o_entry.sandbox)) {
+                continue;
+            }
+            o_findings.push_back(
+                {audit_finding_o::severity_e::warning, o_entry.desktop_id,
+                 "this launcher runs the application under "
+                     + integration_sandbox_name(o_entry.sandbox)
+                     + ", which is not installed, so it will not start",
+                 "install " + integration_sandbox_name(o_entry.sandbox)
+                     + ", or re-integrate with --sandbox none"});
         }
 
         for (const std::pair<const std::string, std::vector<std::string>> &o_group : o_groups) {

@@ -235,6 +235,28 @@ and a warning block at the top of the window. Integrate stays enabled: those con
 stop unsolicited integration, and a person who clicks Integrate has given the permission the
 specification's own section asks for.
 
+## Running an AppImage, and Whether It Can Start
+
+A type-2 AppImage mounts its payload with FUSE, so the launcher works only where that can
+happen. `plan`, `explain` and the window report both halves:
+
+- **The runtime's own libraries.** The runtimes built before the static ones load `libfuse.so.2`
+  by name, so `readelf -d` shows no dependency on it: the reader looks for the string in the
+  runtime's bytes instead. `appimage-inspect` reports it as `fuse-library:`, and 15 of the 29
+  corpus images are of that older kind.
+- **What the machine provides.** Whether `/dev/fuse` can be opened, whether a `fusermount`
+  binary is on `PATH`, and whether a library a runtime names can be loaded. A machine missing
+  any of them cannot start the file, and the plan says so, naming the missing piece and
+  `APPIMAGE_EXTRACT_AND_RUN=1` as the way round it. `run` already falls back to extracting when
+  FUSE is unusable, and now falls back when a runtime's library is missing too.
+
+**Optionally under firejail.** Where firejail is installed the window offers a *Run in
+firejail* checkbox, and `install --sandbox firejail` does the same from the command line. The
+launcher is written as `firejail --appimage …`, following firejail's documented form, and the
+choice is recorded with the integration so `refresh` and `update` keep it. Asking for a sandbox
+that is not installed is refused rather than silently dropped, a record whose firejail has since
+gone is reported by `audit`, and `install --sandbox none` turns it off again.
+
 ## Window Placement
 
 A client cannot choose its own position under Wayland, and GNOME's `org.gnome.mutter center-new-windows` is off by default, so the handler opens where the compositor puts it.

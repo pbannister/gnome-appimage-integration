@@ -21,6 +21,10 @@ constexpr std::size_t ELF_HEADER_SIZE = 64;
 constexpr std::uint16_t SECTION_INDEX_XINDEX = 0xffff;
 constexpr std::uint32_t MAX_SECTION_COUNT = 100000;
 constexpr std::uint32_t MAX_SIGNATURE_CHECK_SIZE = 1024U * 1024U;
+// A runtime is a small static binary; this bounds the read used to look for the
+// FUSE library it asks for, so a file that claims a huge ELF cannot make the
+// reader read the whole payload looking for a string.
+constexpr std::uint64_t MAX_RUNTIME_SCAN_BYTES = 8U * 1024U * 1024U;
 
 constexpr std::uint8_t APPIMAGE_MAGIC_0 = 0x41;
 constexpr std::uint8_t APPIMAGE_MAGIC_1 = 0x49;
@@ -369,6 +373,25 @@ bool appimage_reader_c::read(const std::string &s_path, appimage_info_o &o_info)
         o_info.payload_size = o_reader.u_size - o_info.payload_offset;
     } else {
         o_info.payload_size = 0;
+    }
+
+    // Which FUSE library the runtime asks for, if any.  Older runtimes dlopen
+    // libfuse.so.2 rather than needing it, so there is no DT_NEEDED entry to read: the
+    // only evidence in the file is the string they hand to dlopen, and the error message
+    // they print when it is absent.  A runtime built with the newer static runtime
+    // carries neither, and runs where libfuse2 was never installed.
+    {
+        const std::uint64_t i_scan_size =
+            std::min<std::uint64_t>(o_info.elf.elf_size, MAX_RUNTIME_SCAN_BYTES);
+        std::vector<std::uint8_t> o_runtime(static_cast<std::size_t>(i_scan_size));
+        if (0 < i_scan_size && read_at(o_reader, 0, o_runtime.data(), o_runtime.size())) {
+            const std::string s_runtime(o_runtime.begin(), o_runtime.end());
+            for (const char *s_candidate : {"libfuse3.so.3", "libfuse.so.3", "libfuse.so.2"}) {
+                if (std::string::npos != s_runtime.find(s_candidate)) {
+                    o_info.fuse_libraries.emplace_back(s_candidate);
+                }
+            }
+        }
     }
 
     if (o_info.update_information_section.present

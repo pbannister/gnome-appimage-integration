@@ -250,7 +250,8 @@ if [ "$1" = "explain" ]; then
     else
         printf ',"desktop_integration_optout":[]'
     fi
-    printf ',"warnings":[]}\n'
+    printf ',"warnings":[],"firejail_available":%s,"sandbox":"none"}\n' \
+        "${STUB_FIREJAIL:-false}"
     exit 0
 fi
 exit 0
@@ -278,6 +279,7 @@ run_driven() {
         STUB_OPTOUT="${STUB_OPTOUT:-}" \
         STUB_OPTOUT_CONDITION="${STUB_OPTOUT_CONDITION:-}" \
         STUB_OPTOUT_CONSEQUENCE="${STUB_OPTOUT_CONSEQUENCE:-}" \
+        STUB_FIREJAIL="${STUB_FIREJAIL:-false}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
 }
@@ -606,5 +608,36 @@ grep -q 'opt-out: .*no_desktopintegration' "$DIRECTORY_TEMP/optout.txt" \
     || fail_test "the warning block does not name the condition"
 grep -q '^=== buttons:.*Integrate\*' "$DIRECTORY_TEMP/optout.txt" \
     || fail_test "the warning took Integrate away, but it is a warning and not a gate"
+
+# The sandbox is offered, never assumed: with firejail on the machine the window offers
+# it, and ticking it is what puts --sandbox on the install's command line.
+if ! STUB_FIREJAIL=true run_driven --activate inspect > "$DIRECTORY_TEMP/offer.txt" 2>&1; then
+    cat "$DIRECTORY_TEMP/offer.txt" >&2
+    fail_test "the activator did not run with firejail available"
+fi
+grep -q '^=== sandbox offer: firejail ===$' "$DIRECTORY_TEMP/offer.txt" \
+    || fail_test "the window did not offer firejail although it is installed"
+if ! run_driven --activate inspect > "$DIRECTORY_TEMP/no-offer.txt" 2>&1; then
+    fail_test "the activator did not run with firejail absent"
+fi
+grep -q '^=== sandbox offer: (none) ===$' "$DIRECTORY_TEMP/no-offer.txt" \
+    || fail_test "the window offered firejail although it is not installed"
+# Ticked between two actions, the way the name is typed: inspect runs, the box is ticked,
+# then Integrate is the action that carries it.
+: > "$FILE_RECORD"
+# The stub reports a conflict, so Integrate offers the two ways past it and the install is
+# the action after that: the tick has to survive to there.
+if ! STUB_FIREJAIL=true run_driven --set-sandbox --activate inspect,integrate,add-alongside \
+    > "$DIRECTORY_TEMP/sandboxed.txt" 2>&1; then
+    cat "$DIRECTORY_TEMP/sandboxed.txt" >&2
+    fail_test "the activator did not run with the sandbox ticked"
+fi
+grep -q 'sandbox offer: firejail requested' "$DIRECTORY_TEMP/sandboxed.txt" \
+    || fail_test "the report does not show the box ticked"
+# The name the field carries sits between the flags, so the line is picked out and then
+# asked whether the sandbox is on it.
+if ! grep '^install|' "$FILE_RECORD" | grep -Fq -- '--sandbox|firejail|'; then
+    fail_test "the ticked box did not reach the install: $(cat "$FILE_RECORD")"
+fi
 
 pass_test "graphical activator"

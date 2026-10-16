@@ -6,8 +6,17 @@ candidate for the second question, and this document assesses the alternatives t
 extra package — in particular systemd's own sandboxing and container tools — and records which
 of them is the right shape for a launcher on the application grid.
 
-Nothing here is implemented yet. The purpose is to settle the design question before writing
-the code, so that the option is modelled once rather than three times.
+What is implemented now is firejail, offered rather than assumed: `install --sandbox firejail`
+and a *Run in firejail* checkbox in the window, shown only where firejail is installed, with the
+choice recorded beside the integration so a rewrite keeps it. The rest of this document assesses
+the alternatives and is why the option is a named backend rather than a flag.
+
+One finding changed the shape of the question. An AppImage that mounts its payload needs
+`/dev/fuse` and a `fusermount` binary whether or not its runtime links FUSE statically, and the
+older runtimes additionally load `libfuse.so.2` by name; on this host `/dev/fuse` is absent
+altogether, which no sandbox can fix. That is now detected and reported — see
+`10-appimage-desktop-integration.md` — and it means a sandbox's job is narrower than it first
+looks: keeping FUSE working is a prerequisite, not something a sandbox provides.
 
 ## What any backend has to provide
 
@@ -107,8 +116,9 @@ requiring the real one.
 ## What this means for the design
 
 - **Model it as a named backend**, not a boolean: `none` (the default), then `firejail` or
-  `bwrap` or `systemd-run`. Record the choice in the record for the integration, so `refresh`,
-  `update` and `uninstall` know what they wrote and `list` and `audit` can report it.
+  `bwrap` or `systemd-run`. This is what `integration_sandbox_e` does, and the choice is written
+  into the record for the integration, so `refresh` and `update` keep it and `audit` reports a
+  launcher whose backend has gone.
 - **Decide the `Exec` question before writing any of it.** Baking a backend into `Exec` means
   removing that backend later breaks every launcher that used it. The alternatives are: keep
   `Exec` direct and require the backend at install time, with an `audit` finding when it later
@@ -124,8 +134,10 @@ requiring the real one.
 
 ## Recommendation
 
-1. `firejail` first, when it is installed, because `--appimage` exists and its profiles are
-   maintained elsewhere.
+1. `firejail` first, and it is what is implemented: `--appimage` exists, its profiles are
+   maintained elsewhere, and it keeps `private-bin` and `private-lib` out of the way, which is
+   what an AppImage needs. The option is offered only where it is installed, and a record that
+   names it is not rewritten when it goes.
 2. `bwrap` second, because it needs nothing installed on a GNOME desktop and is the only option
    verifiable on this host; it costs us an AppImage-specific bind set.
 3. `systemd-run --user` is worth revisiting once it can be tested from a real session; it is the

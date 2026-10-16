@@ -115,8 +115,8 @@ if [ "$(row_of Good | awk -F"$(printf '\t')" '{print $16}')" = "failed" ]; then
 fi
 # The launcher each install wrote is checked, not just the install's exit status: the
 # file, its Exec target, and the icon it names.
-grep -q "$(printf 'verify\tappstream\toptout')$" "$FILE_SUMMARY" \
-    || fail_test "the summary has no verify, appstream and optout columns"
+grep -q "$(printf 'verify\tappstream\toptout\tfuse')$" "$FILE_SUMMARY" \
+    || fail_test "the summary has no verify, appstream, optout and fuse columns"
 # None of the synthetic images ships AppStream metadata, and their sandbox sets no
 # opt-out condition, so both new columns read zero here: tests/72 and tests/71 cover
 # what they count.

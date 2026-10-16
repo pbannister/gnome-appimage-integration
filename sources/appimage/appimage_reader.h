@@ -65,6 +65,11 @@ struct appimage_info_o {
     appimage_elf_info_o elf;
     std::uint64_t payload_offset = 0;
     std::uint64_t payload_size = 0;
+    // The FUSE library the runtime asks for by name, if any: an older runtime dlopens
+    // libfuse.so.2, and no dynamic dependency records it, so this is read from the
+    // strings in the runtime.  Empty for a runtime that links its FUSE statically, which
+    // is the newer kind and runs where libfuse2 is not installed.
+    std::vector<std::string> fuse_libraries;
     appimage_section_o update_information_section;
     std::string update_information;
     appimage_section_o signature_section;

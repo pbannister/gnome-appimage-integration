@@ -65,7 +65,9 @@ target_include_directories(json_value PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 add_library(integration STATIC
     integration/appimage_integrator.cpp)
 target_include_directories(integration PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(integration PUBLIC appimage_reader desktop_entry version_info)
+# dlopen is asked whether a runtime's FUSE library can be loaded, which is what the
+# runtime itself will do; on older glibc that lives in a separate library.
+target_link_libraries(integration PUBLIC appimage_reader desktop_entry version_info ${CMAKE_DL_LIBS})
 
 add_executable(appimage-inspect tools/appimage_inspect.cpp)
 target_link_libraries(appimage-inspect PRIVATE appimage_reader desktop_entry version_info)
@@ -117,6 +119,11 @@ target_link_libraries(version-compare-test PRIVATE version_info)
 # writing under /usr or /etc.
 add_executable(desktop-integration-optout-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/desktop_integration_optout_test.cpp")
 target_link_libraries(desktop-integration-optout-test PRIVATE integration appimage_reader desktop_entry)
+
+# The verdict on whether an AppImage can mount its payload takes the image's needs and the
+# host's state as arguments, so every combination is testable without a FUSE device.
+add_executable(appimage-mount-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_mount_test.cpp")
+target_link_libraries(appimage-mount-test PRIVATE integration appimage_reader desktop_entry)
 
 add_executable(appimage-reader-test "${CMAKE_CURRENT_SOURCE_DIR}/../tests/appimage_reader_test.cpp")
 target_link_libraries(appimage-reader-test PRIVATE appimage_reader)

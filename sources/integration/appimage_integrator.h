@@ -70,6 +70,37 @@ struct integration_optout_o {
 // A sentence naming the condition and what it means, for a warning line.
 std::string integration_optout_sentence(const integration_optout_o &o_optout);
 
+// What a runtime needs before it can mount its payload.  A type-2 AppImage mounts rather
+// than extracts, which needs the FUSE device; a runtime built before the static ones also
+// loads a FUSE library by name, which a modern distribution may not ship.
+struct appimage_mount_needs_o {
+    bool mounts = false;
+    std::vector<std::string> libraries;
+};
+
+// Why this AppImage cannot start on this machine, or empty when it can.  The verdict takes
+// the host's state as arguments so that every combination can be tested without a FUSE
+// device; the probes that produce the state are separate and deliberately thin.
+std::string appimage_mount_problem(const appimage_mount_needs_o &o_needs,
+                                   const std::vector<std::string> &o_missing_libraries,
+                                   bool b_fuse_device_available,
+                                   bool b_mount_helper_available);
+
+// The same verdict as a list of what is missing, for a caller that is about to work around
+// it rather than report it -- `run` extracts the payload instead of mounting when anything
+// here is non-empty, and says which piece was absent.
+std::vector<std::string> appimage_mount_reasons(
+    const appimage_mount_needs_o &o_needs,
+    const std::vector<std::string> &o_missing_libraries,
+    bool b_fuse_device_available,
+    bool b_mount_helper_available);
+
+// The host's side of the question: whether /dev/fuse can be opened, whether a fusermount
+// binary is on PATH, and whether a library named by a runtime can be loaded.
+bool fuse_device_is_available();
+bool mount_helper_is_available();
+bool library_is_available(const std::string &s_library);
+
 // Which of the specification's conditions hold, in specification order.  The sentinel
 // paths are parameters so that every one of them can be exercised without writing under
 // /usr or /etc; plan() passes the specification's own three paths.
@@ -96,6 +127,25 @@ struct integration_conflict_o {
     bool exec_exists = false;
 };
 
+// How the application is started: directly, or through a sandbox that is present on the
+// machine.  The choice is recorded with the integration, because the launcher's Exec
+// carries it and every later rewrite has to keep it.
+enum class integration_sandbox_e {
+    none,
+    firejail,
+};
+
+// The name as it is written in a record and asked for on the command line.
+std::string integration_sandbox_name(integration_sandbox_e e_sandbox);
+
+// The sandbox a name means, or none when it names one this tool does not know.  The
+// distinction matters: an unknown name must be refused rather than silently ignored.
+bool integration_sandbox_from_name(const std::string &s_name,
+                                   integration_sandbox_e &e_sandbox);
+
+// Whether the program a sandbox needs is on PATH.
+bool integration_sandbox_is_available(integration_sandbox_e e_sandbox);
+
 // What to do when the application is already represented by another launcher.
 enum class integration_conflict_policy_e {
     fail,
@@ -117,6 +167,7 @@ struct integration_plan_o {
     std::string manifest_path;
     std::string icon_name;
     std::string embedded_desktop_path;
+    integration_sandbox_e sandbox = integration_sandbox_e::none;
     std::string startup_wm_class;
     // True when the class came from --wm-class, or from a --wm-class of an earlier
     // install.  An explicit choice outlives the embedded entry, which may name a
@@ -159,6 +210,11 @@ struct integration_plan_o {
     std::vector<integration_mime_package_o> mime_package_files;
     std::vector<integration_appstream_package_o> appstream_package_files;
     std::vector<integration_conflict_o> conflicts;
+    // How the runtime will start: whether it mounts its payload with FUSE, and which FUSE
+    // library it loads by name.  A launcher still works when the machine cannot mount; the
+    // click does not.
+    bool mounts_with_fuse = false;
+    std::vector<std::string> fuse_libraries;
     // The AppImage specification's conditions against integrating on this machine, all
     // of those that hold.  They are reported and nothing more: the person asked.
     std::vector<integration_optout_o> optouts;
@@ -173,6 +229,9 @@ struct integration_options_o {
     std::string desktop_file_name;
     std::string extra_exec_arguments;
     std::string startup_wm_class_override;
+    // The sandbox the launcher will run the application through.  Asking for one that is
+    // not installed is an error rather than a silent fallback, because the person asked.
+    integration_sandbox_e sandbox = integration_sandbox_e::none;
     std::string icon_name_override;
     // Replaces the Name= written to the launcher, so several launchers for one
     // application can be told apart in the menu.
@@ -212,6 +271,7 @@ struct installed_appimage_o {
     // without losing a class that was chosen earlier.
     std::string startup_wm_class;
     bool startup_wm_class_is_explicit = false;
+    integration_sandbox_e sandbox = integration_sandbox_e::none;
 };
 
 // One audit finding about the real desktop.

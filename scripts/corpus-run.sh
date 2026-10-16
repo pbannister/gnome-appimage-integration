@@ -132,8 +132,8 @@ exec_program() { # <Exec value>
 FILE_SUMMARY="$DIRECTORY_REPORTS/summary.tsv"
 # The AppStream and opt-out columns were added after verify rather than beside the columns
 # they belong to, because the tests read the summary by position.
-printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes%sverify%sappstream%soptout\n' \
-    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
+printf 'app%sbytes%sdetection%scompression%sroot_entry%sroot_kind%susr_link%sterminal%sicons%swm_class%smime_types%ssignature%supdate_info%soutcome%swarnings%snotes%sverify%sappstream%soptout%sfuse\n' \
+    "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" "$TAB" \
     > "$FILE_SUMMARY"
 rm -f "$DIRECTORY_REPORTS/.installs"
 
@@ -288,12 +288,20 @@ for link_app in "$DIRECTORY_SELECTED"/*.AppImage; do
     fi
     appstream=$(count_matching "$FILE_PLAN_REPORT" '^  /usr/share/metainfo/.* -> ')
     optout=$(count_matching "$FILE_PLAN_REPORT" '^warning: desktop integration: ')
+    # Which FUSE library the runtime loads by name, or "(none)" for a runtime that links
+    # FUSE itself.  A runtime that loads one cannot start where it is absent, which is what
+    # the 14 images built before the static runtimes depend on.
+    fuse_library=$(field "$DIRECTORY_APP_REPORT/inspect.txt" 'fuse-library')
+    case "$fuse_library" in
+        "(none"*) fuse_library="static" ;;
+        "") fuse_library="-" ;;
+    esac
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$name_app" "$bytes" "$detection" "$compression" "$root_entry" "$root_kind" \
         "$usr_link" "$terminal" "$icons" "$wm_class" "$mime_types" "$signature" \
         "$update_info" "$outcome" "$warnings" "$notes" "$verify_column" \
-        "$appstream" "$optout" >> "$FILE_SUMMARY"
+        "$appstream" "$optout" "$fuse_library" >> "$FILE_SUMMARY"
 
     if [ "$status_install" != "skip" ]; then
         printf '%s\tinstall=%s\n' "$name_app" "$status_install" >> "$DIRECTORY_REPORTS/.installs"
