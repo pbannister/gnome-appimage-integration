@@ -434,6 +434,7 @@ void print_plan_json(const integration_plan_o &o_plan) {
 }
 
 bool appimaged_is_running();
+std::vector<std::string> mount_reasons_for_file(const std::string &s_path);
 
 integration_options_o options_from(const std::string &s_install_dir,
                                   const std::string &s_desktop_file_name,
@@ -2774,23 +2775,7 @@ int command_run(const std::string &s_path,
     // question until the older runtimes were considered: one that loads libfuse.so.2 by
     // name fails on a machine whose /dev/fuse is perfectly usable, so the runtime's own
     // libraries are part of whether mounting will work.
-    appimage_mount_needs_o o_mount_needs;
-    std::vector<std::string> o_missing_libraries;
-    gnome_appimage::appimage::appimage_info_o o_mount_info;
-    if (gnome_appimage::appimage::appimage_reader_c::read(s_path, o_mount_info)
-        && gnome_appimage::appimage::appimage_detection_e::type2 == o_mount_info.detection
-        && o_mount_info.has_squashfs) {
-        o_mount_needs.mounts = true;
-        o_mount_needs.libraries = o_mount_info.fuse_libraries;
-        for (const std::string &s_library : o_mount_info.fuse_libraries) {
-            if (!library_is_available(s_library)) {
-                o_missing_libraries.push_back(s_library);
-            }
-        }
-    }
-    const std::vector<std::string> o_mount_reasons = appimage_mount_reasons(
-        o_mount_needs, o_missing_libraries, 0 == access("/dev/fuse", R_OK | W_OK),
-        command_exists("fusermount3") || command_exists("fusermount"));
+    const std::vector<std::string> o_mount_reasons = mount_reasons_for_file(s_path);
     if (b_extract_and_run || !o_mount_reasons.empty()) {
         if (!b_extract_and_run) {
             std::string s_reasons;
@@ -3233,6 +3218,31 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     return command_handler_status(o_integrator);
 }
 
+// Why this file cannot mount its payload here, or empty when it can.  The device and the
+// mount helper were the whole question until the older runtimes were considered: one that
+// loads libfuse.so.2 by name fails on a machine whose /dev/fuse is perfectly usable, so
+// every path that starts an AppImage asks this rather than the device alone.
+std::vector<std::string> mount_reasons_for_file(const std::string &s_path) {
+    appimage_mount_needs_o o_needs;
+    std::vector<std::string> o_missing_libraries;
+    gnome_appimage::appimage::appimage_info_o o_info;
+    if (gnome_appimage::appimage::appimage_reader_c::read(s_path, o_info)
+        && gnome_appimage::appimage::appimage_detection_e::type2 == o_info.detection
+        && o_info.has_squashfs) {
+        o_needs.mounts = true;
+        o_needs.libraries = o_info.fuse_libraries;
+        for (const std::string &s_library : o_info.fuse_libraries) {
+            if (!library_is_available(s_library)) {
+                o_missing_libraries.push_back(s_library);
+            }
+        }
+    }
+    return appimage_mount_reasons(o_needs, o_missing_libraries,
+                                  0 == access("/dev/fuse", R_OK | W_OK),
+                                  command_exists("fusermount3")
+                                      || command_exists("fusermount"));
+}
+
 bool has_display() {
     return nullptr != std::getenv("DISPLAY") || nullptr != std::getenv("WAYLAND_DISPLAY");
 }
@@ -3313,9 +3323,8 @@ int run_detached_with_notice(const std::string &s_path, const std::string &s_nam
         }
     }
 
-    const bool b_fuse_available = 0 == access("/dev/fuse", R_OK | W_OK)
-                                  && (command_exists("fusermount3")
-                                      || command_exists("fusermount"));
+    const std::vector<std::string> o_mount_reasons = mount_reasons_for_file(s_path);
+    const bool b_fuse_available = o_mount_reasons.empty();
     const std::string s_label = s_name.empty() ? fs::path(s_path).filename().string() : s_name;
 
     const pid_t i_child = fork();
@@ -3381,16 +3390,31 @@ int command_handle(const std::string &s_path, bool b_update) {
     if (!command_exists("zenity") || !has_display()) {
         std::cout << "AppImage: " << s_label << '\n'
                   << "  appimage-integrate run \"" << s_path << "\"\n"
-                  << "  appimage-integrate install \"" << s_path << "\"\n"
-                  << "  appimage-inspect \"" << s_path << "\"\n";
+                  << "  appimage-integrate install \"" << s_path << "\"\n";
+        if (command_exists("firejail")) {
+            std::cout << "  appimage-integrate install --sandbox firejail \"" << s_path
+                      << "\"\n";
+        }
+        std::cout << "  appimage-inspect \"" << s_path << "\"\n";
         return EXIT_OK;
     }
 
-    const std::string s_choice = capture_command(
-        {"zenity", "--list", "--radiolist", "--title=AppImage",
-         "--text=What do you want to do with " + s_label + "?", "--column=",
-         "--column=Action", "TRUE", "Run once", "FALSE", "Integrate", "FALSE", "Inspect",
-         "FALSE", "Cancel", "--height=280", "--width=460"});
+    // The sandbox is offered here, where the decision is made, and only where it can be
+    // honoured: a list that offered something absent would be a button that fails.
+    std::vector<std::string> o_choices = {"zenity", "--list", "--radiolist",
+                                          "--title=AppImage",
+                                          "--text=What do you want to do with " + s_label + "?",
+                                          "--column=", "--column=Action", "TRUE", "Run once",
+                                          "FALSE", "Integrate"};
+    if (command_exists("firejail")) {
+        o_choices.push_back("FALSE");
+        o_choices.push_back("Integrate under firejail");
+    }
+    for (const char *s_tail : {"FALSE", "Inspect", "FALSE", "Cancel", "--height=320",
+                               "--width=460"}) {
+        o_choices.emplace_back(s_tail);
+    }
+    const std::string s_choice = capture_command(o_choices);
 
     if ("Run once" == s_choice) {
         return run_detached_with_notice(s_path, s_name);
@@ -3406,10 +3430,13 @@ int command_handle(const std::string &s_path, bool b_update) {
         return EXIT_OK;
     }
 
-    if ("Integrate" == s_choice) {
+    if ("Integrate" == s_choice || "Integrate under firejail" == s_choice) {
         const appimage_integrator_c o_integrator;
         integration_options_o o_options;
         o_options.tool_path = tool_path(o_integrator);
+        if ("Integrate under firejail" == s_choice) {
+            o_options.sandbox = integration_sandbox_e::firejail;
+        }
         o_options.appimaged_running = appimaged_is_running();
         integration_plan_o o_plan;
         if (!o_integrator.plan(s_path, o_options, o_plan)) {

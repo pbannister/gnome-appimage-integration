@@ -615,12 +615,15 @@ if ! STUB_FIREJAIL=true run_driven --activate inspect > "$DIRECTORY_TEMP/offer.t
     cat "$DIRECTORY_TEMP/offer.txt" >&2
     fail_test "the activator did not run with firejail available"
 fi
-grep -q '^=== sandbox offer: firejail ===$' "$DIRECTORY_TEMP/offer.txt" \
-    || fail_test "the window did not offer firejail although it is installed"
+# "shown" and not merely known: the first version of this created the checkbox and asked
+# whether to show it before the widget existed, so the offer was invisible on the one path a
+# person takes while a test that read the field would have passed.
+grep -q '^=== sandbox offer: firejail shown ===$' "$DIRECTORY_TEMP/offer.txt" \
+    || fail_test "the window did not offer firejail although it is installed: $(grep 'sandbox offer' "$DIRECTORY_TEMP/offer.txt")"
 if ! run_driven --activate inspect > "$DIRECTORY_TEMP/no-offer.txt" 2>&1; then
     fail_test "the activator did not run with firejail absent"
 fi
-grep -q '^=== sandbox offer: (none) ===$' "$DIRECTORY_TEMP/no-offer.txt" \
+grep -q '^=== sandbox offer: (none) hidden ===$' "$DIRECTORY_TEMP/no-offer.txt" \
     || fail_test "the window offered firejail although it is not installed"
 # Ticked between two actions, the way the name is typed: inspect runs, the box is ticked,
 # then Integrate is the action that carries it.
@@ -632,7 +635,7 @@ if ! STUB_FIREJAIL=true run_driven --set-sandbox --activate inspect,integrate,ad
     cat "$DIRECTORY_TEMP/sandboxed.txt" >&2
     fail_test "the activator did not run with the sandbox ticked"
 fi
-grep -q 'sandbox offer: firejail requested' "$DIRECTORY_TEMP/sandboxed.txt" \
+grep -q 'sandbox offer: firejail shown requested' "$DIRECTORY_TEMP/sandboxed.txt" \
     || fail_test "the report does not show the box ticked"
 # The name the field carries sits between the flags, so the line is picked out and then
 # asked whether the sandbox is on it.

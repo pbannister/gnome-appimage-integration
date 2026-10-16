@@ -744,8 +744,13 @@ public:
         // The specification's reasons for not integrating here, so a test can read both
         // that the block is up and what it says.  It is a warning, never a gate, so the
         // buttons above it are unchanged by it.
+        // Whether the offer is *shown*, not merely known: a test that read the JSON field
+        // would pass while the checkbox stayed hidden, which is the whole failure mode.
         o_out << "=== sandbox offer: "
               << (firejail_offered() ? "firejail" : "(none)")
+              << (nullptr != p_sandbox_box_ && gtk_widget_get_visible(p_sandbox_box_)
+                      ? " shown"
+                      : " hidden")
               << (sandbox_requested() ? " requested" : "")
               << " ===\n";
         const std::vector<std::string> o_optouts = optout_sentences();
@@ -982,7 +987,10 @@ private:
             p_sandbox_check_,
             "start the application under firejail, if firejail is installed");
         gtk_box_append(GTK_BOX(p_sandbox_box_), p_sandbox_check_);
-        gtk_widget_set_visible(p_sandbox_box_, FALSE);
+        // The details above were built before this widget existed, so their pass over the
+        // offer found nothing to show.  Ask again now that there is something to show it
+        // on: the tool's answer was already loaded by the time the window was built.
+        update_sandbox_offer();
 
         p_name_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         gtk_box_append(GTK_BOX(p_name_box_), gtk_label_new("Name:"));

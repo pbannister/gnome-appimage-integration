@@ -251,7 +251,8 @@ happen. `plan`, `explain` and the window report both halves:
   FUSE is unusable, and now falls back when a runtime's library is missing too.
 
 **Optionally under firejail.** Where firejail is installed the window offers a *Run in
-firejail* checkbox, and `install --sandbox firejail` does the same from the command line. The
+firejail* checkbox, the double-click dialog offers *Integrate under firejail*, and
+`install --sandbox firejail` does the same from the command line. The
 launcher is written as `firejail --appimage …`, following firejail's documented form, and the
 choice is recorded with the integration so `refresh` and `update` keep it. Asking for a sandbox
 that is not installed is refused rather than silently dropped, a record whose firejail has since
