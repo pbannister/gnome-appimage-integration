@@ -52,6 +52,7 @@ and says which piece was absent.
 
 ## Verification
 
+- The work and its tests are committed as `1828639`, and everything below was run on that tree.
 - `make test` passes, including both new tests and the extended window test.
 - The corpus was re-run: 29 applications, 28 `ok` and 1 installed alongside, 29 installs
   verified, 14 carrying AppStream metadata, **15 loading `libfuse.so.2` and 14 static**, and no
