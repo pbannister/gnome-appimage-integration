@@ -48,6 +48,7 @@ from git state rather than a label a person chose.
 
 ## Verification
 
+- The work and its tests are committed as `dcf95c6`, and everything below was run on that tree.
 - `tests/16-version-generate.sh` runs the real generator in a throwaway git repository: no tag,
   a human release tag appended, a generated tag not appended, the next release not compounding,
   and `-changes` for a dirty tree.  Written against the old behaviour it fails with exactly the
