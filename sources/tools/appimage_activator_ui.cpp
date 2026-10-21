@@ -754,7 +754,24 @@ public:
         if (s_text.empty()) {
             return "appimage-inspect --version: no output";
         }
-        return s_text;
+        // A panel row is one line, and the command ends its answer with a newline: fold any
+        // run of whitespace, or the row carries a line break and everything after it -- the
+        // repository link -- is pushed onto a line of its own.
+        std::string s_line;
+        bool b_pending_space = false;
+        for (const char c_character : s_text) {
+            if (' ' == c_character || '\t' == c_character || '\n' == c_character
+                || '\r' == c_character) {
+                b_pending_space = !s_line.empty();
+                continue;
+            }
+            if (b_pending_space) {
+                s_line += ' ';
+                b_pending_space = false;
+            }
+            s_line += c_character;
+        }
+        return s_line;
     }
 
     static std::string about_name() {

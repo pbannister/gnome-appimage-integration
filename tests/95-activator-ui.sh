@@ -671,6 +671,15 @@ if grep -q 'gnome-appimage\|2026-\|2025-' "$DIRECTORY_TEMP/driven.txt" | grep -q
 fi
 grep -qx 'https://github.com/pbannister/gnome-appimage-integration' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the About panel does not carry the repository link"
+# Four rows and no blank row between them.  An answer that carried its own newline put the
+# link on a line of its own, which reads as a gap rather than as part of the panel.
+# The panel is the last thing the report prints, so its rows run to the end of the file; a
+# blank row before the end is the fault this counts for.
+ABOUT_ROWS=$(awk '/^=== About ===$/{found=1; next} found && /^$/{exit} found' \
+    "$DIRECTORY_TEMP/driven.txt" | grep -c .)
+if [ "$ABOUT_ROWS" != "4" ]; then
+    fail_test "the About panel has $ABOUT_ROWS rows rather than four, so a row split: $(awk '/^=== About ===$/{found=1} found' "$DIRECTORY_TEMP/driven.txt")"
+fi
 
 echo "=== and it says so when there is no inspector to ask ==="
 mkdir -p "$DIRECTORY_TEMP/alone"

@@ -87,4 +87,6 @@ appimage-inspect --version: not found beside /tmp/.../alone/appimage-integrate
 
 `tests/95` gives the stub tool a sibling inspector printing a version no build of this project
 could have, and asserts the panel shows exactly that; a second run with the tool alone asserts the
-found-nothing message.
+found-nothing message.  It also counts the panel's rows, because the command ends its answer with
+a newline: the first version of this carried that newline into the row and pushed the repository
+link onto a line of its own, which reads as a gap rather than as part of the panel.
