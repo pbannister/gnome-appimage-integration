@@ -60,3 +60,31 @@ from git state rather than a label a person chose.
 - `tests/95` asserts the tab list and the panel's four lines, so a panel that exists nowhere
   fails the test rather than being noticed by a person.
 - `make test` passes.
+
+## Amended: the version is asked for, not compiled in
+
+The panel first showed the build-time version this window was compiled with.  It now shows the
+output of `appimage-inspect --version`, run when the panel is built:
+
+```
+appimage-inspect 2026-10-21-master-73a25cb (build 691)
+```
+
+The reason is the one that made this record worth writing.  The window, the tool it drives and
+the inspector are separate binaries that can be separate builds -- the installed pair and the
+build tree disagreed about the version more than once while this was written -- and a string
+compiled into the window says what the window was built from, not what is installed.  Asking the
+inspector answers the question a person is actually asking, and the answer is checkable: it is
+the same line the command prints in a terminal.
+
+The inspector is looked for beside the tool the window was told to drive, which is where both are
+installed: `bin/` in a release, `dataflow.out/build` in a build tree.  When there is none, the
+panel says so rather than falling back to a compiled-in number that might be a different build:
+
+```
+appimage-inspect --version: not found beside /tmp/.../alone/appimage-integrate
+```
+
+`tests/95` gives the stub tool a sibling inspector printing a version no build of this project
+could have, and asserts the panel shows exactly that; a second run with the tool alone asserts the
+found-nothing message.

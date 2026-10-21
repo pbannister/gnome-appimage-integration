@@ -262,13 +262,13 @@ gone is reported by `audit`, and `install --sandbox none` turns it off again.
 
 The Activator shows four panels: **Status** (what the file is and what the tool decided),
 **Discovered** (the evidence it decided from), **Actions** (what has been done), and **About**
-(the program's name, the project it belongs to, the build-time version, and a link to the
-repository).  A driven run reports the tab list, so a test can assert a panel exists rather than
+(the program's name, the project it belongs to, what `appimage-inspect --version` reports, and a
+link to the repository).  A driven run reports the tab list, so a test can assert a panel exists rather than
 only that something wrote its text.
 
-The version is the same build-time string the command-line tools report: `date-branch-hash`, with
-a release tag appended when the commit carries one that is not itself a generated version, and
-`-changes` while the tree has uncommitted work.
+The version shown is not compiled into the window: the panel runs `appimage-inspect --version`
+and shows what it says, because the window and the tool it drives are separate builds and the
+inspector's answer is the one a person can check by running the same command.
 
 ## Window Placement
 

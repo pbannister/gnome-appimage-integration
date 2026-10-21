@@ -14,8 +14,6 @@
 //	--activate runs an action as if its button had been clicked, and --set-name
 //	types into the Name field.  Neither is used by the desktop entry.
 //
-#include "version/version.h"
-
 #include <gtk/gtk.h>
 
 #include <gio/gio.h>
@@ -727,20 +725,44 @@ public:
         gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_text.c_str());
     }
 
-    // What the program says about itself.  The name a person sees, the project it belongs
-    // to, the build it was compiled as, and where to read more; the same version string the
-    // command-line tools report, because it is the same build.
+    // The inspector that belongs to the tool this window drives.  Both are installed into
+    // the same directory -- bin/ in a release, dataflow.out/build in a build tree -- so a
+    // sibling is the only place it lives.  The window and the tool can be different
+    // builds, and the inspector is the build whose version a person can act on.
+    static std::string inspector_program(const std::string &s_tool) {
+        const fs::path o_candidate = fs::path(s_tool).parent_path() / "appimage-inspect";
+        std::error_code o_error;
+        if (fs::is_regular_file(o_candidate, o_error)) {
+            return o_candidate.string();
+        }
+        return {};
+    }
+
+    // What the program is, and where it comes from.  The version is the one the inspector
+    // reports when it is asked, rather than a string compiled into this window: the two
+    // are separate builds, and the one a person can run is the one worth showing.
+    std::string inspector_version() const {
+        const std::string s_inspector = inspector_program(s_tool_);
+        if (s_inspector.empty()) {
+            return "appimage-inspect --version: not found beside " + s_tool_;
+        }
+        const process_result_o o_result = run_tool(s_inspector, {"--version"});
+        std::string s_text = trim_spaces(o_result.out);
+        if (s_text.empty()) {
+            s_text = trim_spaces(o_result.err);
+        }
+        if (s_text.empty()) {
+            return "appimage-inspect --version: no output";
+        }
+        return s_text;
+    }
+
     static std::string about_name() {
         return "AppImage Activator";
     }
 
     static std::string about_project() {
         return "gnome-appimage-integration";
-    }
-
-    static std::string about_version() {
-        return std::string(gnome_appimage::version::version_string()) + " (build "
-               + std::to_string(gnome_appimage::version::version_build_counter()) + ")";
     }
 
     static std::string about_url() {
@@ -863,7 +885,7 @@ public:
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
         o_out << "\n=== About ===\n" << about_name() << "\n" << about_project() << "\n"
-              << about_version() << "\n" << about_url() << "\n";
+              << inspector_version() << "\n" << about_url() << "\n";
     }
 
     static const char *tab_name(tab_e e_tab) {
@@ -1094,7 +1116,7 @@ private:
         gtk_widget_add_css_class(p_project, "dim-label");
         gtk_box_append(GTK_BOX(p_page), p_project);
 
-        gtk_box_append(GTK_BOX(p_page), make_label(about_version(), false));
+        gtk_box_append(GTK_BOX(p_page), make_label(inspector_version(), false));
 
         GtkWidget *p_link = gtk_link_button_new_with_label(about_url().c_str(), about_url().c_str());
         gtk_widget_set_halign(p_link, GTK_ALIGN_START);

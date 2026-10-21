@@ -258,6 +258,15 @@ exit 0
 STUB
 chmod 755 "$FILE_STUB"
 
+# The About panel asks the inspector beside the tool for a version, so the stub gets one
+# and prints a version no build of this project could have: what it prints is what the
+# panel has to show.
+cat > "$DIRECTORY_TEMP/appimage-inspect" <<'STUB_INSPECT'
+#!/bin/sh
+printf 'appimage-inspect 1999-01-02-test-inspector (build 7)\n'
+STUB_INSPECT
+chmod 755 "$DIRECTORY_TEMP/appimage-inspect"
+
 # GDK_BACKEND is forced so the window can only appear on the virtual display: this
 # host runs a Wayland session, and GTK would otherwise prefer it.
 run_driven() {
@@ -281,7 +290,8 @@ run_driven() {
         STUB_OPTOUT_CONSEQUENCE="${STUB_OPTOUT_CONSEQUENCE:-}" \
         STUB_FIREJAIL="${STUB_FIREJAIL:-false}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
-        GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "$FILE_STUB" "$@" "$FILE_FAKE_IMAGE"
+        GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "${STUB_TOOL:-$FILE_STUB}" \
+        "$@" "$FILE_FAKE_IMAGE"
 }
 
 # Integrate, then Add alongside with a typed name: the field is shown prefilled,
@@ -652,9 +662,25 @@ grep -qx 'AppImage Activator' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the About panel does not name the program"
 grep -qx 'gnome-appimage-integration' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the About panel does not name the project"
-grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[A-Za-z0-9._-]+ \(build [0-9]+\)$' "$DIRECTORY_TEMP/driven.txt" \
-    || fail_test "the About panel does not carry a build-time version"
+grep -qx 'appimage-inspect 1999-01-02-test-inspector (build 7)' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the About panel does not show what appimage-inspect --version reports: $(sed -n '/^=== About ===/,/^$/p' "$DIRECTORY_TEMP/driven.txt")"
+# It is the command's output, not a string of this project's own: the version above names a
+# build that no build of this project has.
+if grep -q 'gnome-appimage\|2026-\|2025-' "$DIRECTORY_TEMP/driven.txt" | grep -qv '^AppImage Activator$'; then
+    : # the project name and link are expected; only the version line is asserted above
+fi
 grep -qx 'https://github.com/pbannister/gnome-appimage-integration' "$DIRECTORY_TEMP/driven.txt" \
     || fail_test "the About panel does not carry the repository link"
+
+echo "=== and it says so when there is no inspector to ask ==="
+mkdir -p "$DIRECTORY_TEMP/alone"
+cp "$FILE_STUB" "$DIRECTORY_TEMP/alone/appimage-integrate-stub"
+if ! STUB_TOOL="$DIRECTORY_TEMP/alone/appimage-integrate-stub" run_driven --activate inspect \
+    > "$DIRECTORY_TEMP/no-inspector.txt" 2>&1; then
+    cat "$DIRECTORY_TEMP/no-inspector.txt" >&2
+    fail_test "the activator did not run without an inspector beside the tool"
+fi
+grep -q '^appimage-inspect --version: not found beside ' "$DIRECTORY_TEMP/no-inspector.txt" \
+    || fail_test "the About panel does not say the inspector is missing: $(sed -n '/^=== About ===/,/^$/p' "$DIRECTORY_TEMP/no-inspector.txt")"
 
 pass_test "graphical activator"
