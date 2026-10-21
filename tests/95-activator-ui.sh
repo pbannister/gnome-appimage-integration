@@ -643,4 +643,18 @@ if ! grep '^install|' "$FILE_RECORD" | grep -Fq -- '--sandbox|firejail|'; then
     fail_test "the ticked box did not reach the install: $(cat "$FILE_RECORD")"
 fi
 
+# The fourth panel: what this program is, which build of it is running, and where its source
+# lives.  The tab list is asserted as well as the text, because a panel that exists nowhere is
+# the failure this is meant to catch.
+grep -q '^=== tabs: Status Discovered Actions About ===$' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the window has no fourth About panel: $(grep '=== tabs' "$DIRECTORY_TEMP/driven.txt")"
+grep -qx 'AppImage Activator' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the About panel does not name the program"
+grep -qx 'gnome-appimage-integration' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the About panel does not name the project"
+grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[A-Za-z0-9._-]+ \(build [0-9]+\)$' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the About panel does not carry a build-time version"
+grep -qx 'https://github.com/pbannister/gnome-appimage-integration' "$DIRECTORY_TEMP/driven.txt" \
+    || fail_test "the About panel does not carry the repository link"
+
 pass_test "graphical activator"

@@ -14,6 +14,8 @@
 //	--activate runs an action as if its button had been clicked, and --set-name
 //	types into the Name field.  Neither is used by the desktop entry.
 //
+#include "version/version.h"
+
 #include <gtk/gtk.h>
 
 #include <gio/gio.h>
@@ -661,7 +663,7 @@ std::optional<action_e> action_from_name(const std::string &s_name) {
 class activator_c {
 public:
     // The three logs, in notebook order.
-    enum class tab_e { status = 0, discovered = 1, actions = 2 };
+    enum class tab_e { status = 0, discovered = 1, actions = 2, about = 3 };
 
     activator_c(GtkApplication *p_application, std::string s_tool, std::string s_path)
         : p_application_(p_application), s_tool_(std::move(s_tool)), s_path_(std::move(s_path)) {
@@ -725,6 +727,26 @@ public:
         gtk_editable_set_text(GTK_EDITABLE(p_name_entry_), s_text.c_str());
     }
 
+    // What the program says about itself.  The name a person sees, the project it belongs
+    // to, the build it was compiled as, and where to read more; the same version string the
+    // command-line tools report, because it is the same build.
+    static std::string about_name() {
+        return "AppImage Activator";
+    }
+
+    static std::string about_project() {
+        return "gnome-appimage-integration";
+    }
+
+    static std::string about_version() {
+        return std::string(gnome_appimage::version::version_string()) + " (build "
+               + std::to_string(gnome_appimage::version::version_build_counter()) + ")";
+    }
+
+    static std::string about_url() {
+        return "https://github.com/pbannister/gnome-appimage-integration";
+    }
+
     // What the window holds, for a driven run: the test reads the logs rather than
     // the screen.
     void print_tabs(std::ostream &o_out) const {
@@ -732,6 +754,20 @@ public:
         o_out << "=== showing: " << tab_name(static_cast<tab_e>(
                                          gtk_notebook_get_current_page(GTK_NOTEBOOK(p_notebook_))))
               << " ===\n";
+        // The pages there are, in order, so a test can see a panel was added rather than
+        // only that something wrote its text into the report.
+        o_out << "=== tabs:";
+        for (int i_page = 0; i_page < gtk_notebook_get_n_pages(GTK_NOTEBOOK(p_notebook_));
+             ++i_page) {
+            GtkWidget *p_page_label =
+                gtk_notebook_get_tab_label(GTK_NOTEBOOK(p_notebook_),
+                                           gtk_notebook_get_nth_page(GTK_NOTEBOOK(p_notebook_),
+                                                                     i_page));
+            const char *s_label =
+                nullptr == p_page_label ? nullptr : gtk_label_get_text(GTK_LABEL(p_page_label));
+            o_out << ' ' << (nullptr == s_label ? "?" : s_label);
+        }
+        o_out << " ===\n";
         // The row as built, with * on the suggested action.
         o_out << "=== buttons:";
         for (GtkWidget *p_child = gtk_widget_get_first_child(p_button_box_);
@@ -826,6 +862,8 @@ public:
         o_out << "\n=== Status ===\n" << tab_text(tab_e::status);
         o_out << "=== Discovered ===\n" << tab_text(tab_e::discovered);
         o_out << "=== Actions ===\n" << tab_text(tab_e::actions);
+        o_out << "\n=== About ===\n" << about_name() << "\n" << about_project() << "\n"
+              << about_version() << "\n" << about_url() << "\n";
     }
 
     static const char *tab_name(tab_e e_tab) {
@@ -836,6 +874,8 @@ public:
                 return "Discovered";
             case tab_e::actions:
                 return "Actions";
+            case tab_e::about:
+                return "About";
         }
         return "unknown";
     }
@@ -1021,6 +1061,7 @@ private:
         add_text_page("Status", &p_status_view_, &p_status_buffer_);
         add_text_page("Discovered", &p_discovered_view_, &p_discovered_buffer_);
         add_text_page("Actions", &p_actions_view_, &p_actions_buffer_);
+        add_about_page();
         p_significant_tag_ = gtk_text_buffer_create_tag(p_discovered_buffer_, "significant",
                                                        "weight", PANGO_WEIGHT_BOLD, nullptr);
         p_notice_tag_ = gtk_text_buffer_create_tag(p_status_buffer_, "notice",
@@ -1029,6 +1070,38 @@ private:
         gtk_box_append(GTK_BOX(p_box), p_notebook_);
 
         gtk_window_set_child(GTK_WINDOW(p_window_), p_box);
+    }
+
+    // The About page: what this program is, which build of it is running, and where its
+    // source lives.  It is widgets rather than a log, so the link is a button that opens
+    // the browser rather than text a person has to copy out.
+    void add_about_page() {
+        GtkWidget *p_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+        gtk_widget_set_margin_top(p_page, 18);
+        gtk_widget_set_margin_bottom(p_page, 18);
+        gtk_widget_set_margin_start(p_page, 18);
+        gtk_widget_set_margin_end(p_page, 18);
+
+        GtkWidget *p_name = gtk_label_new(nullptr);
+        gtk_label_set_markup(GTK_LABEL(p_name),
+                             ("<span size='x-large' weight='bold'>"
+                              + escape_markup(about_name()) + "</span>")
+                                 .c_str());
+        gtk_label_set_xalign(GTK_LABEL(p_name), 0.0F);
+        gtk_box_append(GTK_BOX(p_page), p_name);
+
+        GtkWidget *p_project = make_label(about_project(), false);
+        gtk_widget_add_css_class(p_project, "dim-label");
+        gtk_box_append(GTK_BOX(p_page), p_project);
+
+        gtk_box_append(GTK_BOX(p_page), make_label(about_version(), false));
+
+        GtkWidget *p_link = gtk_link_button_new_with_label(about_url().c_str(), about_url().c_str());
+        gtk_widget_set_halign(p_link, GTK_ALIGN_START);
+        gtk_widget_set_margin_top(p_link, 6);
+        gtk_box_append(GTK_BOX(p_page), p_link);
+
+        gtk_notebook_append_page(GTK_NOTEBOOK(p_notebook_), p_page, gtk_label_new("About"));
     }
 
     void add_text_page(const char *s_title, GtkWidget **p_view, GtkTextBuffer **p_buffer) {
@@ -1215,6 +1288,9 @@ private:
                 return p_discovered_buffer_;
             case tab_e::actions:
                 return p_actions_buffer_;
+            case tab_e::about:
+                // The About page holds widgets rather than a log.
+                return nullptr;
         }
         return nullptr;
     }
@@ -1227,6 +1303,9 @@ private:
                 return p_discovered_view_;
             case tab_e::actions:
                 return p_actions_view_;
+            case tab_e::about:
+                // The About page holds widgets rather than a log.
+                return nullptr;
         }
         return nullptr;
     }

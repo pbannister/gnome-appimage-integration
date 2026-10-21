@@ -19,9 +19,17 @@ DATE_BUILD=$(date +%Y-%m-%d)
 BRANCH_BUILD=$(git -C "$REPOSITORY_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 HASH_BUILD=$(git -C "$REPOSITORY_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
 
+# A tag is appended only when it names something other than a version this script already
+# produces.  release-publish.sh invents v<version> when a commit has no tag, and that version
+# is date-branch-hash, so embedding it would compound on the next build:
+# date-branch-vdate-branch-hash-hash.  A human release tag, v2026.10.03, is not shaped like a
+# version and is still appended.
 SUFFIX_TAG=
 if TAG_BUILD=$(git -C "$REPOSITORY_ROOT" describe --exact-match --tags 2>/dev/null); then
-    SUFFIX_TAG="-$TAG_BUILD"
+    case "$TAG_BUILD" in
+        v[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*) ;;
+        *) SUFFIX_TAG="-$TAG_BUILD" ;;
+    esac
 fi
 
 SUFFIX_CHANGES=

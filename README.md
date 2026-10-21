@@ -258,6 +258,18 @@ choice is recorded with the integration so `refresh` and `update` keep it. Askin
 that is not installed is refused rather than silently dropped, a record whose firejail has since
 gone is reported by `audit`, and `install --sandbox none` turns it off again.
 
+## The Window
+
+The Activator shows four panels: **Status** (what the file is and what the tool decided),
+**Discovered** (the evidence it decided from), **Actions** (what has been done), and **About**
+(the program's name, the project it belongs to, the build-time version, and a link to the
+repository).  A driven run reports the tab list, so a test can assert a panel exists rather than
+only that something wrote its text.
+
+The version is the same build-time string the command-line tools report: `date-branch-hash`, with
+a release tag appended when the commit carries one that is not itself a generated version, and
+`-changes` while the tree has uncommitted work.
+
 ## Window Placement
 
 A client cannot choose its own position under Wayland, and GNOME's `org.gnome.mutter center-new-windows` is off by default, so the handler opens where the compositor puts it.
