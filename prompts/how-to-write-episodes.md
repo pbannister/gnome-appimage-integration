@@ -70,36 +70,20 @@ Every episode must contain these sections in order:
 - An episode must reference applicable feature files explicitly.
 - An episode's goal does not widen the dispatched task's file scope (section 4).
 
-## 9. Relationship to Phases
-
-- A **phase** is a project milestone that groups one or more episodes.
-- An episode is the reviewable work unit *inside* a phase: an episode has one
-  goal and one acceptance and is reviewed in one sitting; a phase is
-  complete when its episodes are done and its milestone is met.
-- Episodes may declare the phase they advance with an optional `EPISODE-PHASE`
-  line (e.g. `phase 2`). Use the project's phase plan for the phase number
-  (its `PHASES.md`, TODO, or registry entry).
-- Project status is tracked at phase granularity ("phase 1 complete",
-  "phase 2 started") — see the homelab project-pages conventions
-  (`documents/09-project-pages-conventions.md` §6).
-- The project's suggested breakdown lives in
-  `prompts/episodes/02-episode-plan.md`: a plan, not a queue, with episodes
-  named by phase and letter so renumbering at dispatch cannot invalidate it.
-
-## 10. Relationship to the Queue
+## 9. Relationship to the Queue
 
 - `TODO.md` holds episodes.
 - A checked episode item records the outcome.
 - Carry, defer, or drop episodes in the weekly grooming.
 
-## 11. Intent and Record
+## 10. Intent and Record
 
 - The episode file is intent.
 - Intent is written before dispatch.
 - The record is the outcome.
 - After review, record the outcome in `records/` and reference the commit.
 
-## 12. Episode Patterns to Avoid
+## 11. Episode Patterns to Avoid
 
 - State the goal as a concrete outcome, not a vague wish.
 - State at least one acceptance criterion.
@@ -107,6 +91,6 @@ Every episode must contain these sections in order:
 - Split an episode whose review needs more than one sitting.
 - Reference the existing task instead of duplicating it.
 
-## 13. Human Override
+## 12. Human Override
 
 - The override rules are in `prompts/01-contract.md` section 10.

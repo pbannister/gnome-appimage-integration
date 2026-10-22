@@ -67,6 +67,8 @@ The phrase `Execute the next TODO task` selects the first unchecked `TODO.md` it
 
 The operation lines are the machine-checkable statement of scope; `TASK-FILES` must agree with them (section 6).
 
+A vague phrase such as "update related tests" or "adjust supporting files" authorizes nothing; only an operation line does.
+
 Example:
 ```markdown
 ## TASK-DESCRIPTION
@@ -141,6 +143,7 @@ Use TASK-VERIFY to declare how the work is checked, so verification is not burie
 
 * State the command or test to run, prefixed `Run:`.
 * State the expected result, prefixed `Expected:`.
+* The `Expected:` line describes an observable result — an exit status, an output, or a count — not a judgment such as "looks correct", "works", or "no problems".
 * The workflow determines the applicable verification (`prompts/02-workflow.md` section 6); TASK-VERIFY declares it for this task.
 
 Example:
@@ -176,7 +179,7 @@ Use TASK-FEATURES to list the feature files whose requirements the task applies.
 Example:
 ```markdown
 ## TASK-FEATURES
-- `prompts/features/01-site-build.md`
+- `prompts/features/<NN>-<feature>.md`
 ```
 
 ## 7. Task Patterns to Avoid
@@ -187,6 +190,7 @@ Example:
 * State every file operation on its own `- <Verb>: \`path\`` line.
 * Give every task a `TASK-FILES` table and a `TASK-VERIFY` section.
 * List the applied feature files in `TASK-FEATURES`; do not leave the reference to prose.
+* Name scope with an operation line; a vague phrase authorizes nothing.
 * Name the verification in `TASK-VERIFY`, not in `TASK-DESCRIPTION`.
 * Claim acceptance with identifiers in `TASK-ACCEPTANCE`, not in prose.
 * Write one sentence per line in prose, and one statement per line in code.

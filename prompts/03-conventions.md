@@ -4,13 +4,17 @@ These conventions define formatting, naming, and repository structure.
 
 ## Applicability
 
-- Sections 1–6 are core conventions: they apply to every task.
-- Sections 6.1–6.5 are capability conventions: they apply only when the project uses that capability. A project that does not use a capability ignores those rules, and a task that does not touch the capability does not apply them.
-    - 6.1 Generated Documentation
-    - 6.2 Version Information
-    - 6.3 Generated Data Products
-    - 6.4 Release and Publishing
-    - 6.5 Pinned Dependencies
+- Every section of this file applies to every task.
+- The capability conventions live in `prompts/capabilities/` and apply only when the project uses that capability; a project that does not use a capability ignores those rules, and a task that does not touch the capability does not load them.
+    - `01-generated-documentation.md`
+    - `02-version-information.md`
+    - `03-generated-data-products.md`
+    - `04-release-and-publishing.md`
+    - `05-pinned-dependencies.md`
+    - `06-execution-boundary.md`
+    - `07-session-log.md`
+    - `08-delegation-authority.md`
+    - `09-failure-attribution.md`
 
 ## 1. Formatting
 
@@ -114,117 +118,19 @@ Generated output directories are not version-controlled.
 - Run the publish sanitization gate (`scripts/leak-gate.sh`) over generated output before publishing.
 - Keep the sanitization patterns in one source (`scripts/sensitive-patterns.sh`) and never inline them in another script or test.
 - A served static asset is requested under a URL that changes when its bytes change: derive one content token from the interdependent asset set and append it to every URL, including transitive module imports; fail the build when the stamp does not land.
-- Keep `PHASES.md` current: it names the project's phases and the current phase, one `Current: phase N — [description —] state` line; change the current phase only when committing the project.
+- Committed tool configuration uses workspace-relative paths (for example `${workspaceFolder}`), never an absolute home path; an absolute path is both a leak and a portability bug.
 
-## 6.1 Generated Documentation (capability)
+## 6.1 Third-Party Checkouts
 
-A project whose documents reflect live or derived state should keep a single source of truth and generate the documents from it:
+A cloned third-party repository is host material, not project material.
+It is an input a task may read, never a directory the project commits.
 
-- The model lives in `sources/`, for example `sources/<area>-model.yaml`.
-- A generator script in `scripts/` produces the human documents from the model.
-- The generator provides a validation mode that checks the model and exits nonzero on errors.
-- Every generated document carries a provenance header: `Generated from <model> by <script> — do not edit by hand.`
-- The documents index (`documents/README.md`) marks generated documents as generated.
-- The generator's validation mode runs under `make test` when the project defines it.
-
-## 6.2 Version Information (capability)
-
-A program version is a build-time fact, not a source literal.
-
-- Derive the version from git state: `date-branch-hash` or `date-branch-tag-hash`.
-- `date` is the build date in `YYYY-MM-DD` form.
-- `branch` is the current git branch.
-- `tag` is appended only when all sources are committed and the current commit is tagged.
-- `hash` is the short git commit hash; it disambiguates builds from different commits, directories, and developers.
-- Suffix the hash with `-changes` when the working tree has uncommitted changes.
-- A build-time script generates a header that contains the version components and a build counter.
-- The build counter increments on each build; it is not checked in.
-- Keep the version-reporting function in a separate compilation unit, so a version change recompiles one unit instead of the whole program.
-- The generated header carries a provenance header and is not edited by hand.
-- The generated header is written to the build output directory, not into `sources/`.
-- Example: `2026-08-24-master-a1b2c3d` or `2026-08-24-master-v1.0.0-a1b2c3d` or `2026-08-24-master-a1b2c3d-changes`.
-- The canonical generator name is `scripts/version-generate.sh`.
-- The canonical version header is `version_info.h`.
-- The canonical version functions are `version_string()` and `version_build_counter()`.
-
-Decided 2026-08-24: the git hash disambiguates builds, so the build counter
-policy is settled. Keep the local counter gitignored; never check it in.
-
-## 6.3 Generated Data Products (capability)
-
-A project that generates data (not only documents) follows the same
-single-source rule, with a machine-readable contract:
-
-- A pipeline stage has one number shared by its feature, script, test, and work
-  product: feature `03`, script `scripts/03-<stage>.sh`, work product
-  `dataflow.out/03_<name>.json`.
-- Each stage reuses an existing work product; it rewrites the file only when
-  explicitly asked (`--refresh`), and fills gaps left by partial failure with
-  `--retry-failed` where that is normal.
-- A reuse check compares the work product's content and timestamp; presence
-  alone is not enough.
-- The make rule names the file it produces, so a stage whose output exists does
-  not run. Never declare a placeholder variable or a rule for a file no program
-  produces: an unreachable prerequisite leaves the target permanently stale and
-  re-runs it on every invocation.
-- A step that annotates an existing work product in place instead of producing
-  its own file is a phony target, and says so.
-- A default `all` target builds the pipeline and the site, and is a cheap no-op
-  when everything is current.
-- Raw inputs are cached separately from work products (`dataflow.out/raw/`),
-  with provenance: `SHA256SUMS` and `FETCHED-AT.txt`, fetched only under
-  `--refresh`.
-- Every generated data product is described by a `manifest.json` beside it,
-  carrying its parameters, its entries, and provenance: source dataset,
-  generating script, timestamp, and git commit.
-- A `check` mode validates existing output against the manifest without
-  rebuilding; `--check` is an accepted alias.
-- `make clean` removes generated output but preserves raw caches. When a
-  rebuild is expensive or can only be repeated against a live system, `clean`
-  prints the command instead of running it.
-- Verification is independent of construction: probe the artifact (re-read the
-  file, ray-cast, signed volume, digest) rather than calling the builder's own
-  helpers as the oracle.
-- An exchange-format export (STEP, OBJ, glTF) declares its units, and a test
-  parses the file back.
-
-## 6.4 Release and Publishing (capability)
-
-A release publishes an artifact; it must be the artifact of the commit it
-names. The build-time version from 6.2 is what makes that checkable.
-
-- A release refuses a version that carries `-changes` (the tree was dirty at
-  build time) and a version that does not name the current short commit hash.
-  `scripts/release-gate.sh` performs both checks.
-- Build from the commit being released inside the publish path, so a stale
-  build tree cannot be published.
-- Pack deterministically: sorted names, no owner, the commit's timestamp, and
-  no gzip timestamp, so packing the same build twice yields one digest.
-- Name release assets without a version, so
-  `releases/latest/download/<asset>` works without an API call; a version can
-  still be pinned by adding the tag to the path.
-- Publish a checksum (`SHA256SUMS`), a `VERSION` file, and generated release
-  notes that carry the install and verify commands.
-- An installer is POSIX shell (it may be piped), verifies the download against
-  the checksum, and refuses when verification is impossible; a named override
-  is the only way to skip the check.
-- Installing the tools is safe; claiming a system default (a MIME handler, a
-  desktop entry) is a deliberate step the installer prints, not performs.
-- Installing over a running program writes a temporary name and renames it
-  over the destination.
-- A publish is re-runnable: reuse the tag the commit already carries, refuse a
-  tag on a different commit, skip a redundant push, and re-upload assets.
-
-## 6.5 Pinned Dependencies (capability)
-
-- Pin a vendored or forked dependency to a release tag, never a branch: a
-  branch pin cannot be rebased against a fixed base.
-- Record the pin in the source README or the document that owns it.
-- A test asserts the pin in both places: the script's constant and the
-  recorded value match, and the pin has the expected shape.
-- When the heavy dependency cannot run in the test environment, the test
-  asserts the script interface and the pin instead, and cross-checks an
-  implementation against the system tool where one exists.
+- Clone a third-party repository under the host checkout root `$HOME/sources/`, never inside the project working tree.
+- The host checkout root is a host path and is not the repository's `sources/` directory; the two share a name and nothing else.
+- Write it environment-relative as `$HOME/sources/`; a literal absolute home path is refused by the committed-path rule in `prompts/01-contract.md` section 7.
+- A project whose host checkout root differs declares it in its project section.
+- Pin a checkout the project depends on, per `prompts/capabilities/05-pinned-dependencies.md`.
+- A checkout found inside the working tree is a defect: move it to the host checkout root and remove the in-tree copy.
 
 ## 7. File Operations
 
@@ -242,7 +148,17 @@ Also:
 - For every `create`, `rename`, or `delete` operation, the task must identify the exact source and target filename.
 - A directory name alone does not authorize creating a file with an invented name.
 
+## 7.1 Unattended Scripts
+
+A script must complete without a human at the terminal.
+
+- A script must not block on standard input. A prompt that waits for an answer hangs an unattended run instead of failing it.
+- When a script needs a choice, take it from an environment variable or an explicit command-line flag.
+- The unattended default must fail closed: refuse, exit nonzero, and state the reason.
+- A prompt is permitted only in a script the caller has explicitly marked interactive.
+- `scripts/install.sh` is the worked example: it refuses when it cannot verify, names the environment variable that overrides the refusal, and never prompts.
+
 ## 8. Output
 
-- The output rules are in `prompts/01-contract.md` section 5; the scope rules are in `prompts/common/02-universal-rules.md`.
+- The output rules are in `prompts/01-contract.md` section 5; the scope rules are in `prompts/common/01-universal-rules.md`.
 - Praise and affirmation filler are output defects: they raise confidence without adding information.

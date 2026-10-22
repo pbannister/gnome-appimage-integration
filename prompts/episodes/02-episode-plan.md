@@ -1,7 +1,7 @@
 # Suggested Episode Plan
 
-This document breaks the phases of `PHASES.md` into a series of suggested
-episodes. It is a plan, not a queue: episodes are dispatched by copying
+This document is a seed list of suggested episodes.
+It is a plan, not a queue: episodes are dispatched by copying
 `01-episode-template.md` into the next free number and filling in
 `EPISODE-TASKS` and `EPISODE-OUTPUT` at dispatch time (see
 `prompts/how-to-write-episodes.md` §7).
@@ -11,20 +11,11 @@ Rules the plan follows:
 - One episode, one goal, one acceptance, reviewable in one sitting.
 - Every acceptance criterion is a question.
 - Riskiest assumption first in `EPISODE-RISKS`.
-- Episode numbering is assigned at dispatch (branch `llm/episode-<n>`). Here
-  the episodes are named by phase and letter, so the plan survives
-  renumbering.
+- Episode numbering is assigned at dispatch (branch `llm/episode-<n>`); here
+  the episodes are named by letter so the plan survives renumbering.
+- The human may reorder, add, or drop episodes as work is discovered.
 
-Phase order is a dependency: a phase's episodes are dispatched only after the
-previous phase's milestone is met. Within a phase, the human may reorder the
-episodes.
-
-## Phase 1 — <goal of the first milestone>
-
-### Episode 1-A — <one goal>
-
-## EPISODE-PHASE
-phase 1
+### Episode A — <one goal>
 
 ## EPISODE-GOAL
 <The single goal, in one or two sentences.>
@@ -45,12 +36,7 @@ phase 1
 - `<path>` — new
 - `<path>` — existing
 
-## Phase 2 — <goal of the next milestone>
-
-### Episode 2-A — <one goal>
-
-## EPISODE-PHASE
-phase 2
+### Episode B — <one goal>
 
 ## EPISODE-GOAL
 <The single goal, in one or two sentences.>

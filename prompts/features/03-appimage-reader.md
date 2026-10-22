@@ -47,5 +47,9 @@ The format requirements implemented here are recorded in `documents/07-appimage-
 
 ## Dependencies
 
+None. This feature depends on no other feature.
+
+## External Inputs
+
 - None.
 - The payload listing depends on the SquashFS structures documented in `documents/07-appimage-format.md`.

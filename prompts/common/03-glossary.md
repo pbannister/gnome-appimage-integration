@@ -14,7 +14,7 @@ authoritative file; the glossary never states a rule.
 
 ## Universal failure-prevention rules
 
-- The cross-language rules listed in `prompts/common/02-universal-rules.md`.
+- The cross-language rules listed in `prompts/common/01-universal-rules.md`.
 - They cover scope, clarification, anti-hallucination, privacy boundaries, risky operations, and language and format.
 
 ## One-sentence-per-line
@@ -97,7 +97,7 @@ authoritative file; the glossary never states a rule.
 ## Privacy boundary
 
 - Owner-declared content that is off-limits to the LLM.
-- Rules: `prompts/common/02-universal-rules.md`.
+- Rules: `prompts/common/01-universal-rules.md`.
 
 ## VERIFICATION line
 

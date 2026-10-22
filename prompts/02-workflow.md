@@ -4,28 +4,35 @@ This workflow defines the execution sequence for tasks in this project.
 
 ## 1. Load Project Rules
 
-Always load these files in this order before executing a task:
+Always load the mandatory baseline in this order before executing a task:
 
 - `prompts/01-contract.md`
 - `prompts/02-workflow.md`
 - `prompts/03-conventions.md`
-- `prompts/common/00-overview.md`
-- `prompts/common/01-requirements.md`
-- `prompts/common/02-universal-rules.md`
-- `prompts/common/03-glossary.md`
+- `prompts/common/01-universal-rules.md`
 - `prompts/flavors/01-semantic-sort-naming.md`
+
+Always-loaded context budget: 41984 bytes (41 KiB) — the entry point plus this baseline.
+
+After the baseline, load only the task-relevant files:
+
+- Load the feature files the task references, and the feature files those depend on.
+- Load a language-specific flavor file only when the task targets that language.
+- Load one capability file from `prompts/capabilities/` only when the task touches that capability.
+- Load `prompts/common/03-glossary.md` as a reference when a term's meaning decides the work; it defines terms and states no rule.
+- Load a tool rule file only when the task uses that tool.
+- Load no other prompt files.
 
 Also:
 
-- Load only the feature files explicitly referenced by the task or by a directly referenced feature dependency.
-- Load a language-specific flavor file only when the task targets that language.
-- Load only the files explicitly referenced by the task and the files required by those references.
 - Update `TODO.md` only when the task requests a TODO update or completes a TODO item (section 7).
 - A TODO item alone is not authorization; the requested work comes from the task (see `prompts/01-contract.md` section 3).
-- The phrase `Execute the next TODO task` selects the first unchecked item in `TODO.md`. A one-line item is not an executable task: draft a conforming task from it (`TASK-DESCRIPTION`, `TASK-OUTPUT`, `TASK-FILES`) and get it ratified before executing.
+- The phrase `Execute the next TODO task` selects the first unchecked item in `TODO.md`. A one-line item is not an executable task: draft a conforming task from it, with every required section in `prompts/how-to-write-tasks.md` section 1, and get it ratified before executing.
 
 ## 2. Interpret the Task
 
+- Treat the task according to `prompts/how-to-write-tasks.md`: description, output, context, files, verification, feature scope, and acceptance.
+- Execute only a conforming task; report a malformed one instead of guessing what it meant.
 - Determine the requested operations, target files, constraints, and output format.
 - Treat `TASK-DESCRIPTION` as the requested work.
 - Treat `TASK-OUTPUT` as the response representation.
@@ -41,7 +48,7 @@ Also:
 ## 2.1 Apply Feature and Task Scope
 
 - Treat a referenced feature file as authoritative requirements for the current task.
-- Apply a feature file only when the task references it or a referenced feature depends on it.
+- Apply a feature file only when the task references it or a feature it depends on, transitively, requires.
 - Treat a task file as a detailed task description and apply its `TASK-DESCRIPTION`, `TASK-OUTPUT`, `TASK-CONTEXT`, and `TASK-FILES` sections according to `prompts/how-to-write-tasks.md`.
 - When a task conflicts with a referenced feature, report the conflict, state which of the two you believe is stale and why, and ask which governs, unless the task explicitly overrides the feature requirement.
 
@@ -49,6 +56,17 @@ Also:
 
 - Plan before implementation, as a working aid: identify the applicable requirements, target files, required validation, and output order.
 - Keep the plan out of the response unless the requested output format includes it.
+
+## 3.1 Isolate Concurrent Work
+
+When more than one writer may change the repository at the same time:
+
+- Each writer works in its own git worktree on its own branch; a branch alone does not isolate, because every branch in one checkout shares one working tree.
+- An agent does not share a checkout with another writer working on the same episode.
+- When an authorized file changed after it was read, stop and report the change rather than overwriting it.
+- Integrate the branch in the human's checkout after the episode settles.
+
+`documents/01-async-worktree.md` is the worked example. When the agent is the only writer, the main checkout is permitted.
 
 ## 4. Apply the Test Policy
 
@@ -58,7 +76,7 @@ Also:
 - Tests for source code belong in `tests/`.
 - Tests for scripts belong in `tests/` and should validate the script behavior without placing generated output in source directories.
 - Prompt validation belongs in `tests/` when a prompt validation mechanism exists or the task requests prompt validation.
-- The prompt-contract test, `tests/09-prompt-contract.sh`, is that mechanism: it validates the registry, references, numbering, task and feature sections, and phase state.
+- The prompt-contract test, `tests/09-prompt-contract.sh`, is that mechanism: it validates the registry, references, numbering, task and feature sections, and episode structure.
 - The project's existing test runner is sufficient; create one only when the task requests it.
 
 ### 4.1 Test Tiers
@@ -89,7 +107,7 @@ Rules:
 
 ## 5. Implement the Requested Scope
 
-- The scope rules are in `prompts/common/02-universal-rules.md` (Scope Rules).
+- The scope rules are in `prompts/common/01-universal-rules.md` (Scope Rules).
 - Apply feature-specific requirements only when the feature is referenced by the task or by a directly referenced feature dependency.
 - Create a file only when the task requires it; a directory being available is not a reason.
 - Create one file per concept; create a companion file only when the task requests both.
@@ -132,7 +150,7 @@ When automatic task commits are disabled, or the task says the human owns commit
 - Leave the changes in the working tree.
 - Report that verification succeeded and no commit was created.
 
-An outcome record is written after the episode settles and the human reviews it (see `records/README.md`); commit it separately and cite the work commit. A record that cites its own commit hash is always that second commit. Write the real commit hash, never a placeholder.
+An outcome record is written after the episode settles and the human reviews it; `records/README.md` owns the record rules, including the separate commit and the prohibition on a placeholder hash.
 
 ## 7.2 Definition of Done
 
@@ -150,10 +168,7 @@ Verification produces evidence; acceptance remains the human's decision (see `pr
 
 ## 8. Produce Output
 
-- Produce output in the format specified by the task, and nothing beyond it.
-- Keep working aids out of the response; include one only when the format requests it.
-- Keep clarification, planning, implementation, and verification in separate responses.
-- Produce multiple requested files complete, in the specified order.
+- Produce output per `prompts/01-contract.md` sections 4 and 5; they own the response form.
 
 ## 9. Apply Corrections
 

@@ -8,10 +8,6 @@
 ## EPISODE-GOAL
 * One sentence stating the single goal of the episode.
 
-## EPISODE-PHASE
-* Optional: the project phase this episode advances, e.g. "phase 2". A phase
-is a milestone grouping one or more episodes; see prompts/how-to-write-episodes.md.
-
 ## EPISODE-ACCEPTANCE
 - Is the first criterion satisfied?
 - Is the second criterion satisfied?
@@ -42,7 +38,7 @@ This example shows the worked Site Build feature as an episode.
 It is illustrative; it is not dispatched as-is.
 
 ## EPISODE-GOAL
-Implement the Site Build feature from `prompts/features/01-site-build.md`.
+Implement the Site Build feature.
 
 ## EPISODE-ACCEPTANCE
 - Does `scripts/site-build.sh` generate `site.out/` from `site.in/`?

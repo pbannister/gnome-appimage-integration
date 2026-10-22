@@ -54,6 +54,8 @@ Describe the capability and the problem it solves.
 * A feature file defines capability requirements.
 * A task requests a bounded change that implements, tests, documents, or modifies a feature.
 * A referenced feature establishes behavioral requirements, not additional file scope; a task changes only the files it authorizes.
+* A feature's `Dependencies` section names the features it requires, by file reference.
+* A task that references a feature also applies the requirements of the features it depends on, transitively.
 * A task must explicitly reference every feature file whose requirements apply.
 * A feature may be implemented by multiple tasks.
 * A task may address multiple features only when it explicitly references each feature.
