@@ -46,9 +46,20 @@ fail() {
 reset() {
     rm -rf "$DIRECTORY_ROOT"
     mkdir -p "$DIRECTORY_ROOT"
-    (cd "$REPOSITORY_ROOT" && git ls-files -z \
-        | tar --null -T - --ignore-failed-read -cf -) \
-        | (cd "$DIRECTORY_ROOT" && tar -xf -)
+    if [ -z "$(git -C "$REPOSITORY_ROOT" ls-files 2>/dev/null | head -n 1)" ]; then
+        # The repository has no index: it has never been committed. The corpus
+        # still has to be able to test the rules, so it falls back to the working
+        # tree. A project in this state cannot pin a version, which the pin test
+        # reports separately; silently failing 54 cases would say the rules were
+        # wrong when the repository was.
+        (cd "$REPOSITORY_ROOT" && tar --exclude=./.git --exclude=./site.out \
+            --exclude=./dataflow.out --exclude=./logs -cf - .) \
+            | (cd "$DIRECTORY_ROOT" && tar -xf -)
+    else
+        (cd "$REPOSITORY_ROOT" && git ls-files -z \
+            | tar --null -T - --ignore-failed-read -cf -) \
+            | (cd "$DIRECTORY_ROOT" && tar -xf -)
+    fi
     # The adversarial cases mutate a feature and a task with known shape. Using
     # the project's own corpus made this corpus non-portable: a project that does
     # not model its site build as a feature failed every case for a reason that
