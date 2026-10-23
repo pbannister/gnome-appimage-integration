@@ -11,7 +11,7 @@
 #
 # Environment:
 #   TAG          the release tag (default: the tag on this commit, else v<version>)
-#   TITLE        the release title (default "gnome-appimage-integration <version>")
+#   TITLE        the release title (default "<date> — gnome-appimage-integration (<branch>-<commit>)")
 #   PUSH_REMOTE  where to push the commit and the tag (default origin)
 set -eu
 
@@ -62,13 +62,18 @@ esac
 sh "$DIRECTORY_SCRIPT/release-package.sh"
 
 VERSION=$(cat "$DIRECTORY_RELEASE/VERSION")
+# The title leads with the date, then the project, branch, and commit, so a narrow release
+# list does not truncate the part that orders the releases.  See
+# prompts/capabilities/04-release-and-publishing.md.
+BRANCH=$(git -C "$REPOSITORY_ROOT" symbolic-ref --short HEAD)
+DATE_RELEASE=$(printf '%s' "$VERSION" | cut -d- -f1-3)
 # Without TAG, publish the tag this commit already carries, and only invent one when the
 # commit has none: a release should reuse the tag a person chose rather than make a second.
 if [ -z "${TAG:-}" ]; then
     TAG=$(git -C "$REPOSITORY_ROOT" tag --points-at HEAD | head -1)
 fi
 TAG=${TAG:-v$VERSION}
-TITLE=${TITLE:-"gnome-appimage-integration $VERSION"}
+TITLE=${TITLE:-"$DATE_RELEASE — gnome-appimage-integration ($BRANCH-$COMMIT)"}
 FILE_TARBALL=$(find "$DIRECTORY_RELEASE" -maxdepth 1 -name '*.tar.gz' | head -1)
 if [ -z "$FILE_TARBALL" ]; then
     echo "release-publish: release-package.sh produced no tarball" >&2
@@ -110,7 +115,6 @@ push_if_needed() { # <ref> <description>
     return 0
 }
 
-BRANCH=$(git -C "$REPOSITORY_ROOT" symbolic-ref --short HEAD)
 push_if_needed "refs/heads/$BRANCH" "the branch $BRANCH" || exit 1
 push_if_needed "refs/tags/$TAG" "the tag $TAG" || exit 1
 

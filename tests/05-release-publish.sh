@@ -39,7 +39,7 @@ case "$1 $2" in
     "auth status") exit 0 ;;
     "release view") exit 1 ;;
     "release create")
-        echo "gh release create $3" >> "$GH_RECORD"
+        printf 'gh release create %s --title %s\n' "$3" "$5" >> "$GH_RECORD"
         exit 0
         ;;
     "release upload")
@@ -74,6 +74,10 @@ git -C "$DIRECTORY_REMOTE" rev-parse --verify --quiet "refs/tags/$TAG_RELEASE" >
     || fail_test "release-publish did not push the tag"
 grep -q "gh release create $TAG_RELEASE" "$FILE_RECORD" \
     || fail_test "release-publish did not create the release: $(cat "$FILE_RECORD")"
+EXPECTED_DATE=$(cut -d- -f1-3 "$DIRECTORY_CLONE/dataflow.out/release/VERSION")
+EXPECTED_TITLE="$EXPECTED_DATE — gnome-appimage-integration ($BRANCH-$(git -C "$DIRECTORY_CLONE" rev-parse --short HEAD))"
+grep -Fq -- "gh release create $TAG_RELEASE --title $EXPECTED_TITLE" "$FILE_RECORD" \
+    || fail_test "release-publish did not put the date first in the title: $(cat "$FILE_RECORD")"
 
 echo "=== a second run finds nothing to push and uploads instead ==="
 env PATH="$DIRECTORY_BIN:$PATH" GH_RECORD="$FILE_RECORD" \
