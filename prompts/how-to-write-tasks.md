@@ -38,7 +38,7 @@ The phrase `Execute the next TODO task` selects the first unchecked `TODO.md` it
 * Use a task for one bounded unit of work against the repository.
     * Long-form task definitions belong in `prompts/tasks/` and must follow this document.
     * A task must reference applicable feature files explicitly.
-    * A task may create, modify, delete, rename, or inspect files only when those operations are stated in its `TASK-DESCRIPTION` section.
+    * A task may create, modify, delete, rename, or inspect files, or change a listed host, only when those operations are stated in its `TASK-DESCRIPTION` section.
 
 ## 2. Section Meaning
 
@@ -132,7 +132,7 @@ Use TASK-FILES to declare the exact operations and paths in scope, as a table:
 | create | `site.in/hello.txt` |
 ```
 
-* The operation is one of `create`, `modify`, `delete`, `rename`, or `inspect`.
+* The operation is one of `create`, `modify`, `delete`, `rename`, `inspect`, or `host`.
 * The path is repository-relative, in backticks.
 * TASK-FILES and the operation lines of TASK-DESCRIPTION must agree: every row here has an operation line there, and every operation line there has a row here.
 * The table is scope, not authorization: `TASK-DESCRIPTION` states the operation, and the workflow authorizes the operations it mandates.
@@ -199,3 +199,31 @@ Example:
 ## 8. Human Override
 
 - The override rules are in `prompts/01-contract.md` section 10.
+
+### A task that changes no repository file
+
+Some work changes live host state and no file in the repository: creating a
+volume, moving a mount, restarting a service. Such a task still declares its
+scope, so the `host` operation exists:
+
+```markdown
+## TASK-FILES
+
+| Operation | Path |
+|---|---|
+| host | `athena.lan:/datasets` |
+| host | `beast.lan:/datasets` |
+```
+
+with the matching lines in `TASK-DESCRIPTION`:
+
+```markdown
+- Host: `athena.lan:/datasets`
+- Host: `beast.lan:/datasets`
+```
+
+The token names the host and, when it matters, the resource on it. A `host`
+operation authorizes no repository edit, so a task using it commits nothing
+(`prompts/02-workflow.md` §7.1). Do not use it to smuggle in a file operation:
+a row and an operation line must still agree, and a file the task edits needs its
+own `create`, `modify`, `delete`, or `rename` row.

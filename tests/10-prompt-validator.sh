@@ -308,6 +308,11 @@ printf '%s\n' '{ "path": "/home/someone/sources" }' > "$DIRECTORY_ROOT/.vscode/s
 git -C "$DIRECTORY_ROOT" add -f .vscode/settings.json
 expect_reject 9 'absolute home path in tool configuration' 'absolute home path'
 
+reset
+sed -i '/^| create | `scripts\/site-build.sh` |$/a | host | `athena.lan:/datasets` |' "$FILE_TASK"
+sed -i '/^## TASK-DESCRIPTION$/a - Host: `athena.lan:/datasets`' "$FILE_TASK"
+expect_accept 'a task that declares a host operation and no repository file'
+
 # --- checks 9.1, 9.2, 11: the agent entry point and unattended scripts ---
 reset; rm "$DIRECTORY_ROOT/AGENTS.md"
 expect_reject 9.1 'missing agent entry point' 'AGENTS.md is missing'
