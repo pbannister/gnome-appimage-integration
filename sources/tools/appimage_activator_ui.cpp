@@ -1183,9 +1183,9 @@ private:
         o_rows.emplace_back("File", s_path_);
         o_rows.emplace_back("Size", human_size(o_data_.number_or("file_size", 0)));
         if (!can_run_here()) {
-            o_rows.emplace_back("Run", run_problem().empty()
-                                           ? "this AppImage cannot run on this machine"
-                                           : run_problem());
+            o_rows.emplace_back("Integrate/Run", run_problem().empty()
+                                                    ? "disabled: this AppImage cannot run on this machine"
+                                                    : "disabled: " + run_problem());
         }
         const std::string s_installed_version = o_data_.string_or("installed_version");
         const std::string s_relation = version_relation();
@@ -1321,10 +1321,12 @@ private:
     }
 
     void show_initial_buttons() {
-        const bool b_close = close_is_suggested();
-        std::vector<button_spec_o> o_specs = {{"Integrate", action_e::integrate, !b_close},
+        const bool b_can_run = can_run_here();
+        const bool b_close = close_is_suggested() || !b_can_run;
+        std::vector<button_spec_o> o_specs = {{"Integrate", action_e::integrate,
+                                               !b_close && b_can_run, b_can_run},
                                               {"Run once", action_e::run_once, false,
-                                               can_run_here()},
+                                               b_can_run},
                                               {"Inspect", action_e::inspect, false}};
         if (update_is_offered()) {
             o_specs.push_back({"Update", action_e::update, false,
@@ -1546,7 +1548,7 @@ private:
         o_text << "Launcher:  " << (s_desktop_id.empty() ? "(none yet)" : s_desktop_id) << '\n';
         o_text << "File:      " << s_path_ << (is_missing() ? "  [MISSING]" : "") << '\n';
         if (!can_run_here()) {
-            o_text << "\nRun is unavailable: "
+            o_text << "\nIntegrate and Run are unavailable: "
                    << (run_problem().empty() ? "this AppImage cannot run on this machine"
                                              : run_problem())
                    << '\n';
@@ -2049,7 +2051,26 @@ public:
     }
 
 private:
+    // Integrating is only files, so the tool allows it; the window does not offer it for
+    // a file this machine cannot run, because the launcher would be a dead end.
+    bool refuse_integration_if_unrunnable() {
+        if (can_run_here()) {
+            return false;
+        }
+        const std::string s_problem =
+            run_problem().empty() ? "this AppImage cannot run on this machine"
+                                  : run_problem();
+        log_action(command_line("appimage-integrate",
+                                {"install", "--yes", s_path_}),
+                   s_problem + "\nNot integrating it.");
+        show_tab(tab_e::actions);
+        return true;
+    }
+
     void on_integrate() {
+        if (refuse_integration_if_unrunnable()) {
+            return;
+        }
         if (is_missing()) {
             show_missing_status();
             return;
@@ -2085,6 +2106,9 @@ private:
     }
 
     void run_install(const std::vector<std::string> &o_policy) {
+        if (refuse_integration_if_unrunnable()) {
+            return;
+        }
         // The typed name decides Name= in the launcher, so two launchers for one
         // application can be told apart in the menu.
         std::vector<std::string> o_arguments = {"install", "--yes"};

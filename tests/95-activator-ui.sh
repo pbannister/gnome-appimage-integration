@@ -371,12 +371,22 @@ grep -Eq '^[0-9]{2}:[0-9]{2}:[0-9]{2}  appimage-integrate run --detached ' "$DIR
 STUB_CAN_RUN=false \
     STUB_RUN_PROBLEM="the AppImage is built for aarch64 and this machine is x86-64" \
     run_driven --activate run-once > "$DIRECTORY_TEMP/foreign-run.txt" 2>&1
-grep -q 'Run is unavailable:' "$DIRECTORY_TEMP/foreign-run.txt" \
+grep -q 'Integrate and Run are unavailable:' "$DIRECTORY_TEMP/foreign-run.txt" \
     || fail_test "the window did not report the foreign machine: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
 grep -q 'Not running it' "$DIRECTORY_TEMP/foreign-run.txt" \
     || fail_test "the window did not explain that it refused to run: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
 if grep -q '^run|' "$FILE_RECORD"; then
     fail_test "the window asked the tool to run an AppImage built for another machine"
+fi
+# ... and it is not integrated either.
+: > "$FILE_RECORD"
+STUB_CAN_RUN=false \
+    STUB_RUN_PROBLEM="the AppImage is built for aarch64 and this machine is x86-64" \
+    run_driven --activate integrate > "$DIRECTORY_TEMP/foreign-integrate.txt" 2>&1
+grep -q 'Not integrating it' "$DIRECTORY_TEMP/foreign-integrate.txt" \
+    || fail_test "the window did not explain that it refused to integrate: $(cat "$DIRECTORY_TEMP/foreign-integrate.txt")"
+if grep -q '^install|' "$FILE_RECORD"; then
+    fail_test "the window asked the tool to integrate an AppImage built for another machine"
 fi
 
 # Without a typed name the field must be prefilled from the AppImage.

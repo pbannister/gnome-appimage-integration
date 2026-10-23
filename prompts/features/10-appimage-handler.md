@@ -71,7 +71,7 @@ default.
 - `APPIMAGE-HANDLER-R061` — `list` must mark a record whose AppImage is gone, and `audit` must report its missing `Exec` and `TryExec` targets.
 - `APPIMAGE-HANDLER-R062` — `--replace` must work when the conflicting launcher sits at the target identifier, backing it up and restoring it on uninstall.
 - `APPIMAGE-HANDLER-R063` — Output must not be duplicated by forked children: flush buffered output before forking.
-- `APPIMAGE-HANDLER-R064` — The activator must disable Run once and Run now for an AppImage the tool reports as unable to run here, and must show the reason.
+- `APPIMAGE-HANDLER-R064` — The activator must disable Integrate, Run once, and Run now for an AppImage the tool reports as unable to run here, and must show the reason.
 
 ## Behavior
 
