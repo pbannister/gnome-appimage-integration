@@ -320,3 +320,7 @@ The following filenames are canonical and must not be renamed or duplicated with
 - `README.md`
 - `TODO.md`
 - `Makefile`
+
+## License
+
+MIT. See [LICENSE](LICENSE).
