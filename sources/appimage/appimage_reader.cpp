@@ -149,6 +149,18 @@ bool read_section_header(file_reader_o &o_reader,
     return true;
 }
 
+bool host_is_little_endian() {
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    return false;
+#else
+    return true;
+#endif
+}
+
+int host_elf_class() {
+    return 8 == sizeof(void *) ? 64 : 32;
+}
+
 }  // namespace
 
 const char *appimage_detection_name(appimage_detection_e e_detection) {
@@ -193,6 +205,71 @@ std::string elf_machine_name(std::uint16_t u_machine) {
         default:
             return "unknown";
     }
+}
+
+std::string host_machine_name() {
+#if defined(__x86_64__) || defined(__amd64__)
+    return "x86-64";
+#elif defined(__aarch64__)
+    return "aarch64";
+#elif defined(__i386__)
+    return "x86";
+#elif defined(__arm__)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+appimage_cpu_check_o appimage_cpu_check(const appimage_elf_info_o &o_elf) {
+    appimage_cpu_check_o o_check;
+    o_check.host_machine = host_machine_name();
+    o_check.appimage_machine = o_elf.machine_name;
+    if ("unknown" == o_check.host_machine || "unknown" == o_check.appimage_machine) {
+        o_check.compatibility = appimage_cpu_compatibility_e::unknown;
+        return o_check;
+    }
+    if (host_is_little_endian() != o_elf.little_endian) {
+        o_check.compatibility = appimage_cpu_compatibility_e::incompatible;
+        o_check.problem = "the AppImage is a "
+                          + std::string(o_elf.little_endian ? "little" : "big")
+                          + "-endian " + o_check.appimage_machine
+                          + " build and this machine is "
+                          + std::string(host_is_little_endian() ? "little" : "big")
+                          + "-endian";
+        return o_check;
+    }
+    const int i_host_class = host_elf_class();
+    if (o_check.host_machine == o_check.appimage_machine) {
+        if (i_host_class == o_elf.elf_class) {
+            o_check.compatibility = appimage_cpu_compatibility_e::compatible;
+        } else {
+            o_check.compatibility = appimage_cpu_compatibility_e::incompatible;
+            o_check.problem = "the AppImage is a " + std::to_string(o_elf.elf_class)
+                              + "-bit " + o_check.appimage_machine
+                              + " build and this machine is " + std::to_string(i_host_class)
+                              + "-bit";
+        }
+        return o_check;
+    }
+    if (("x86-64" == o_check.host_machine && "x86" == o_check.appimage_machine)
+        || ("aarch64" == o_check.host_machine && "arm" == o_check.appimage_machine)) {
+        if (32 == o_elf.elf_class) {
+            o_check.compatibility = appimage_cpu_compatibility_e::compatible_with_compat;
+            o_check.note = "the AppImage is a 32-bit " + o_check.appimage_machine
+                           + " build; it runs here only if this kernel carries 32-bit support";
+        } else {
+            o_check.compatibility = appimage_cpu_compatibility_e::incompatible;
+            o_check.problem = "the AppImage is a " + std::to_string(o_elf.elf_class)
+                              + "-bit " + o_check.appimage_machine
+                              + " build and this machine is " + o_check.host_machine;
+        }
+        return o_check;
+    }
+    o_check.compatibility = appimage_cpu_compatibility_e::incompatible;
+    o_check.problem = "the AppImage is built for " + o_check.appimage_machine
+                      + " and this machine is " + o_check.host_machine;
+    return o_check;
 }
 
 bool appimage_reader_c::read(const std::string &s_path, appimage_info_o &o_info) {

@@ -35,6 +35,7 @@ The format requirements implemented here are recorded in `documents/07-appimage-
 - `APPIMAGE-READER-R023` — The reader must identify the embedded desktop entry as the desktop file in the payload root directory.
 - `APPIMAGE-READER-R024` — The reader must never execute, mount, or modify the input file.
 - `APPIMAGE-READER-R025` — The reader must be linkable as a library and must not depend on an external AppImage library.
+- `APPIMAGE-READER-R026` — The reader must compare the ELF machine, class, and byte order with the host and report whether the image can run here, naming both machines when it cannot.
 
 ## Behavior
 

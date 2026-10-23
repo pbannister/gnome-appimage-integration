@@ -157,6 +157,11 @@ enum class integration_conflict_policy_e {
 struct integration_plan_o {
     bool valid = false;
     std::string error;
+    // Whether this file's ELF machine can run on this host.  False only for a known
+    // incompatible machine or byte order; a 32-bit build on a 64-bit kernel is allowed
+    // with a note, because the kernel may carry compatibility.
+    bool can_run = true;
+    std::string run_problem;
 
     std::string appimage_path;
     std::string installed_path;

@@ -227,6 +227,7 @@ The AppImage reader in this project parses the container natively and does not d
 
 - Detect the file type from the ELF magic and the AppImage magic at offset 8.
 - Report ELF class, byte order, machine, entry point, and the payload offset and size.
+- Compare the ELF class, byte order, and machine with the host, and report whether the image can run here.
 - Read the section header string table to expose `.upd_info` and `.sha256_sig`.
 - Parse the SquashFS superblock at the payload offset and report its compression and table layout.
 - Traverse the SquashFS payload enough to list the root directory and read the embedded `*.desktop` file and `.DirIcon`.

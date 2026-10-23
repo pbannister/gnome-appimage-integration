@@ -6,8 +6,13 @@
 #include <fstream>
 #include <string>
 
+using gnome_appimage::appimage::appimage_cpu_check;
+using gnome_appimage::appimage::appimage_cpu_check_o;
+using gnome_appimage::appimage::appimage_cpu_compatibility_e;
 using gnome_appimage::appimage::appimage_detection_e;
+using gnome_appimage::appimage::appimage_elf_info_o;
 using gnome_appimage::appimage::appimage_info_o;
+using gnome_appimage::appimage::host_machine_name;
 using gnome_appimage::appimage::appimage_reader_c;
 
 namespace {
@@ -83,6 +88,56 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK(32 == o_info.elf.elf_class || 64 == o_info.elf.elf_class);
     CHECK(o_info.payload_offset == o_info.elf.elf_size);
     CHECK(!o_info.elf.machine_name.empty());
+
+    // The host's own machine is compatible with itself.
+    const std::string s_host_machine = host_machine_name();
+    const appimage_cpu_check_o o_host_cpu = appimage_cpu_check(o_info.elf);
+    CHECK(appimage_cpu_compatibility_e::compatible == o_host_cpu.compatibility);
+
+    // A foreign machine is incompatible and names both sides.
+    appimage_elf_info_o o_foreign = o_info.elf;
+    if ("x86-64" == s_host_machine) {
+        o_foreign.machine = 0xb7;
+        o_foreign.machine_name = "aarch64";
+    } else if ("aarch64" == s_host_machine) {
+        o_foreign.machine = 0x3e;
+        o_foreign.machine_name = "x86-64";
+    } else {
+        o_foreign.machine_name = "unknown";
+    }
+    const appimage_cpu_check_o o_foreign_cpu = appimage_cpu_check(o_foreign);
+    if ("unknown" == s_host_machine || "unknown" == o_foreign.machine_name) {
+        CHECK(appimage_cpu_compatibility_e::unknown == o_foreign_cpu.compatibility);
+    } else {
+        CHECK(appimage_cpu_compatibility_e::incompatible == o_foreign_cpu.compatibility);
+        CHECK(!o_foreign_cpu.problem.empty());
+    }
+
+    // Byte order is part of the machine, even when the machine name matches.
+    appimage_elf_info_o o_endian = o_info.elf;
+    o_endian.little_endian = !o_info.elf.little_endian;
+    const appimage_cpu_check_o o_endian_cpu = appimage_cpu_check(o_endian);
+    CHECK(appimage_cpu_compatibility_e::incompatible == o_endian_cpu.compatibility);
+    CHECK(std::string::npos != o_endian_cpu.problem.find("endian"));
+
+    // A 32-bit build on a 64-bit host of the same family is allowed with a note.
+    appimage_elf_info_o o_compat = o_info.elf;
+    if ("x86-64" == s_host_machine) {
+        o_compat.machine = 0x03;
+        o_compat.machine_name = "x86";
+        o_compat.elf_class = 32;
+    } else if ("aarch64" == s_host_machine) {
+        o_compat.machine = 0x28;
+        o_compat.machine_name = "arm";
+        o_compat.elf_class = 32;
+    } else {
+        o_compat.elf_class = 0;
+    }
+    if (0 != o_compat.elf_class) {
+        const appimage_cpu_check_o o_compat_cpu = appimage_cpu_check(o_compat);
+        CHECK(appimage_cpu_compatibility_e::compatible_with_compat == o_compat_cpu.compatibility);
+        CHECK(!o_compat_cpu.note.empty());
+    }
 
     const std::uint64_t u_payload_offset = o_info.payload_offset;
 

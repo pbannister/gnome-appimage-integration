@@ -952,6 +952,16 @@ private:
         return !fs::exists(s_path_, o_error);
     }
 
+    // The tool compares the AppImage's ELF machine with this one; the window asks it
+    // rather than guessing, so Run is offered only where the tool would allow it.
+    bool can_run_here() const {
+        return o_data_.boolean_or("can_run", true);
+    }
+
+    std::string run_problem() const {
+        return o_data_.string_or("run_problem");
+    }
+
     bool is_complete_integration() const {
         return MODE_INTEGRATED == o_data_.string_or("mode");
     }
@@ -1172,6 +1182,11 @@ private:
         std::vector<std::pair<std::string, std::string>> o_rows;
         o_rows.emplace_back("File", s_path_);
         o_rows.emplace_back("Size", human_size(o_data_.number_or("file_size", 0)));
+        if (!can_run_here()) {
+            o_rows.emplace_back("Run", run_problem().empty()
+                                           ? "this AppImage cannot run on this machine"
+                                           : run_problem());
+        }
         const std::string s_installed_version = o_data_.string_or("installed_version");
         const std::string s_relation = version_relation();
         if (!s_installed_version.empty()) {
@@ -1308,7 +1323,8 @@ private:
     void show_initial_buttons() {
         const bool b_close = close_is_suggested();
         std::vector<button_spec_o> o_specs = {{"Integrate", action_e::integrate, !b_close},
-                                              {"Run once", action_e::run_once, false},
+                                              {"Run once", action_e::run_once, false,
+                                               can_run_here()},
                                               {"Inspect", action_e::inspect, false}};
         if (update_is_offered()) {
             o_specs.push_back({"Update", action_e::update, false,
@@ -1529,6 +1545,12 @@ private:
         o_text << "State:     " << (s_mode.empty() ? "unknown" : s_mode) << '\n';
         o_text << "Launcher:  " << (s_desktop_id.empty() ? "(none yet)" : s_desktop_id) << '\n';
         o_text << "File:      " << s_path_ << (is_missing() ? "  [MISSING]" : "") << '\n';
+        if (!can_run_here()) {
+            o_text << "\nRun is unavailable: "
+                   << (run_problem().empty() ? "this AppImage cannot run on this machine"
+                                             : run_problem())
+                   << '\n';
+        }
 
         const std::string s_installed_version = o_data_.string_or("installed_version");
         const std::string s_relation = version_relation();
@@ -1793,6 +1815,15 @@ private:
 
     void run_the_appimage() {
         const std::vector<std::string> o_arguments = {"run", "--detached", s_path_};
+        if (!can_run_here()) {
+            const std::string s_problem =
+                run_problem().empty() ? "this AppImage cannot run on this machine"
+                                      : run_problem();
+            log_action(command_line("appimage-integrate", o_arguments),
+                       s_problem + "\nNot running it.");
+            show_tab(tab_e::actions);
+            return;
+        }
         const std::string s_report = combined_output(run_tool(s_tool_, o_arguments));
         log_action(command_line("appimage-integrate", o_arguments), s_report);
     }
@@ -2088,7 +2119,7 @@ private:
             refresh_status();
             refresh_discovered();
             update_details();
-            set_buttons({{"Run now", action_e::run_now, true},
+            set_buttons({{"Run now", action_e::run_now, true, can_run_here()},
                          {"Inspect", action_e::inspect, false},
                          {"Close", action_e::close, false}});
             return;

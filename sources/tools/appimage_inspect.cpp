@@ -17,6 +17,9 @@
 
 namespace {
 
+using gnome_appimage::appimage::appimage_cpu_check;
+using gnome_appimage::appimage::appimage_cpu_check_o;
+using gnome_appimage::appimage::appimage_cpu_compatibility_e;
 using gnome_appimage::appimage::appimage_detection_e;
 using gnome_appimage::appimage::appimage_info_o;
 using gnome_appimage::appimage::appimage_reader_c;
@@ -92,6 +95,19 @@ void print_summary(const appimage_info_o &o_info,
     std::cout << "elf-data: " << elf_data_name(o_info) << '\n';
     std::cout << "machine: " << o_info.elf.machine_name << " (0x" << std::hex
               << o_info.elf.machine << std::dec << ")\n";
+    const appimage_cpu_check_o o_cpu = appimage_cpu_check(o_info.elf);
+    std::cout << "host-machine: " << o_cpu.host_machine << '\n';
+    std::cout << "can-run: " << (appimage_cpu_compatibility_e::incompatible
+                                      == o_cpu.compatibility
+                                  ? "no"
+                                  : "yes");
+    if (appimage_cpu_compatibility_e::incompatible == o_cpu.compatibility) {
+        std::cout << " (" << o_cpu.problem << ")";
+    }
+    std::cout << '\n';
+    if (!o_cpu.note.empty()) {
+        std::cout << "run-note: " << o_cpu.note << '\n';
+    }
     std::cout << "entry-point: 0x" << std::hex << o_info.elf.entry_point << std::dec << '\n';
     std::cout << "payload-offset: " << o_info.payload_offset << '\n';
     std::cout << "payload-size: " << o_info.payload_size << '\n';
@@ -169,6 +185,14 @@ void print_json(const appimage_info_o &o_info,
     std::cout << ",\"elf_class\":" << o_info.elf.elf_class;
     std::cout << ",\"elf_data\":\"" << elf_data_name(o_info) << "\"";
     std::cout << ",\"machine\":\"" << json_escape(o_info.elf.machine_name) << "\"";
+    const appimage_cpu_check_o o_cpu = appimage_cpu_check(o_info.elf);
+    std::cout << ",\"host_machine\":\"" << json_escape(o_cpu.host_machine) << "\"";
+    std::cout << ",\"can_run\":"
+              << (appimage_cpu_compatibility_e::incompatible == o_cpu.compatibility
+                      ? "false"
+                      : "true");
+    std::cout << ",\"run_problem\":\"" << json_escape(o_cpu.problem) << "\"";
+    std::cout << ",\"run_note\":\"" << json_escape(o_cpu.note) << "\"";
     std::cout << ",\"entry_point\":" << o_info.elf.entry_point;
     std::cout << ",\"payload_offset\":" << o_info.payload_offset;
     std::cout << ",\"payload_size\":" << o_info.payload_size;

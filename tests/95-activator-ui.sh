@@ -250,8 +250,8 @@ if [ "$1" = "explain" ]; then
     else
         printf ',"desktop_integration_optout":[]'
     fi
-    printf ',"warnings":[],"firejail_available":%s,"sandbox":"none"}\n' \
-        "${STUB_FIREJAIL:-false}"
+    printf ',"can_run":%s,"run_problem":"%s","warnings":[],"firejail_available":%s,"sandbox":"none"}\n' \
+        "${STUB_CAN_RUN:-true}" "${STUB_RUN_PROBLEM:-}" "${STUB_FIREJAIL:-false}"
     exit 0
 fi
 exit 0
@@ -288,6 +288,8 @@ run_driven() {
         STUB_OPTOUT="${STUB_OPTOUT:-}" \
         STUB_OPTOUT_CONDITION="${STUB_OPTOUT_CONDITION:-}" \
         STUB_OPTOUT_CONSEQUENCE="${STUB_OPTOUT_CONSEQUENCE:-}" \
+        STUB_CAN_RUN="${STUB_CAN_RUN:-true}" \
+        STUB_RUN_PROBLEM="${STUB_RUN_PROBLEM:-}" \
         STUB_FIREJAIL="${STUB_FIREJAIL:-false}" \
         STUB_RECORD="$FILE_RECORD" XDG_DATA_HOME="$DIRECTORY_TEMP/home/.local/share" \
         GDK_BACKEND=x11 xvfb-run -a "$FILE_ACTIVATOR" --tool "${STUB_TOOL:-$FILE_STUB}" \
@@ -364,6 +366,18 @@ grep -q '^=== showing: Actions ===$' "$DIRECTORY_TEMP/ran.txt" \
     || fail_test "Run once did not leave the Actions tab showing"
 grep -Eq '^[0-9]{2}:[0-9]{2}:[0-9]{2}  appimage-integrate run --detached ' "$DIRECTORY_TEMP/ran.txt" \
     || fail_test "Run once did not log the command in the Actions tab"
+# A foreign AppImage is not run, and the window says why.
+: > "$FILE_RECORD"
+STUB_CAN_RUN=false \
+    STUB_RUN_PROBLEM="the AppImage is built for aarch64 and this machine is x86-64" \
+    run_driven --activate run-once > "$DIRECTORY_TEMP/foreign-run.txt" 2>&1
+grep -q 'Run is unavailable:' "$DIRECTORY_TEMP/foreign-run.txt" \
+    || fail_test "the window did not report the foreign machine: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
+grep -q 'Not running it' "$DIRECTORY_TEMP/foreign-run.txt" \
+    || fail_test "the window did not explain that it refused to run: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
+if grep -q '^run|' "$FILE_RECORD"; then
+    fail_test "the window asked the tool to run an AppImage built for another machine"
+fi
 
 # Without a typed name the field must be prefilled from the AppImage.
 : > "$FILE_RECORD"

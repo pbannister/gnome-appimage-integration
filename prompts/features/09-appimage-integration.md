@@ -49,6 +49,7 @@ make every step printable, plannable, and reversible.
 - `APPIMAGE-INTEGRATION-R040` — The tool must be able to read the class from the running application: `windows` must list the running AppImages with the class each one reports (the program inside the mount, or an X11 client's `WM_CLASS`), and `--wm-class-from-window` must apply it or refuse with the candidates named.
 - `APPIMAGE-INTEGRATION-R041` — Re-running install for the same AppImage must be harmless: it must overwrite its own launcher, icons, and manifest and must never create a duplicate, so it can repair a faulty install.
 - `APPIMAGE-INTEGRATION-R042` — The integrator must extract the application version from `X-AppImage-Version`, then AppStream metadata, then the file name, and report which source it used.
+- `APPIMAGE-INTEGRATION-R043` — The plan must report whether the AppImage can run here, and `run` must refuse a known-incompatible machine or byte order without executing the file, naming both machines.
 
 ## Behavior
 

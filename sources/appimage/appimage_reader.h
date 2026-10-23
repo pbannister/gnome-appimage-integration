@@ -95,6 +95,33 @@ const char *appimage_detection_name(appimage_detection_e e_detection);
 // Return a readable name for an ELF machine identifier.
 std::string elf_machine_name(std::uint16_t u_machine);
 
+// How an AppImage's ELF machine compares with the machine this build runs on.
+enum class appimage_cpu_compatibility_e {
+    compatible,
+    // A 32-bit build on a 64-bit machine of the same family.  The kernel may or may
+    // not carry 32-bit support, so the caller reports the note instead of refusing.
+    compatible_with_compat,
+    incompatible,
+    unknown,
+};
+
+struct appimage_cpu_check_o {
+    appimage_cpu_compatibility_e compatibility = appimage_cpu_compatibility_e::unknown;
+    std::string host_machine;
+    std::string appimage_machine;
+    // A sentence for the person when the file cannot run here; empty otherwise.
+    std::string problem;
+    // A sentence about a compatibility build that may still run; empty otherwise.
+    std::string note;
+};
+
+// Compare an ELF header with this build's machine and byte order.
+appimage_cpu_check_o appimage_cpu_check(const appimage_elf_info_o &o_elf);
+
+// The machine this build runs on, named the way elf_machine_name names an ELF machine.
+// "unknown" means this build does not know its own machine.
+std::string host_machine_name();
+
 // Read the container structure of an AppImage without executing or mounting it.
 // Returns false when the file cannot be read or is not a usable ELF.
 class appimage_reader_c {

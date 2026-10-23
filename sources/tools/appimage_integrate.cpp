@@ -342,6 +342,11 @@ void print_plan_text(const integration_plan_o &o_plan) {
               << '\n';
     std::cout << "signature: " << (o_plan.signature.empty() ? "(absent)" : o_plan.signature)
               << '\n';
+    std::cout << "can-run: " << (o_plan.can_run ? "yes" : "no");
+    if (!o_plan.can_run) {
+        std::cout << " (" << o_plan.run_problem << ")";
+    }
+    std::cout << '\n';
     if (integration_sandbox_e::none != o_plan.sandbox) {
         std::cout << "sandbox: " << integration_sandbox_name(o_plan.sandbox) << '\n';
     }
@@ -410,6 +415,8 @@ void print_plan_json(const integration_plan_o &o_plan) {
               << json_escape(o_plan.exec_command) << "\",\"startup_wm_class\":\""
               << json_escape(o_plan.startup_wm_class) << "\",\"startup_wm_class_source\":\""
               << (o_plan.startup_wm_class_is_explicit ? "explicit" : "embedded")
+              << "\",\"can_run\":" << (o_plan.can_run ? "true" : "false")
+              << ",\"run_problem\":\"" << json_escape(o_plan.run_problem)
               << "\",\"icons\":[";
     bool b_first = true;
     for (const integration_icon_o &o_icon : o_plan.icons) {
@@ -542,6 +549,8 @@ int command_explain_json(const std::string &s_path, const integration_options_o 
               << ",\"desktop_entry\":\"" << json_escape(o_plan.desktop_entry_text) << "\""
               << ",\"mode\":\"" << json_escape(o_plan.mode) << "\""
               << ",\"valid\":" << (b_valid ? "true" : "false")
+              << ",\"can_run\":" << (o_plan.can_run ? "true" : "false")
+              << ",\"run_problem\":\"" << json_escape(o_plan.run_problem) << "\""
               << ",\"error\":\"" << json_escape(o_plan.error) << "\""
               << ",\"conflicts\":[";
     bool b_first = true;
@@ -2754,12 +2763,38 @@ int command_audit(bool b_json, bool b_check) {
     return b_has_error ? EXIT_ERROR : EXIT_OK;
 }
 
+// Why this AppImage cannot run on this machine, or empty when it can or the file is
+// not an AppImage the reader understands.  The same check is in the plan, so the
+// window and the command line agree.
+std::string run_problem_for_file(const std::string &s_path) {
+    using gnome_appimage::appimage::appimage_cpu_check;
+    using gnome_appimage::appimage::appimage_cpu_check_o;
+    using gnome_appimage::appimage::appimage_cpu_compatibility_e;
+    using gnome_appimage::appimage::appimage_info_o;
+    using gnome_appimage::appimage::appimage_reader_c;
+
+    appimage_info_o o_info;
+    if (!appimage_reader_c::read(s_path, o_info)) {
+        return "";
+    }
+    const appimage_cpu_check_o o_cpu = appimage_cpu_check(o_info.elf);
+    if (appimage_cpu_compatibility_e::incompatible == o_cpu.compatibility) {
+        return o_cpu.problem;
+    }
+    return "";
+}
+
 int command_run(const std::string &s_path,
                 const std::vector<std::string> &o_arguments,
                 bool b_extract_and_run) {
     struct stat o_status;
     if (0 != stat(s_path.c_str(), &o_status)) {
         std::cerr << "error: cannot stat " << s_path << '\n';
+        return EXIT_ERROR;
+    }
+    const std::string s_run_problem = run_problem_for_file(s_path);
+    if (!s_run_problem.empty()) {
+        std::cerr << "error: " << s_run_problem << "; not running it\n";
         return EXIT_ERROR;
     }
     if (0 == (o_status.st_mode & S_IXUSR)) {
@@ -3313,6 +3348,12 @@ int run_detached_with_notice(const std::string &s_path, const std::string &s_nam
     struct stat o_status;
     if (0 != stat(s_path.c_str(), &o_status)) {
         show_text_info("AppImage", "Cannot stat " + s_path);
+        return EXIT_ERROR;
+    }
+    const std::string s_run_problem = run_problem_for_file(s_path);
+    if (!s_run_problem.empty()) {
+        std::cerr << "error: " << s_run_problem << "; not running it\n";
+        show_text_info("AppImage", s_run_problem + "\nNot running it.\n");
         return EXIT_ERROR;
     }
     if (0 == (o_status.st_mode & S_IXUSR)) {

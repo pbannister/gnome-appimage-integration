@@ -177,6 +177,18 @@ if [ -n "$BYTES_FOREIGN_MACHINE" ]; then
         || fail_test "plan did not warn that the AppImage is for another machine: $(cat "$DIRECTORY_TEMP/foreign.txt")"
     grep -q 'cannot run here' "$DIRECTORY_TEMP/foreign.txt" \
         || fail_test "the warning does not say the AppImage cannot run here"
+    run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" explain --json \
+        "$DIRECTORY_TEMP/foreign.AppImage" > "$DIRECTORY_TEMP/foreign.json" 2>&1
+    grep -q '"can_run":false' "$DIRECTORY_TEMP/foreign.json" \
+        || fail_test "explain did not mark the foreign AppImage as unrunnable: $(cat "$DIRECTORY_TEMP/foreign.json")"
+    grep -q "the AppImage is built for $NAME_FOREIGN_MACHINE" "$DIRECTORY_TEMP/foreign.json" \
+        || fail_test "explain did not name the foreign machine: $(cat "$DIRECTORY_TEMP/foreign.json")"
+    if run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" run --detached \
+        "$DIRECTORY_TEMP/foreign.AppImage" > "$DIRECTORY_TEMP/foreign-run.txt" 2>&1; then
+        fail_test "run attempted an AppImage built for another machine: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
+    fi
+    grep -q 'not running it' "$DIRECTORY_TEMP/foreign-run.txt" \
+        || fail_test "run did not explain why it refused: $(cat "$DIRECTORY_TEMP/foreign-run.txt")"
 fi
 
 pass_test "integration sandbox"
