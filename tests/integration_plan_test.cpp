@@ -81,6 +81,7 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK((o_install / fs::path(s_appimage).filename()).string() == o_plan.installed_path);
     CHECK(contains(o_plan.exec_command, o_plan.installed_path));
     CHECK(contains(o_plan.exec_command, "%U") || contains(o_plan.exec_command, "%F"));
+    CHECK(contains(o_plan.exec_command, "--no-sandbox"));
     if (0 != o_plan.icon_name.compare(0, 9, "appimage_")) {
         std::fprintf(stderr, "FAIL icon-name=[%s] identifier=[%s] desktop-id=[%s]\n",
                      o_plan.icon_name.c_str(), o_plan.identifier.c_str(),

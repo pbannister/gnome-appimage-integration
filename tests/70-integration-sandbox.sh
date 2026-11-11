@@ -49,7 +49,7 @@ Type=Application
 Name=Test Application
 GenericName=Integration Probe
 Comment=Probe entry
-Exec=TestApp %U
+Exec=TestApp --no-sandbox %U
 Icon=testapp
 Categories=Utility;
 MimeType=application/x-test;
@@ -94,6 +94,8 @@ run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" install --yes "$DIRECTORY_T
 if [ ! -f "$FILE_DESKTOP" ]; then
     fail_test "install did not write the desktop entry"
 fi
+grep -q -- '--no-sandbox' "$FILE_DESKTOP" \
+    || fail_test "install dropped the embedded Exec's own arguments"
 if [ ! -f "$DIRECTORY_XDG/home/Applications/cli.AppImage" ]; then
     fail_test "install did not move the AppImage to the managed directory"
 fi

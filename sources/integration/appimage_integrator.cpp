@@ -382,6 +382,53 @@ std::string exec_field_code(const std::string &s_exec) {
     return "%U";
 }
 
+// The literal arguments an embedded Exec carries after its program, with field
+// codes removed and "%%" kept as a literal percent.  These belong in the
+// launcher: an AppImage that writes "Exec=AppRun --no-sandbox %U" needs
+// --no-sandbox, because the Chromium sandbox aborts on a chrome-sandbox helper
+// that is not setuid root inside the FUSE mount, and dropping every argument
+// that is not a field code dropped exactly the flag that lets it start.
+std::string exec_literal_arguments(const std::string &s_exec) {
+    const std::string s_trimmed = trim_spaces(s_exec);
+    std::size_t i_start = 0;
+    if (!s_trimmed.empty() && '"' == s_trimmed[0]) {
+        // Skip the quoted program token, honouring backslash escapes.
+        i_start = 1;
+        while (i_start < s_trimmed.size()) {
+            if ('\\' == s_trimmed[i_start] && i_start + 1 < s_trimmed.size()) {
+                i_start += 2;
+                continue;
+            }
+            if ('"' == s_trimmed[i_start]) {
+                i_start++;
+                break;
+            }
+            i_start++;
+        }
+    } else {
+        const std::size_t i_space = s_trimmed.find(' ');
+        i_start = std::string::npos == i_space ? s_trimmed.size() : i_space;
+    }
+
+    std::string s_arguments;
+    std::size_t i_index = i_start;
+    while (i_index < s_trimmed.size()) {
+        if ('%' == s_trimmed[i_index] && i_index + 1 < s_trimmed.size()) {
+            if ('%' != s_trimmed[i_index + 1]) {
+                // The field code is extracted separately and appended at the end.
+                i_index += 2;
+                continue;
+            }
+            s_arguments += "%%";
+            i_index += 2;
+            continue;
+        }
+        s_arguments += s_trimmed[i_index];
+        i_index++;
+    }
+    return trim_spaces(s_arguments);
+}
+
 // Parse the leading executable token of an Exec line, honouring double quotes.
 std::string exec_program(const std::string &s_exec) {
     return gnome_appimage::desktop::desktop_exec_program(s_exec);
@@ -1277,9 +1324,15 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_plan.installed_path =
             join_path(s_install_directory, fs::path(o_plan.appimage_path).filename().string());
 
-        o_plan.field_code = exec_field_code(o_entry.value("Desktop Entry", "Exec").value_or(""));
+        const std::string s_embedded_exec =
+            o_entry.value("Desktop Entry", "Exec").value_or(std::string());
+        o_plan.field_code = exec_field_code(s_embedded_exec);
         o_plan.extra_exec_arguments = o_options.extra_exec_arguments;
         o_plan.sandbox = o_options.sandbox;
+        // The embedded Exec's own arguments ride along.  An AppImage that says
+        // "AppRun --no-sandbox %U" needs --no-sandbox, or the Chromium sandbox
+        // aborts on a chrome-sandbox helper that is not setuid root in the mount.
+        const std::string s_embedded_arguments = exec_literal_arguments(s_embedded_exec);
 
         // A sandbox that is not installed is refused rather than quietly dropped: the
         // person asked to run this application under it, and a launcher that silently did
@@ -1299,6 +1352,9 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             // file and its arguments stay after --appimage, and firejail takes care of the
             // FUSE mount the runtime would otherwise do itself.
             o_plan.exec_command = "firejail --appimage " + o_plan.exec_command;
+        }
+        if (!s_embedded_arguments.empty()) {
+            o_plan.exec_command += " " + s_embedded_arguments;
         }
         if (!o_plan.extra_exec_arguments.empty()) {
             o_plan.exec_command += " " + o_plan.extra_exec_arguments;
