@@ -91,12 +91,17 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK(1 == o_plan.mime_types.size());
 
     bool b_has_48 = false;
+    bool b_has_remapped_512 = false;
     for (const integration_icon_o &o_icon : o_plan.icons) {
         if ("48x48" == o_icon.size_directory && ".png" == o_icon.extension) {
             b_has_48 = true;
         }
+        if ("512x512" == o_icon.size_directory && ".png" == o_icon.extension) {
+            b_has_remapped_512 = true;
+        }
     }
     CHECK(b_has_48);
+    CHECK(b_has_remapped_512);
 
     CHECK(contains(o_plan.desktop_entry_text, "[Desktop Entry]"));
     CHECK(contains(o_plan.desktop_entry_text, "Type=Application"));

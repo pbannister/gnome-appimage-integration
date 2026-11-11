@@ -35,9 +35,11 @@ trap 'rm -rf "$DIRECTORY_TEMP"' EXIT
 
 DIRECTORY_PAYLOAD="$DIRECTORY_TEMP/payload"
 mkdir -p "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/48x48/apps"
+mkdir -p "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/1024x1024/apps"
 mkdir -p "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "$DIRECTORY_PAYLOAD/usr/share/mime/packages"
 printf 'fake-png-bytes' > "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/48x48/apps/testapp.png"
+printf 'fake-png-bytes' > "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/1024x1024/apps/testapp.png"
 printf '<svg xmlns="http://www.w3.org/2000/svg"/>' > "$DIRECTORY_PAYLOAD/usr/share/icons/hicolor/scalable/apps/testapp.svg"
 printf 'fake-diricon' > "$DIRECTORY_PAYLOAD/.DirIcon"
 printf '<?xml version="1.0"?><mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info"><mime-type type="application/x-test"><comment>Test</comment></mime-type></mime-info>' > "$DIRECTORY_PAYLOAD/usr/share/mime/packages/org.example.Test.xml"
@@ -98,6 +100,13 @@ fi
 if [ ! -f "$DIRECTORY_XDG/home/.local/share/icons/hicolor/48x48/apps/appimage_testapp.png" ] \
     && ! ls "$DIRECTORY_XDG/home/.local/share/icons/hicolor/48x48/apps/" | grep -q '_testapp.png'; then
     fail_test "install did not write the 48x48 icon"
+fi
+# An oversized size directory is not one GTK searches, so it must be remapped.
+if ! ls "$DIRECTORY_XDG/home/.local/share/icons/hicolor/512x512/apps/" | grep -q '_testapp.png'; then
+    fail_test "install did not remap the oversized 1024x1024 icon to 512x512"
+fi
+if ls "$DIRECTORY_XDG/home/.local/share/icons/hicolor/1024x1024/apps/" 2>/dev/null | grep -q '_testapp.png'; then
+    fail_test "install left the icon in the non-standard 1024x1024 directory"
 fi
 
 run_in_sandbox "$DIRECTORY_BUILD/appimage-integrate" list | grep -q 'org.example.Test.desktop' \

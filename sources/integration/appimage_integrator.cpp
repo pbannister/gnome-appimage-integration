@@ -279,24 +279,51 @@ void refresh_appstream_cache() {
     }
 }
 
-// True when a payload size directory is one the icon theme actually lists.
-bool is_valid_icon_size_directory(const std::string &s_name) {
-    if ("scalable" == s_name) {
-        return true;
-    }
-    const std::size_t i_cross = s_name.find('x');
-    if (std::string::npos == i_cross) {
-        return false;
-    }
-    const std::string s_width = s_name.substr(0, i_cross);
-    const std::string s_height = s_name.substr(i_cross + 1);
-    const auto is_positive_number = [](const std::string &s_text) {
-        if (s_text.empty() || std::string::npos != s_text.find_first_not_of("0123456789")) {
-            return false;
+// The standard bitmap sizes the hicolor theme lists.  GTK opens only the
+// directories a theme's index.theme names, so a payload icon shipped under any
+// other size -- 1024x1024 and 720x720 are the corpus cases -- is invisible when
+// it is copied verbatim.  Such a size is remapped to the largest standard size
+// that is no larger than it.
+constexpr int STANDARD_ICON_SIZES[] = {16, 22, 24, 32, 36, 48, 64,
+                                       72, 96, 128, 192, 256, 512};
+
+bool is_standard_icon_size(const int i_size) {
+    for (const int i_standard : STANDARD_ICON_SIZES) {
+        if (i_standard == i_size) {
+            return true;
         }
-        return 0 != std::stoi(s_text);
-    };
-    return is_positive_number(s_width) && is_positive_number(s_height);
+    }
+    return false;
+}
+
+int nearest_standard_icon_size(const int i_size) {
+    int i_result = STANDARD_ICON_SIZES[0];
+    for (const int i_standard : STANDARD_ICON_SIZES) {
+        if (i_standard > i_size) {
+            break;
+        }
+        i_result = i_standard;
+    }
+    return i_result;
+}
+
+// The size directory a payload icon is written into.  "scalable" is kept; a
+// standard bitmap size is kept; anything else is remapped to a standard size at
+// or below it, so the icon lands where GTK searches for it.  A malformed or
+// empty name, such as 0x0, becomes 256x256.
+std::string canonical_icon_size_directory(const std::string &s_name) {
+    if ("scalable" == s_name) {
+        return s_name;
+    }
+    const int i_size = icon_theme_locator_c::size_from_directory_name(s_name);
+    if (0 >= i_size) {
+        return "256x256";
+    }
+    if (!is_standard_icon_size(i_size)) {
+        const int i_remapped = nearest_standard_icon_size(i_size);
+        return std::to_string(i_remapped) + "x" + std::to_string(i_remapped);
+    }
+    return std::to_string(i_size) + "x" + std::to_string(i_size);
 }
 
 std::string current_timestamp() {
@@ -1588,12 +1615,8 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                             && ".svgz" != s_extension && ".xpm" != s_extension) {
                             continue;
                         }
-                        std::string s_size_directory = o_size_entry.name;
-                        if (!is_valid_icon_size_directory(s_size_directory)) {
-                            // A malformed AppImage may ship a size directory the
-                            // theme does not list, such as 0x0; use a standard one.
-                            s_size_directory = "256x256";
-                        }
+                        const std::string s_size_directory =
+                            canonical_icon_size_directory(o_size_entry.name);
                         const std::string s_slot = s_size_directory + "|" + s_extension;
                         if (0 != o_installed_slots.count(s_slot)) {
                             continue;
@@ -1654,8 +1677,8 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                     int i_height = 0;
                     if (read_png_size(s_data, i_width, i_height)) {
                         o_icon.pixel_size = std::max(i_width, i_height);
-                        o_icon.size_directory =
-                            std::to_string(i_width) + "x" + std::to_string(i_height);
+                        o_icon.size_directory = canonical_icon_size_directory(
+                            std::to_string(i_width) + "x" + std::to_string(i_height));
                     } else if (std::string::npos != o_root_entry.name.find(".svg")) {
                         o_icon.pixel_size = 0;
                         o_icon.size_directory = "scalable";

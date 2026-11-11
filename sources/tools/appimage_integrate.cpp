@@ -72,9 +72,11 @@ constexpr const char *HANDLER_LEGACY_ICON_NAME = "appimage-handler";
 // systems carry application/vnd.appimage and application/x-iso9660-appimage in
 // shared-mime-info, but nothing there points their generic icon at this tool -- and
 // on a system whose shared-mime-info predates the AppImage types, nothing defines
-// them at all.  A definition under XDG_DATA_HOME/mime outranks the system copy, so
-// installing this is what makes the handler reachable and the file icon right on a
-// machine -- like a fresh laptop -- that never had a definition of its own.
+// them at all.  Installing this is what makes the handler reachable on a machine
+// that never had a definition of its own; the generic-icon here helps only where
+// the system definition is absent, because on a modern system shared-mime-info's
+// own generic-icon wins the merge.  The file icon is therefore also installed by
+// name in the icon theme (see command_handler_install), not only here.
 std::string handler_mime_definition() {
     const std::string s_icon_name = HANDLER_ICON_NAME;
     return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -2976,6 +2978,32 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         }
     }
 
+    // The AppImage MIME types must also answer for the activator by name, not only
+    // through the definition's generic-icon.  That generic icon is merged with
+    // shared-mime-info's own, whose application-x-executable then wins, so the only
+    // reliable way to make .AppImage files carry this mark is an icon named for each
+    // MIME type in the mimetypes context, which the themed-icon lookup checks first.
+    std::vector<std::string> o_mime_icons_installed;
+    if (!s_icon_source.empty()) {
+        const fs::path o_mime_directory = o_data_home / "icons/hicolor/scalable/mimetypes";
+        fs::create_directories(o_mime_directory, o_error);
+        for (const char *s_mime_icon :
+             {"application-vnd.appimage", "application-x-appimage",
+              "application-x-iso9660-appimage"}) {
+            std::error_code o_mime_error;
+            const std::string s_mime_target =
+                (o_mime_directory / (std::string(s_mime_icon) + ".svg")).string();
+            fs::copy_file(s_icon_source, s_mime_target, fs::copy_options::overwrite_existing,
+                          o_mime_error);
+            if (!o_mime_error) {
+                o_mime_icons_installed.push_back(s_mime_target);
+            }
+        }
+        if (!o_mime_icons_installed.empty()) {
+            refresh_icon_cache((o_data_home / "icons/hicolor").string());
+        }
+    }
+
     // What an earlier install of this handler recorded.  It is read before the MIME
     // definition below because that needs it: when this tool created the definition, a
     // re-install finds it already correct and must still remember that it is ours, or
@@ -3082,6 +3110,9 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     o_manifest << "handler_desktop=" << s_desktop << '\n';
     if (!s_icon_installed.empty()) {
         o_manifest << "icon=" << s_icon_installed << '\n';
+    }
+    for (const std::string &s_mime_icon : o_mime_icons_installed) {
+        o_manifest << "icon=" << s_mime_icon << '\n';
     }
     if (!s_mime_package.empty()) {
         o_manifest << "mime_package=" << s_mime_package << '\n';
@@ -3215,6 +3246,15 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
     for (const char *s_icon_name : {HANDLER_ICON_NAME, HANDLER_LEGACY_ICON_NAME}) {
         fs::remove((fs::path(s_icon_directory) / "scalable/apps"
                     / (std::string(s_icon_name) + ".svg"))
+                       .string(),
+                   o_error);
+        o_error.clear();
+    }
+    for (const char *s_mime_icon :
+         {"application-vnd.appimage", "application-x-appimage",
+          "application-x-iso9660-appimage"}) {
+        fs::remove((fs::path(s_icon_directory) / "scalable/mimetypes"
+                    / (std::string(s_mime_icon) + ".svg"))
                        .string(),
                    o_error);
         o_error.clear();

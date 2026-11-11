@@ -38,6 +38,9 @@ run_in_sandbox() {
 FILE_DEFINITION="$DIRECTORY_DATA/mime/packages/appimage.xml"
 FILE_ENTRY="$DIRECTORY_DATA/applications/appimage-activator.desktop"
 FILE_ICON="$DIRECTORY_DATA/icons/hicolor/scalable/apps/appimage-activator.svg"
+FILE_ICON_MIME_VND="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-vnd.appimage.svg"
+FILE_ICON_MIME_X="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-x-appimage.svg"
+FILE_ICON_MIME_ISO="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-x-iso9660-appimage.svg"
 FILE_MANIFEST="$DIRECTORY_DATA/gnome-appimage-integration/appimage-activator.manifest"
 
 if [ -e "$FILE_DEFINITION" ]; then
@@ -59,6 +62,11 @@ grep -q 'generic-icon name="appimage-activator"' "$FILE_DEFINITION" \
 if [ ! -f "$FILE_ICON" ]; then
     fail_test "handler install did not install the handler icon"
 fi
+for file_mime_icon in "$FILE_ICON_MIME_VND" "$FILE_ICON_MIME_X" "$FILE_ICON_MIME_ISO"; do
+    if [ ! -f "$file_mime_icon" ]; then
+        fail_test "handler install did not install the MIME type icon $file_mime_icon"
+    fi
+done
 if [ ! -f "$FILE_ENTRY" ]; then
     fail_test "handler install did not write the handler entry"
 fi
@@ -84,6 +92,11 @@ fi
 if [ -e "$FILE_ENTRY" ]; then
     fail_test "handler uninstall left the handler entry behind"
 fi
+for file_mime_icon in "$FILE_ICON_MIME_VND" "$FILE_ICON_MIME_X" "$FILE_ICON_MIME_ISO"; do
+    if [ -e "$file_mime_icon" ]; then
+        fail_test "handler uninstall left the MIME type icon behind: $file_mime_icon"
+    fi
+done
 
 echo "=== a definition that was already there is restored, not removed ==="
 # The other machine's case: another tool, or an earlier install, defined the types.
