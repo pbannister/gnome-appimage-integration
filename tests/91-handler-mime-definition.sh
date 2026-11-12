@@ -38,6 +38,7 @@ run_in_sandbox() {
 FILE_DEFINITION="$DIRECTORY_DATA/mime/packages/appimage.xml"
 FILE_ENTRY="$DIRECTORY_DATA/applications/appimage-activator.desktop"
 FILE_ICON="$DIRECTORY_DATA/icons/hicolor/scalable/apps/appimage-activator.svg"
+FILE_ICON_PNG="$DIRECTORY_DATA/icons/hicolor/48x48/apps/appimage-activator.png"
 FILE_ICON_MIME_VND="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-vnd.appimage.svg"
 FILE_ICON_MIME_X="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-x-appimage.svg"
 FILE_ICON_MIME_ISO="$DIRECTORY_DATA/icons/hicolor/scalable/mimetypes/application-x-iso9660-appimage.svg"
@@ -61,6 +62,9 @@ grep -q 'generic-icon name="appimage-activator"' "$FILE_DEFINITION" \
     || fail_test "the definition does not point the file icon at the activator"
 if [ ! -f "$FILE_ICON" ]; then
     fail_test "handler install did not install the handler icon"
+fi
+if [ ! -f "$FILE_ICON_PNG" ]; then
+    fail_test "handler install did not install a raster copy of the handler icon"
 fi
 for file_mime_icon in "$FILE_ICON_MIME_VND" "$FILE_ICON_MIME_X" "$FILE_ICON_MIME_ISO"; do
     if [ ! -f "$file_mime_icon" ]; then
@@ -91,6 +95,9 @@ if [ -e "$FILE_DEFINITION" ]; then
 fi
 if [ -e "$FILE_ENTRY" ]; then
     fail_test "handler uninstall left the handler entry behind"
+fi
+if [ -e "$FILE_ICON_PNG" ]; then
+    fail_test "handler uninstall left a raster handler icon behind"
 fi
 for file_mime_icon in "$FILE_ICON_MIME_VND" "$FILE_ICON_MIME_X" "$FILE_ICON_MIME_ISO"; do
     if [ -e "$file_mime_icon" ]; then

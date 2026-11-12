@@ -2978,6 +2978,37 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
         }
     }
 
+    // Raster copies of the same mark, one per standard size.  Every other
+    // integrated app carries a raster fallback, and the shell's dash does not
+    // reliably rasterise a scalable SVG in the user theme, so the handler must
+    // carry one too or its dock icon is blank.
+    std::vector<std::string> o_raster_icons_installed;
+    if (!s_icon_source.empty()) {
+        for (const char *s_size : {"16", "24", "32", "48", "64", "128", "256", "512"}) {
+            std::error_code o_source_error;
+            const fs::path o_png_source =
+                fs::path(s_icon_source).parent_path()
+                / (std::string(HANDLER_ICON_NAME) + "-" + s_size + ".png");
+            if (!fs::exists(o_png_source, o_source_error)) {
+                continue;
+            }
+            const fs::path o_png_directory =
+                o_data_home / ("icons/hicolor/" + std::string(s_size) + "x" + s_size + "/apps");
+            fs::create_directories(o_png_directory, o_error);
+            std::error_code o_png_error;
+            const std::string s_png_target =
+                (o_png_directory / (std::string(HANDLER_ICON_NAME) + ".png")).string();
+            fs::copy_file(o_png_source, s_png_target, fs::copy_options::overwrite_existing,
+                          o_png_error);
+            if (!o_png_error) {
+                o_raster_icons_installed.push_back(s_png_target);
+            }
+        }
+        if (!o_raster_icons_installed.empty()) {
+            refresh_icon_cache((o_data_home / "icons/hicolor").string());
+        }
+    }
+
     // The AppImage MIME types must also answer for the activator by name, not only
     // through the definition's generic-icon.  That generic icon is merged with
     // shared-mime-info's own, whose application-x-executable then wins, so the only
@@ -3110,6 +3141,9 @@ int command_handler_install(const appimage_integrator_c &o_integrator) {
     o_manifest << "handler_desktop=" << s_desktop << '\n';
     if (!s_icon_installed.empty()) {
         o_manifest << "icon=" << s_icon_installed << '\n';
+    }
+    for (const std::string &s_raster_icon : o_raster_icons_installed) {
+        o_manifest << "icon=" << s_raster_icon << '\n';
     }
     for (const std::string &s_mime_icon : o_mime_icons_installed) {
         o_manifest << "icon=" << s_mime_icon << '\n';
@@ -3249,6 +3283,15 @@ int command_handler_uninstall(const appimage_integrator_c &o_integrator) {
                        .string(),
                    o_error);
         o_error.clear();
+    }
+    for (const char *s_size : {"16", "24", "32", "48", "64", "128", "256", "512"}) {
+        for (const char *s_icon_name : {HANDLER_ICON_NAME, HANDLER_LEGACY_ICON_NAME}) {
+            fs::remove((fs::path(s_icon_directory) / (std::string(s_size) + "x" + s_size + "/apps")
+                        / (std::string(s_icon_name) + ".png"))
+                           .string(),
+                       o_error);
+            o_error.clear();
+        }
     }
     for (const char *s_mime_icon :
          {"application-vnd.appimage", "application-x-appimage",
