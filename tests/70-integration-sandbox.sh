@@ -49,11 +49,17 @@ Type=Application
 Name=Test Application
 GenericName=Integration Probe
 Comment=Probe entry
-Exec=TestApp --no-sandbox %U
+Exec=TestApp --no-sandbox %i %U
 Icon=testapp
 Categories=Utility;
 MimeType=application/x-test;
 StartupWMClass=TestApp
+Terminal=true
+DBusActivatable=true
+NoDisplay=true
+Hidden=true
+OnlyShowIn=KDE;
+NotShowIn=GNOME;
 ENTRY
 
 build_synthetic_appimage "$FILE_ELF" "$DIRECTORY_PAYLOAD" "$DIRECTORY_TEMP/Test.AppImage" gzip

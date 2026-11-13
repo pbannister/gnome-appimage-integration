@@ -100,6 +100,7 @@ Rules:
 - An unlisted field code makes the command line invalid and it must not be processed.
 - Arguments containing spaces, quotes, or other reserved characters are quoted with double quotes; `"`, `` ` ``, `$`, and `\` are escaped with a backslash.
 - For an AppImage, the whole absolute AppImage path is quoted and followed by the entry's own field code.
+- Only the file and URL codes `%f`, `%F`, `%u`, `%U` are carried into an AppImage launcher. `%i` (the icon), `%c` (the name) and `%k` (the desktop file path) expand to values that do not belong in a launcher that runs an AppImage, so they are dropped rather than forwarded.
 
 ## Association Keys
 

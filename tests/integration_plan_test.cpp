@@ -80,7 +80,8 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK("org.example.Test.desktop" == o_plan.desktop_id);
     CHECK((o_install / fs::path(s_appimage).filename()).string() == o_plan.installed_path);
     CHECK(contains(o_plan.exec_command, o_plan.installed_path));
-    CHECK(contains(o_plan.exec_command, "%U") || contains(o_plan.exec_command, "%F"));
+    CHECK(contains(o_plan.exec_command, "%U"));
+    CHECK(!contains(o_plan.exec_command, "%i"));
     CHECK(contains(o_plan.exec_command, "--no-sandbox"));
     if (0 != o_plan.icon_name.compare(0, 9, "appimage_")) {
         std::fprintf(stderr, "FAIL icon-name=[%s] identifier=[%s] desktop-id=[%s]\n",
@@ -109,7 +110,13 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK(contains(o_plan.desktop_entry_text, "Name=Test Application"));
     CHECK(contains(o_plan.desktop_entry_text, "Icon=" + o_plan.icon_name));
     CHECK(contains(o_plan.desktop_entry_text, "TryExec=" + o_plan.installed_path));
-    CHECK(contains(o_plan.desktop_entry_text, "Terminal=false"));
+    CHECK(contains(o_plan.desktop_entry_text, "Terminal=true"));
+    CHECK(!contains(o_plan.desktop_entry_text, "DBusActivatable"));
+    CHECK(!contains(o_plan.desktop_entry_text, "NoDisplay"));
+    CHECK(!contains(o_plan.desktop_entry_text, "Hidden"));
+    CHECK(!contains(o_plan.desktop_entry_text, "OnlyShowIn"));
+    CHECK(!contains(o_plan.desktop_entry_text, "NotShowIn"));
+    CHECK(!contains(o_plan.desktop_entry_text, "%i"));
     CHECK(contains(o_plan.desktop_entry_text, "StartupNotify=true"));
     CHECK(contains(o_plan.desktop_entry_text, "StartupWMClass=TestApp"));
     CHECK(contains(o_plan.desktop_entry_text, "Actions=AppImage-Activator;Remove-AppImage;"));
@@ -143,7 +150,9 @@ int main(int i_argument_count, char **p_arguments) {
     CHECK(o_plan.exec_command == o_installed.value("Desktop Entry", "Exec").value_or(""));
     CHECK(o_plan.installed_path == o_installed.value("Desktop Entry", "TryExec").value_or(""));
     CHECK(o_plan.icon_name == o_installed.value("Desktop Entry", "Icon").value_or(""));
-    CHECK(!o_installed.bool_value("Desktop Entry", "Terminal").value_or(true));
+    CHECK(o_installed.bool_value("Desktop Entry", "Terminal").value_or(false));
+    CHECK(!o_installed.bool_value("Desktop Entry", "DBusActivatable").value_or(false));
+    CHECK(!o_installed.bool_value("Desktop Entry", "NoDisplay").value_or(false));
 
     const std::vector<installed_appimage_o> o_installed_list = o_integrator.list_installed();
     CHECK(1 == o_installed_list.size());

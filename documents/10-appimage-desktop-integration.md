@@ -146,9 +146,14 @@ fields that must change patched, and with provenance keys added.
 | `Icon` | the installed icon name, not a path | lets icon themes and scaling work |
 | `StartupWMClass` | the application's window class | lets the dock match the window to the launcher |
 | `StartupNotify` | `true` | lets the launcher show a busy state while starting |
-| `Terminal` | `false` | an AppImage launcher is a GUI application |
+| `Terminal` | copied from the embedded entry | a terminal application packaged as an AppImage keeps its terminal |
 | `X-AppImage-Identifier` | a stable identifier for this AppImage | lets update and remove find it later |
 | `Actions` | `AppImage-Activator;Update-AppImage;Remove-AppImage;` with a `[Desktop Action …]` group for each | exposes the lifecycle in the launcher context menu |
+
+Keys that would defeat an explicit integration are dropped rather than copied: `Path` (the
+payload's internal working directory), `DBusActivatable` (which would make the desktop activate
+over D-Bus instead of running `Exec`), and `NoDisplay`, `Hidden`, `OnlyShowIn`, `NotShowIn`
+(which would hide the launcher the owner just asked to appear).
 
 The `%U` field code passes selected URLs or files to the application.
 `%F` passes files; choose the code that matches the embedded entry.

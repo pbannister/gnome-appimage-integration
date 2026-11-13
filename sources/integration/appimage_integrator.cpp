@@ -377,7 +377,10 @@ std::string exec_field_code(const std::string &s_exec) {
         if ('f' == c_code || 'F' == c_code || 'u' == c_code || 'U' == c_code) {
             return std::string("%") + c_code;
         }
-        return std::string("%") + c_code;
+        // Not a file or URL code: %i (icon), %c (name), %k (desktop path), or a
+        // deprecated code.  None of those belongs in a launcher that runs an
+        // AppImage, so skip it and keep looking for the file code.
+        i_index++;
     }
     return "%U";
 }
@@ -1852,7 +1855,6 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_replacements["Name"] = o_plan.name;
         o_replacements["Exec"] = o_plan.exec_command;
         o_replacements["TryExec"] = o_plan.installed_path;
-        o_replacements["Terminal"] = "false";
         o_replacements["StartupNotify"] = "true";
         // The context menu offers Update only when the AppImage says where updates come
         // from: without that, the item could only report that it cannot do anything.
@@ -1869,9 +1871,17 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         if (!o_plan.startup_wm_class.empty()) {
             o_replacements["StartupWMClass"] = o_plan.startup_wm_class;
         }
+        // Keys that would defeat an explicit integration, or that only make
+        // sense for an entry installed by a package manager.  Path names the
+        // payload's internal working directory; DBusActivatable would make the
+        // desktop activate over D-Bus instead of running the AppImage's Exec;
+        // NoDisplay, Hidden, OnlyShowIn and NotShowIn would hide a launcher the
+        // owner just asked to appear.
         const std::set<std::string> o_skipped = {"Path", "X-AppImage-Old-Icon",
                                                  "X-AppImageLauncher-Version",
-                                                 "X-AppImage-Integrate"};
+                                                 "X-AppImage-Integrate",
+                                                 "DBusActivatable", "NoDisplay", "Hidden",
+                                                 "OnlyShowIn", "NotShowIn"};
         std::set<std::string> o_emitted;
         for (const desktop_entry_key_o &o_key : p_group->keys) {
             if (o_skipped.end() != o_skipped.find(o_key.name)) {
