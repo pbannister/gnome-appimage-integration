@@ -26,8 +26,12 @@ find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
     pkg_check_modules(LZ4 IMPORTED_TARGET liblz4)
-    pkg_check_modules(LZO IMPORTED_TARGET liblzo2)
 endif()
+
+# liblzo2 ships no pkg-config file on some distributions, so it is found the
+# native way.
+find_path(LZO_INCLUDE_DIR NAMES lzo/lzo1x.h)
+find_library(LZO_LIBRARY NAMES lzo2)
 
 add_library(version_info STATIC version/version_info.cpp version/version_compare.cpp)
 target_include_directories(version_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -64,8 +68,9 @@ if(TARGET PkgConfig::LZ4)
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_LZ4=1)
 endif()
 
-if(TARGET PkgConfig::LZO)
-    target_link_libraries(appimage_reader PUBLIC PkgConfig::LZO)
+if(LZO_INCLUDE_DIR AND LZO_LIBRARY)
+    target_include_directories(appimage_reader PRIVATE "${LZO_INCLUDE_DIR}")
+    target_link_libraries(appimage_reader PUBLIC "${LZO_LIBRARY}")
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_LZO=1)
 endif()
 
