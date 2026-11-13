@@ -25,6 +25,8 @@ find_package(PkgConfig QUIET)
 
 if(PkgConfig_FOUND)
     pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
+    pkg_check_modules(LZ4 IMPORTED_TARGET liblz4)
+    pkg_check_modules(LZO IMPORTED_TARGET liblzo2)
 endif()
 
 add_library(version_info STATIC version/version_info.cpp version/version_compare.cpp)
@@ -54,6 +56,16 @@ endif()
 if(TARGET PkgConfig::ZSTD)
     target_link_libraries(appimage_reader PUBLIC PkgConfig::ZSTD)
     target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZSTD=1)
+endif()
+
+if(TARGET PkgConfig::LZ4)
+    target_link_libraries(appimage_reader PUBLIC PkgConfig::LZ4)
+    target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_LZ4=1)
+endif()
+
+if(TARGET PkgConfig::LZO)
+    target_link_libraries(appimage_reader PUBLIC PkgConfig::LZO)
+    target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_LZO=1)
 endif()
 
 add_library(crypto STATIC crypto/sha256.cpp)

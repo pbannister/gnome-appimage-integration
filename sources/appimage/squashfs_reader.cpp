@@ -12,6 +12,12 @@
 #if defined(APPIMAGE_HAVE_LZMA)
 #include <lzma.h>
 #endif
+#if defined(APPIMAGE_HAVE_LZ4)
+#include <lz4.h>
+#endif
+#if defined(APPIMAGE_HAVE_LZO)
+#include <lzo/lzo1x.h>
+#endif
 #if defined(APPIMAGE_HAVE_ZSTD)
 #include <zstd.h>
 #endif
@@ -244,6 +250,29 @@ bool decompress_block(std::uint16_t u_compression,
         }
 #endif
 #if defined(APPIMAGE_HAVE_LZMA)
+        case COMPRESSION_LZMA: {
+            // Legacy LZMA1 with the 13-byte "lzma alone" header (properties,
+            // dictionary size, uncompressed size) written by the SquashFS lzma
+            // compressor.  liblzma's alone decoder reads that header itself.
+            lzma_stream o_stream = LZMA_STREAM_INIT;
+            if (LZMA_OK != lzma_alone_decoder(&o_stream, UINT64_MAX)) {
+                s_error = "lzma decoder init failed";
+                return false;
+            }
+            o_stream.next_in = p_input;
+            o_stream.avail_in = i_input_size;
+            o_stream.next_out = p_output;
+            o_stream.avail_out = i_output_capacity;
+            const lzma_ret e_result = lzma_code(&o_stream, LZMA_FINISH);
+            const std::size_t i_output_position = i_output_capacity - o_stream.avail_out;
+            lzma_end(&o_stream);
+            if (LZMA_STREAM_END != e_result) {
+                s_error = "lzma decompression failed";
+                return false;
+            }
+            o_output_size = i_output_position;
+            return true;
+        }
         case COMPRESSION_XZ: {
             std::uint64_t u_memory_limit = UINT64_MAX;
             std::size_t i_input_position = 0;
@@ -256,6 +285,32 @@ bool decompress_block(std::uint16_t u_compression,
                 return false;
             }
             o_output_size = i_output_position;
+            return true;
+        }
+#endif
+#if defined(APPIMAGE_HAVE_LZO)
+        case COMPRESSION_LZO: {
+            lzo_uint u_output = i_output_capacity;
+            const int i_result =
+                lzo1x_decompress_safe(p_input, i_input_size, p_output, &u_output, nullptr);
+            if (LZO_E_OK != i_result) {
+                s_error = "lzo decompression failed";
+                return false;
+            }
+            o_output_size = u_output;
+            return true;
+        }
+#endif
+#if defined(APPIMAGE_HAVE_LZ4)
+        case COMPRESSION_LZ4: {
+            const int i_result = LZ4_decompress_safe(
+                reinterpret_cast<const char *>(p_input), reinterpret_cast<char *>(p_output),
+                static_cast<int>(i_input_size), static_cast<int>(i_output_capacity));
+            if (0 > i_result) {
+                s_error = "lz4 decompression failed";
+                return false;
+            }
+            o_output_size = static_cast<std::size_t>(i_result);
             return true;
         }
 #endif
@@ -880,7 +935,16 @@ bool squashfs_compression_supported(std::uint16_t u_compression) {
             return true;
 #endif
 #if defined(APPIMAGE_HAVE_LZMA)
+        case COMPRESSION_LZMA:
         case COMPRESSION_XZ:
+            return true;
+#endif
+#if defined(APPIMAGE_HAVE_LZO)
+        case COMPRESSION_LZO:
+            return true;
+#endif
+#if defined(APPIMAGE_HAVE_LZ4)
+        case COMPRESSION_LZ4:
             return true;
 #endif
 #if defined(APPIMAGE_HAVE_ZSTD)

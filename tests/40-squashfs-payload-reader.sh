@@ -33,13 +33,25 @@ ln -s share/applications/org.example.Symlinked.desktop \
 # And a directory link, the `usr -> .` shape, so a path through a link must resolve.
 ln -s usr/share "$DIRECTORY_SOURCE/sharealias"
 
-for compression_image in gzip xz zstd; do
+for compression_image in gzip xz zstd lz4 lzma; do
     FILE_IMAGE="$DIRECTORY_TEMP/payload-$compression_image.squashfs"
     mksquashfs "$DIRECTORY_SOURCE" "$FILE_IMAGE" -comp "$compression_image" -noappend -quiet >/dev/null
     if ! "$DIRECTORY_BUILD/squashfs-reader-test" "$FILE_IMAGE" "$DIRECTORY_SOURCE" "$compression_image"; then
         fail_test "squashfs payload reader ($compression_image)"
     fi
 done
+
+# lzo needs liblzo2, which the build links only when the development package is
+# present; on a machine without it the reader reports lzo as unsupported.
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists liblzo2; then
+    FILE_IMAGE_LZO="$DIRECTORY_TEMP/payload-lzo.squashfs"
+    mksquashfs "$DIRECTORY_SOURCE" "$FILE_IMAGE_LZO" -comp lzo -noappend -quiet >/dev/null
+    if ! "$DIRECTORY_BUILD/squashfs-reader-test" "$FILE_IMAGE_LZO" "$DIRECTORY_SOURCE" "lzo"; then
+        fail_test "squashfs payload reader (lzo)"
+    fi
+else
+    echo "SKIP: lzo compression (liblzo2 not available)"
+fi
 
 FILE_IMAGE="$DIRECTORY_TEMP/payload-uncompressed.squashfs"
 mksquashfs "$DIRECTORY_SOURCE" "$FILE_IMAGE" -noI -noD -noF -noX -noappend -quiet >/dev/null
