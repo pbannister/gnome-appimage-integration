@@ -1,5 +1,7 @@
 #pragma once
 
+#include "appimage/payload_reader.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -82,42 +84,42 @@ const char *squashfs_node_type_name(squashfs_node_type_e e_type);
 // The reader never writes to the image file.
 struct squashfs_reader_state_o;
 
-class squashfs_reader_c {
+class squashfs_reader_c : public payload_reader_c {
 public:
     static constexpr std::uint64_t MAX_FILE_SIZE = 64ULL * 1024ULL * 1024ULL;
 
     squashfs_reader_c();
-    ~squashfs_reader_c();
+    ~squashfs_reader_c() override;
     squashfs_reader_c(const squashfs_reader_c &) = delete;
     squashfs_reader_c &operator=(const squashfs_reader_c &) = delete;
 
     // Open the payload that begins at the given offset in the image file.
     bool open(const std::string &s_image_path,
               std::uint64_t u_payload_offset,
-              std::string &s_error);
-    void close();
-    bool is_open() const { return nullptr != p_state_; }
+              std::string &s_error) override;
+    void close() override;
+    bool is_open() const override { return nullptr != p_state_; }
 
     const squashfs_superblock_o &superblock() const;
 
     // List the root directory.
-    bool list_root(std::vector<squashfs_entry_o> &o_entries, std::string &s_error);
+    bool list_root(std::vector<squashfs_entry_o> &o_entries, std::string &s_error) override;
 
     // List a directory by absolute path, for example "/usr/share".
     bool list_directory(const std::string &s_path,
                         std::vector<squashfs_entry_o> &o_entries,
-                        std::string &s_error);
+                        std::string &s_error) override;
 
     // Return metadata for one path.
-    bool stat(const std::string &s_path, squashfs_stat_o &o_stat, std::string &s_error);
+    bool stat(const std::string &s_path, squashfs_stat_o &o_stat, std::string &s_error) override;
 
     // Read a regular file into memory.
-    bool read_file(const std::string &s_path, std::string &s_data, std::string &s_error);
+    bool read_file(const std::string &s_path, std::string &s_data, std::string &s_error) override;
 
     // List the root files whose name ends with the given extension, for example ".desktop".
     bool list_root_files_with_extension(const std::string &s_extension,
                                         std::vector<squashfs_entry_o> &o_entries,
-                                        std::string &s_error);
+                                        std::string &s_error) override;
 
 private:
     squashfs_reader_state_o *p_state_ = nullptr;

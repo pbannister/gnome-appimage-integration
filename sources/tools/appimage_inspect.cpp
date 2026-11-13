@@ -3,6 +3,8 @@
 #include "appimage/appimage_signature.h"
 #include "appimage/appimage_update_information.h"
 #include "appimage/squashfs_reader.h"
+#include "appimage/iso9660_reader.h"
+#include "appimage/payload_reader.h"
 #include "desktop/desktop_entry_reader.h"
 #include "tools/desktop_entry_output.h"
 #include "version/version.h"
@@ -10,6 +12,7 @@
 #include <cstdio>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -25,6 +28,8 @@ using gnome_appimage::appimage::appimage_info_o;
 using gnome_appimage::appimage::appimage_reader_c;
 using gnome_appimage::appimage::squashfs_entry_o;
 using gnome_appimage::appimage::squashfs_reader_c;
+using gnome_appimage::appimage::iso9660_reader_c;
+using gnome_appimage::appimage::payload_reader_c;
 using gnome_appimage::appimage::understand_update_information;
 using gnome_appimage::appimage::update_information_o;
 using gnome_appimage::desktop::desktop_entry_diagnostic_o;
@@ -34,6 +39,25 @@ using gnome_appimage::desktop::desktop_entry_reader_c;
 constexpr int EXIT_OK = 0;
 constexpr int EXIT_ERROR = 1;
 constexpr int EXIT_USAGE = 2;
+
+// Open the payload reader for the detected image type, or null with an error.
+std::unique_ptr<payload_reader_c> open_payload_reader(const appimage_info_o &o_info,
+                                                      const std::string &s_path,
+                                                      std::string &s_error) {
+    std::unique_ptr<payload_reader_c> p_reader;
+    if (appimage_detection_e::type2 == o_info.detection) {
+        p_reader = std::make_unique<squashfs_reader_c>();
+    } else if (appimage_detection_e::type1 == o_info.detection) {
+        p_reader = std::make_unique<iso9660_reader_c>();
+    } else {
+        s_error = "unsupported AppImage type";
+        return nullptr;
+    }
+    if (!p_reader->open(s_path, o_info.payload_offset, s_error)) {
+        return nullptr;
+    }
+    return p_reader;
+}
 
 void print_usage(std::ostream &o_out) {
     o_out << "usage: appimage-inspect [options] <path>\n"
@@ -324,21 +348,22 @@ int main(int i_argument_count, char **p_arguments) {
     std::vector<desktop_entry_diagnostic_o> o_desktop_diagnostics;
     std::string s_payload_error = o_info.payload_error;
 
-    if (appimage_detection_e::type2 == o_info.detection && o_info.has_squashfs) {
-        squashfs_reader_c o_reader;
+    if (appimage_detection_e::type1 == o_info.detection
+        || appimage_detection_e::type2 == o_info.detection) {
         std::string s_error;
-        if (!o_reader.open(s_path, o_info.payload_offset, s_error)) {
+        auto p_reader = open_payload_reader(o_info, s_path, s_error);
+        if (!p_reader) {
             s_payload_error = s_error;
         } else {
-            if (!o_reader.list_root(o_entries, s_error)) {
+            if (!p_reader->list_root(o_entries, s_error)) {
                 s_payload_error = s_error;
             }
             std::vector<squashfs_entry_o> o_desktop_entries;
-            if (o_reader.list_root_files_with_extension(".desktop", o_desktop_entries, s_error)
+            if (p_reader->list_root_files_with_extension(".desktop", o_desktop_entries, s_error)
                 && !o_desktop_entries.empty()) {
                 s_desktop_path = o_desktop_entries[0].path;
                 std::string s_content;
-                if (o_reader.read_file(o_desktop_entries[0].path, s_content, s_error)) {
+                if (p_reader->read_file(o_desktop_entries[0].path, s_content, s_error)) {
                     desktop_entry_reader_c::parse_text(s_content, o_desktop_file,
                                                        o_desktop_diagnostics);
                 } else {

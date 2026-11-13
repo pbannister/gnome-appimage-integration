@@ -43,7 +43,8 @@ add_library(appimage_reader STATIC
     appimage/appimage_reader.cpp
     appimage/appimage_signature.cpp
     appimage/appimage_update_information.cpp
-    appimage/squashfs_reader.cpp)
+    appimage/squashfs_reader.cpp
+    appimage/iso9660_reader.cpp)
 target_include_directories(appimage_reader PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(appimage_reader PUBLIC ZLIB::ZLIB crypto)
 target_compile_definitions(appimage_reader PRIVATE APPIMAGE_HAVE_ZLIB=1)

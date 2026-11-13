@@ -52,3 +52,18 @@ build_synthetic_appimage() {
         rm -f "$file_squashfs"
     fi
 }
+
+# Build a type 1 AppImage: an ELF runtime followed by an ISO 9660 (Rock Ridge)
+# payload, with the type 1 magic at offset 8.
+build_type1_appimage() {
+    file_elf=$1
+    directory_payload=$2
+    file_output=$3
+    file_iso="$file_output.iso"
+    genisoimage -R -o "$file_iso" "$directory_payload" >/dev/null 2>&1 \
+        || mkisofs -R -o "$file_iso" "$directory_payload" >/dev/null 2>&1
+    cp "$file_elf" "$file_output"
+    cat "$file_iso" >> "$file_output"
+    printf '\101\111\001' | dd of="$file_output" bs=1 seek=8 conv=notrunc 2>/dev/null
+    rm -f "$file_iso"
+}

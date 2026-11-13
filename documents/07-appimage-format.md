@@ -233,6 +233,8 @@ The AppImage reader in this project parses the container natively and does not d
 - Traverse the SquashFS payload enough to list the root directory and read the embedded `*.desktop` file and `.DirIcon`.
 - Read uncompressed, gzip, lzma, lzo, lz4, xz, and zstd metadata and data blocks, including files stored in fragments.
 - lzo, lz4, and zstd are optional: the reader decompresses each when its decoder library is present at build time, and reports the compression as unsupported otherwise.
+- For a type 1 image, read the ISO 9660 primary volume descriptor, traverse directories with Rock Ridge names (`NM`) and symlinks (`SL`), and read the embedded `*.desktop` file and `.DirIcon` the same way.
+- For a type 1 image, read update information from the ISO 9660 primary volume descriptor's Application Use field (512 bytes at offset 33651 from the payload).
 
 File name conventions are recommendations, not requirements; the reader must not depend on the `.AppImage` extension.
 

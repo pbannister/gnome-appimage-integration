@@ -187,7 +187,7 @@ The LLM should begin by reading these files in this order (the numeric prefix ma
 
 The project reads two file formats, locates one of them on disk, and integrates AppImages into the desktop.
 
-1. Read an AppImage container: image type, ELF facts, payload offset and size, embedded update information and signature, and the SquashFS payload.
+1. Read an AppImage container: image type, ELF facts, payload offset and size, embedded update information and signature, and the payload — SquashFS for a type 2 image, ISO 9660 for a type 1 image.
 2. Read a desktop entry file: groups, keys, values, localized values, lists, escapes, actions, and `Exec` field codes.
 3. Locate desktop entry files using the GNOME (GIO) search path built from `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`.
 4. Resolve icon names through the freedesktop icon theme, and MIME defaults through `mimeapps.list` and `mimeinfo.cache`, so every loaded fact has a named source.

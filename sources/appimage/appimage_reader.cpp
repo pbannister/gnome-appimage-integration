@@ -493,6 +493,31 @@ bool appimage_reader_c::read(const std::string &s_path, appimage_info_o &o_info)
         }
     }
 
+    if (appimage_detection_e::type1 == o_info.detection
+        && !o_info.update_information_section.present) {
+        // Type 1 stores update information in the ISO 9660 Primary Volume
+        // Descriptor's Application Use field: 512 bytes at offset 883 within
+        // the descriptor, which begins 32768 bytes (16 sectors) into the image.
+        constexpr std::uint64_t TYPE1_UPDATE_OFFSET = 33651;
+        constexpr std::size_t TYPE1_UPDATE_SIZE = 512;
+        if (o_info.payload_size >= TYPE1_UPDATE_OFFSET + TYPE1_UPDATE_SIZE) {
+            std::vector<std::uint8_t> o_update(TYPE1_UPDATE_SIZE);
+            if (read_at(o_reader, o_info.payload_offset + TYPE1_UPDATE_OFFSET,
+                        o_update.data(), TYPE1_UPDATE_SIZE)) {
+                o_info.update_information.assign(
+                    reinterpret_cast<const char *>(o_update.data()), o_update.size());
+                o_info.update_information = trim_update_information(o_info.update_information);
+                if (!o_info.update_information.empty()) {
+                    o_info.update_information_section.present = true;
+                    o_info.update_information_section.name = "ISO 9660 Volume Descriptor";
+                    o_info.update_information_section.offset =
+                        o_info.payload_offset + TYPE1_UPDATE_OFFSET;
+                    o_info.update_information_section.size = TYPE1_UPDATE_SIZE;
+                }
+            }
+        }
+    }
+
     if (o_info.signature_section.present && 0 < o_info.signature_section.size) {
         const std::size_t i_read_size = static_cast<std::size_t>(
             std::min<std::uint64_t>(o_info.signature_section.size, MAX_SIGNATURE_CHECK_SIZE));

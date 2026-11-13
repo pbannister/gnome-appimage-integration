@@ -6,6 +6,8 @@
 #include "appimage/appimage_reader.h"
 #include "appimage/appimage_signature.h"
 #include "appimage/squashfs_reader.h"
+#include "appimage/iso9660_reader.h"
+#include "appimage/payload_reader.h"
 #include "desktop/desktop_entry_locator.h"
 #include "desktop/icon_theme_locator.h"
 #include "desktop/mime_association_reader.h"
@@ -22,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -55,6 +58,8 @@ using gnome_appimage::appimage::squashfs_node_type_e;
 using gnome_appimage::appimage::squashfs_node_type_name;
 using gnome_appimage::appimage::squashfs_reader_c;
 using gnome_appimage::appimage::squashfs_stat_o;
+using gnome_appimage::appimage::iso9660_reader_c;
+using gnome_appimage::appimage::payload_reader_c;
 using gnome_appimage::desktop::desktop_entry_file_o;
 using gnome_appimage::desktop::desktop_entry_group_o;
 using gnome_appimage::desktop::desktop_entry_key_o;
@@ -72,6 +77,35 @@ constexpr const char *VARIABLE_DATA_HOME = "XDG_DATA_HOME";
 // One of the conditions the AppImage specification gives against integrating: a
 // non-empty value means an integration is already in progress in this environment.
 constexpr const char *VARIABLE_DESKTOP_INTEGRATION = "DESKTOPINTEGRATION";
+
+// True when the detected image type carries a payload this project can read:
+// a type 2 SquashFS payload, or a type 1 ISO 9660 payload.
+bool has_readable_payload(const appimage_info_o &o_info) {
+    if (appimage_detection_e::type2 == o_info.detection) {
+        return o_info.has_squashfs;
+    }
+    return appimage_detection_e::type1 == o_info.detection;
+}
+
+// Open the payload reader for the detected image type.  Returns null, with an
+// error, for a type the reader does not support or a payload it cannot open.
+std::unique_ptr<payload_reader_c> open_payload_reader(const appimage_info_o &o_info,
+                                                      const std::string &s_path,
+                                                      std::string &s_error) {
+    std::unique_ptr<payload_reader_c> p_reader;
+    if (appimage_detection_e::type2 == o_info.detection) {
+        p_reader = std::make_unique<squashfs_reader_c>();
+    } else if (appimage_detection_e::type1 == o_info.detection) {
+        p_reader = std::make_unique<iso9660_reader_c>();
+    } else {
+        s_error = "unsupported AppImage type";
+        return nullptr;
+    }
+    if (!p_reader->open(s_path, o_info.payload_offset, s_error)) {
+        return nullptr;
+    }
+    return p_reader;
+}
 
 bool is_space_character(char c_character) {
     return ' ' == c_character || '\t' == c_character;
@@ -607,21 +641,20 @@ std::string version_from_appstream_text(const std::string &s_text) {    std::siz
 std::string version_of_appimage(const std::string &s_path, std::string &s_source) {
     s_source.clear();
     appimage_info_o o_info;
-    if (!appimage_reader_c::read(s_path, o_info)
-        || appimage_detection_e::type2 != o_info.detection || !o_info.has_squashfs) {
+    if (!appimage_reader_c::read(s_path, o_info) || !has_readable_payload(o_info)) {
         return {};
     }
-    squashfs_reader_c o_reader;
     std::string s_error;
-    if (!o_reader.open(s_path, o_info.payload_offset, s_error)) {
+    auto p_reader = open_payload_reader(o_info, s_path, s_error);
+    if (!p_reader) {
         return {};
     }
 
     std::vector<squashfs_entry_o> o_desktops;
-    if (o_reader.list_root_files_with_extension(".desktop", o_desktops, s_error)
+    if (p_reader->list_root_files_with_extension(".desktop", o_desktops, s_error)
         && !o_desktops.empty()) {
         std::string s_content;
-        if (o_reader.read_file(o_desktops[0].path, s_content, s_error)) {
+        if (p_reader->read_file(o_desktops[0].path, s_content, s_error)) {
             desktop_entry_file_o o_entry;
             std::vector<gnome_appimage::desktop::desktop_entry_diagnostic_o> o_diagnostics;
             desktop_entry_reader_c::parse_text(s_content, o_entry, o_diagnostics);
@@ -635,14 +668,14 @@ std::string version_of_appimage(const std::string &s_path, std::string &s_source
     }
 
     std::vector<squashfs_entry_o> o_metainfo;
-    if (o_reader.list_directory("/usr/share/metainfo", o_metainfo, s_error)) {
+    if (p_reader->list_directory("/usr/share/metainfo", o_metainfo, s_error)) {
         for (const squashfs_entry_o &o_file : o_metainfo) {
             if (std::string::npos == o_file.name.find(".appdata.xml")
                 && std::string::npos == o_file.name.find(".metainfo.xml")) {
                 continue;
             }
             std::string s_content;
-            if (!o_reader.read_file(o_file.path, s_content, s_error)) {
+            if (!p_reader->read_file(o_file.path, s_content, s_error)) {
                 continue;
             }
             const std::string s_version = version_from_appstream_text(s_content);
@@ -1146,8 +1179,8 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             o_plan.error = o_info.error;
             return false;
         }
-        if (appimage_detection_e::type2 != o_info.detection || !o_info.has_squashfs) {
-            o_plan.error = "only type 2 AppImages can be integrated";
+        if (!has_readable_payload(o_info)) {
+            o_plan.error = "only type 1 and type 2 AppImages can be integrated";
             return false;
         }
 
@@ -1207,15 +1240,15 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             }
         }
 
-        squashfs_reader_c o_reader;
         std::string s_error;
-        if (!o_reader.open(o_plan.appimage_path, o_info.payload_offset, s_error)) {
+        auto p_reader = open_payload_reader(o_info, o_plan.appimage_path, s_error);
+        if (!p_reader) {
             o_plan.error = s_error;
             return false;
         }
 
         std::vector<squashfs_entry_o> o_desktop_entries;
-        if (!o_reader.list_root_files_with_extension(".desktop", o_desktop_entries, s_error)) {
+        if (!p_reader->list_root_files_with_extension(".desktop", o_desktop_entries, s_error)) {
             o_plan.error = s_error;
             return false;
         }
@@ -1230,7 +1263,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         o_plan.embedded_desktop_path = o_desktop_entries[0].path;
 
         std::string s_embedded_text;
-        if (!o_reader.read_file(o_plan.embedded_desktop_path, s_embedded_text, s_error)) {
+        if (!p_reader->read_file(o_plan.embedded_desktop_path, s_embedded_text, s_error)) {
             o_plan.error = s_error;
             return false;
         }
@@ -1654,13 +1687,13 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             std::set<std::string> o_installed_slots;
 
             std::vector<squashfs_entry_o> o_size_entries;
-            if (o_reader.list_directory("/usr/share/icons/hicolor", o_size_entries, s_error)) {
+            if (p_reader->list_directory("/usr/share/icons/hicolor", o_size_entries, s_error)) {
                 for (const squashfs_entry_o &o_size_entry : o_size_entries) {
                     if (squashfs_node_type_e::directory != o_size_entry.type) {
                         continue;
                     }
                     std::vector<squashfs_entry_o> o_apps_entries;
-                    if (!o_reader.list_directory(o_size_entry.path + "/apps", o_apps_entries,
+                    if (!p_reader->list_directory(o_size_entry.path + "/apps", o_apps_entries,
                                                  s_error)) {
                         continue;
                     }
@@ -1681,7 +1714,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                             continue;
                         }
                         std::string s_data;
-                        if (!o_reader.read_file(o_icon_entry.path, s_data, s_error)) {
+                        if (!p_reader->read_file(o_icon_entry.path, s_data, s_error)) {
                             continue;
                         }
                         integration_icon_o o_icon;
@@ -1699,7 +1732,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
             }
 
             std::vector<squashfs_entry_o> o_root_entries;
-            if (o_reader.list_root(o_root_entries, s_error)) {
+            if (p_reader->list_root(o_root_entries, s_error)) {
                 for (const squashfs_entry_o &o_root_entry : o_root_entries) {
                     if (squashfs_node_type_e::directory == o_root_entry.type) {
                         continue;
@@ -1721,7 +1754,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                         continue;
                     }
                     std::string s_data;
-                    if (!o_reader.read_file(o_root_entry.path, s_data, s_error)) {
+                    if (!p_reader->read_file(o_root_entry.path, s_data, s_error)) {
                         continue;
                     }
                     integration_icon_o o_icon;
@@ -1760,13 +1793,13 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
 
         // MIME definition files shipped by the AppImage.
         std::vector<squashfs_entry_o> o_mime_entries;
-        if (o_reader.list_directory("/usr/share/mime/packages", o_mime_entries, s_error)) {
+        if (p_reader->list_directory("/usr/share/mime/packages", o_mime_entries, s_error)) {
             for (const squashfs_entry_o &o_mime_entry : o_mime_entries) {
                 if (".xml" != fs::path(o_mime_entry.name).extension().string()) {
                     continue;
                 }
                 std::string s_data;
-                if (!o_reader.read_file(o_mime_entry.path, s_data, s_error)) {
+                if (!p_reader->read_file(o_mime_entry.path, s_data, s_error)) {
                     continue;
                 }
                 integration_mime_package_o o_package;
@@ -1788,7 +1821,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
         // wins, one file per component id is taken, and anything that is not metadata or
         // names no component is left where it is.
         std::vector<squashfs_entry_o> o_metainfo_entries;
-        if (o_reader.list_directory("/usr/share/metainfo", o_metainfo_entries, s_error)) {
+        if (p_reader->list_directory("/usr/share/metainfo", o_metainfo_entries, s_error)) {
             std::set<std::string> o_components_taken;
             for (int i_pass = 0; i_pass < 2; ++i_pass) {
                 const bool b_modern_pass = 0 == i_pass;
@@ -1802,7 +1835,7 @@ bool appimage_integrator_c::plan(const std::string &s_appimage_path,
                         continue;
                     }
                     std::string s_data;
-                    if (!o_reader.read_file(o_file.path, s_data, s_error)) {
+                    if (!p_reader->read_file(o_file.path, s_data, s_error)) {
                         continue;
                     }
                     const std::string s_id = appstream_id_from_text(s_data);
@@ -2418,15 +2451,15 @@ std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
                                                    : "(absent)")
               << "\n";
 
-        if (appimage_detection_e::type2 == o_info.detection && o_info.has_squashfs) {
-            squashfs_reader_c o_reader;
+        if (has_readable_payload(o_info)) {
             std::string s_error;
-            if (o_reader.open(s_appimage_path, o_info.payload_offset, s_error)) {
+            auto p_reader = open_payload_reader(o_info, s_appimage_path, s_error);
+            if (p_reader) {
                 std::vector<squashfs_entry_o> o_desktop_entries;
-                if (o_reader.list_root_files_with_extension(".desktop", o_desktop_entries, s_error)
+                if (p_reader->list_root_files_with_extension(".desktop", o_desktop_entries, s_error)
                     && !o_desktop_entries.empty()) {
                     std::string s_content;
-                    if (o_reader.read_file(o_desktop_entries[0].path, s_content, s_error)) {
+                    if (p_reader->read_file(o_desktop_entries[0].path, s_content, s_error)) {
                         o_out << "\nembedded desktop entry: " << o_desktop_entries[0].path << "\n"
                               << s_content;
                         if (s_content.empty() || '\n' != s_content.back()) {
@@ -2439,12 +2472,12 @@ std::string appimage_integrator_c::describe(const std::string &s_appimage_path,
                     o_out << "\nembedded desktop entry: (none)\n";
                 }
                 std::vector<squashfs_entry_o> o_root_entries;
-                if (o_reader.list_root(o_root_entries, s_error)) {
+                if (p_reader->list_root(o_root_entries, s_error)) {
                     o_out << "\npayload root:\n";
                     for (const squashfs_entry_o &o_entry : o_root_entries) {
                         std::uint64_t u_size = o_entry.size;
                         squashfs_stat_o o_stat;
-                        if (o_reader.stat(o_entry.path, o_stat, s_error)) {
+                        if (p_reader->stat(o_entry.path, o_stat, s_error)) {
                             u_size = o_stat.size;
                         }
                         o_out << "  " << squashfs_node_type_name(o_entry.type) << "\t" << u_size
